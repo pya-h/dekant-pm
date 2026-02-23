@@ -84,12 +84,13 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
 
     require!(winning_tokens_total > 0, UmbraError::NothingToClaim);
 
-    // payout_pool = vault_balance - lp_fee_accumulated
-    // Use the actual vault balance to be safe.
+    // payout_pool = vault_balance - lp_fee_accumulated - protocol_fee_accumulated
+    // Both fee pools belong to LPs / protocol, not to winning traders.
     let vault_balance = ctx.accounts.vault.amount as u128;
     let payout_pool = vault_balance
         .checked_sub(market.lp_fee_accumulated)
-        .unwrap_or(vault_balance); // If fees > vault (shouldn't happen), use full vault.
+        .and_then(|v| v.checked_sub(market.protocol_fee_accumulated as u128))
+        .ok_or_else(|| error!(UmbraError::InsufficientLiquidity))?;
 
     // gross_payout = winning_tokens * payout_pool / winning_tokens_total
     let gross_payout = mul_div(
@@ -108,7 +109,8 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
         .checked_mul(redemption_fee_bps as u128)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?
         / 10_000;
-    let fee_u64 = fee as u64;
+    let fee_u64 = u64::try_from(fee)
+        .map_err(|_| error!(UmbraError::MathOverflow))?;
     let net_payout = gross_payout_u64
         .checked_sub(fee_u64)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;

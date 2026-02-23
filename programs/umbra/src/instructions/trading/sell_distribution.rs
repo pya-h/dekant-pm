@@ -89,7 +89,7 @@ pub fn handle_sell_distribution(
     market.require_trading_allowed(clock.unix_timestamp)?;
     market.require_continuous()?;
     require!(args.sigma > 0, UmbraError::InvalidSigma);
-    require!(args.token_amount > 0, UmbraError::TradeTooSmall);
+    require!(args.token_amount >= MIN_TRADE_AMOUNT, UmbraError::TradeTooSmall);
 
     let weights = normal_pdf::compute_bin_weights(
         market.range_min,

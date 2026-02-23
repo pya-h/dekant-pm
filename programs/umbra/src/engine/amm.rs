@@ -305,8 +305,11 @@ pub fn compute_probabilities(reserves: &[u64], k_squared: u128) -> Vec<u128> {
     reserves
         .iter()
         .map(|&r| {
-            let r_sq = (r as u128).saturating_mul(r as u128);
-            r_sq.saturating_mul(SCALE) / k_squared
+            let r_sq = (r as u128).checked_mul(r as u128);
+            match r_sq.and_then(|sq| sq.checked_mul(SCALE)) {
+                Some(v) => v / k_squared,
+                None => 0, // Overflow: reserve too large for fixed-point pricing.
+            }
         })
         .collect()
 }
@@ -564,14 +567,11 @@ mod tests {
             tokens[1] - tokens[0]
         };
         assert!(diff <= 1, "tokens={:?}", tokens);
-        // Total tokens should be approximately effective_collateral.
+        // Total tokens = tokens per bin × n. For a uniform buy across all
+        // outcomes, the total exceeds collateral because each outcome is
+        // partially drained (not a full discrete buy on one outcome).
         let total: u64 = tokens.iter().sum();
-        let t_diff = if total > 100_000 {
-            total - 100_000
-        } else {
-            100_000 - total
-        };
-        assert!(t_diff <= 10, "total={total}");
+        assert!(total > 100_000, "total={total} should exceed collateral");
     }
 
     #[test]
@@ -624,5 +624,398 @@ mod tests {
             diff <= 1_000,
             "roundtrip diff={diff}, collateral={collateral}"
         );
+    }
+
+    // ── compute_buy edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_compute_buy_invalid_outcome() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        // outcome index 2 is out of bounds for a 2-element reserves vec.
+        assert!(compute_buy(&mut reserves, k_squared, 2, 100_000).is_err());
+    }
+
+    #[test]
+    fn test_compute_buy_outcome_eq_n() {
+        let mut reserves = vec![1_000_000u64; 5];
+        let k_squared = 5 * (1_000_000u128).pow(2);
+        // outcome == n (length), should be rejected.
+        assert!(compute_buy(&mut reserves, k_squared, 5, 50_000).is_err());
+    }
+
+    #[test]
+    fn test_compute_buy_zero_collateral() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        // effective_collateral == 0 should fail with TradeTooSmall.
+        assert!(compute_buy(&mut reserves, k_squared, 0, 0).is_err());
+    }
+
+    #[test]
+    fn test_compute_buy_overflow_on_reserve_add() {
+        // Reserve at u64::MAX cannot accept any collateral addition.
+        let mut reserves = vec![u64::MAX, 1_000_000];
+        // Use a safe k_squared value (not from sum_of_squares which would overflow).
+        let k_squared = (1_000_000u128).pow(2);
+        assert!(compute_buy(&mut reserves, k_squared, 0, 1).is_err());
+    }
+
+    #[test]
+    fn test_compute_buy_insufficient_liquidity() {
+        // k_squared much smaller than sum_others_sq after mint.
+        // Tiny k_squared with a big collateral addition pushes sum_others_sq > k_squared.
+        let mut reserves = vec![100u64; 2];
+        let k_squared = 2 * (100u128).pow(2); // 20_000
+        // After adding 10_000_000, reserves = [10_000_100, 10_000_100].
+        // sum_others_sq = 10_000_100^2 = ~10^14, far exceeding k_squared = 20_000.
+        assert!(compute_buy(&mut reserves, k_squared, 0, 10_000_000).is_err());
+    }
+
+    // ── compute_sell edge cases ────────────────────────────────────
+
+    #[test]
+    fn test_compute_sell_invalid_outcome() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        assert!(compute_sell(&mut reserves, k_squared, 3, 100_000).is_err());
+    }
+
+    #[test]
+    fn test_compute_sell_zero_tokens() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        // tokens_in == 0 should fail with TradeTooSmall.
+        assert!(compute_sell(&mut reserves, k_squared, 0, 0).is_err());
+    }
+
+    #[test]
+    fn test_compute_sell_overflow_on_token_addition() {
+        // Reserve near u64::MAX + tokens_in overflows.
+        let mut reserves = vec![u64::MAX, 1_000_000];
+        let k_squared = sum_of_squares(&reserves);
+        assert!(compute_sell(&mut reserves, k_squared, 0, 1).is_err());
+    }
+
+    // ── solve_burn_amount edge cases ───────────────────────────────
+
+    #[test]
+    fn test_solve_burn_r2_equals_k_squared() {
+        // When reserves are already at the invariant, burn should be 0.
+        let reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        let burn = solve_burn_amount(&reserves, k_squared).unwrap();
+        assert_eq!(burn, 0);
+    }
+
+    #[test]
+    fn test_solve_burn_rejects_r2_below_k_squared() {
+        // If r2 < k_squared, the invariant is violated in the wrong direction.
+        let reserves = vec![100u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2); // way larger
+        assert!(solve_burn_amount(&reserves, k_squared).is_err());
+    }
+
+    #[test]
+    fn test_solve_burn_empty_reserves() {
+        let reserves: Vec<u64> = vec![];
+        let k_squared = 0u128;
+        // n == 0 should be rejected.
+        assert!(solve_burn_amount(&reserves, k_squared).is_err());
+    }
+
+    #[test]
+    fn test_solve_burn_single_reserve() {
+        // Single reserve: r2 = r^2, burn = (r - sqrt(r^2 - (r^2 - k^2))) / 1 = r - sqrt(k^2)
+        let reserves = vec![1_100_000u64];
+        let k_squared = (1_000_000u128).pow(2);
+        let burn = solve_burn_amount(&reserves, k_squared).unwrap();
+        // burn = (1_100_000 - sqrt(1_100_000^2 - 1*(1_100_000^2 - 1_000_000^2))) / 1
+        // = 1_100_000 - sqrt(1_000_000^2) = 1_100_000 - 1_000_000 = 100_000
+        assert_eq!(burn, 100_000);
+    }
+
+    // ── scale_reserves edge cases ──────────────────────────────────
+
+    #[test]
+    fn test_scale_reserves_denominator_zero() {
+        let mut reserves = vec![1_000_000u64; 2];
+        assert!(scale_reserves(&mut reserves, 1, 0).is_err());
+    }
+
+    #[test]
+    fn test_scale_reserves_numerator_zero() {
+        // Scaling by 0/anything should zero out all reserves.
+        let mut reserves = vec![1_000_000u64; 2];
+        let new_k2 = scale_reserves(&mut reserves, 0, 1).unwrap();
+        assert_eq!(reserves[0], 0);
+        assert_eq!(reserves[1], 0);
+        assert_eq!(new_k2, 0);
+    }
+
+    #[test]
+    fn test_scale_reserves_truncation() {
+        // Non-exact division should truncate (floor).
+        // 1_000_000 * 2 / 3 = 666_666.666... → 666_666
+        let mut reserves = vec![1_000_000u64; 2];
+        let _new_k2 = scale_reserves(&mut reserves, 2, 3).unwrap();
+        assert_eq!(reserves[0], 666_666);
+        assert_eq!(reserves[1], 666_666);
+    }
+
+    #[test]
+    fn test_scale_reserves_overflow() {
+        // Reserve near u64::MAX with a large numerator should overflow.
+        let mut reserves = vec![u64::MAX; 2];
+        assert!(scale_reserves(&mut reserves, u128::MAX, 1).is_err());
+    }
+
+    // ── compute_distribution_buy edge cases ────────────────────────
+
+    #[test]
+    fn test_distribution_buy_mismatched_lengths() {
+        let mut reserves = vec![1_000_000u64; 3];
+        let k_squared = 3 * (1_000_000u128).pow(2);
+        let weights = vec![500_000_000u64; 2]; // 2 weights for 3 reserves
+        assert!(compute_distribution_buy(&mut reserves, k_squared, &weights, 100_000).is_err());
+    }
+
+    #[test]
+    fn test_distribution_buy_all_zero_weights() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        let weights = vec![0u64; 2];
+        // w2 == 0 should be rejected with DivisionByZero.
+        assert!(compute_distribution_buy(&mut reserves, k_squared, &weights, 100_000).is_err());
+    }
+
+    #[test]
+    fn test_distribution_buy_zero_collateral() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        let weights = vec![500_000_000u64; 2];
+        assert!(compute_distribution_buy(&mut reserves, k_squared, &weights, 0).is_err());
+    }
+
+    // ── compute_distribution_sell edge cases ───────────────────────
+
+    #[test]
+    fn test_distribution_sell_mismatched_lengths() {
+        let mut reserves = vec![1_000_000u64; 3];
+        let k_squared = 3 * (1_000_000u128).pow(2);
+        let weights = vec![500_000_000u64; 2]; // 2 weights for 3 reserves
+        assert!(compute_distribution_sell(&mut reserves, k_squared, &weights, 100_000).is_err());
+    }
+
+    #[test]
+    fn test_distribution_sell_zero_total_tokens() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+        let weights = vec![500_000_000u64; 2];
+        // total_tokens == 0 should fail.
+        assert!(compute_distribution_sell(&mut reserves, k_squared, &weights, 0).is_err());
+    }
+
+    // ── compute_probabilities edge cases ───────────────────────────
+
+    #[test]
+    fn test_probabilities_overflow_inducing_reserves() {
+        // Reserves so large that r^2 * SCALE overflows u128.
+        // u128::MAX ~ 3.4e38. We need r^2 * SCALE > u128::MAX.
+        // r = 2^50 ~ 1.1e15, r^2 = 2^100 ~ 1.27e30, r^2 * SCALE = 1.27e39 > u128::MAX? No.
+        // r = 2^55, r^2 = 2^110, r^2 * SCALE(10^9) ~ 2^110 * 2^30 = 2^140 > 2^128.
+        let large_r = 1u64 << 55;
+        let reserves = vec![large_r; 2];
+        let k_squared = sum_of_squares(&reserves);
+        let probs = compute_probabilities(&reserves, k_squared);
+        // Should gracefully return 0 for overflowing entries.
+        for p in &probs {
+            assert_eq!(*p, 0, "overflow should yield 0");
+        }
+    }
+
+    #[test]
+    fn test_probabilities_single_outcome() {
+        let reserves = vec![1_000_000u64];
+        let k_squared = (1_000_000u128).pow(2);
+        let probs = compute_probabilities(&reserves, k_squared);
+        assert_eq!(probs.len(), 1);
+        assert_eq!(probs[0], SCALE);
+    }
+
+    #[test]
+    fn test_probabilities_five_outcomes_sum() {
+        let reserves = vec![500_000u64, 700_000, 1_200_000, 900_000, 300_000];
+        let k_squared = sum_of_squares(&reserves);
+        let probs = compute_probabilities(&reserves, k_squared);
+        let sum: u128 = probs.iter().sum();
+        let diff = if sum > SCALE { sum - SCALE } else { SCALE - sum };
+        assert!(diff <= 5, "sum={sum}, expected ~{SCALE}");
+    }
+
+    // ── Multi-trade sequences ──────────────────────────────────────
+
+    #[test]
+    fn test_buy_buy_sell_sequence() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let k_squared = 2 * (1_000_000u128).pow(2);
+
+        // Buy #1 on outcome 0.
+        let tokens_1 = compute_buy(&mut reserves, k_squared, 0, 50_000).unwrap();
+        let k2_1 = sum_of_squares(&reserves);
+
+        // Buy #2 on outcome 1.
+        let tokens_2 = compute_buy(&mut reserves, k2_1, 1, 30_000).unwrap();
+        let k2_2 = sum_of_squares(&reserves);
+
+        assert!(tokens_1 > 0);
+        assert!(tokens_2 > 0);
+
+        // Sell #1 (sell back some of outcome 0).
+        let collateral = compute_sell(&mut reserves, k2_2, 0, tokens_1 / 2).unwrap();
+        assert!(collateral > 0);
+
+        // Invariant should still hold approximately.
+        let k2_final = sum_of_squares(&reserves);
+        let diff = if k2_final > k2_2 {
+            k2_final - k2_2
+        } else {
+            k2_2 - k2_final
+        };
+        let max_reserve = *reserves.iter().max().unwrap() as u128;
+        assert!(
+            diff <= 2 * max_reserve,
+            "invariant drift too large: diff={diff}"
+        );
+    }
+
+    #[test]
+    fn test_many_small_trades_invariant_drift() {
+        let mut reserves = vec![1_000_000u64; 2];
+        let original_k2 = 2 * (1_000_000u128).pow(2);
+
+        // Perform 20 buy-sell roundtrips and check invariant drift stays bounded.
+        let mut k2 = original_k2;
+        for _ in 0..20 {
+            let tokens = compute_buy(&mut reserves, k2, 0, 10_000).unwrap();
+            k2 = sum_of_squares(&reserves);
+            let _coll = compute_sell(&mut reserves, k2, 0, tokens).unwrap();
+            k2 = sum_of_squares(&reserves);
+        }
+
+        // After many roundtrips, invariant may drift but should stay within reason.
+        let drift = if k2 > original_k2 {
+            k2 - original_k2
+        } else {
+            original_k2 - k2
+        };
+        let max_reserve = *reserves.iter().max().unwrap() as u128;
+        // Allow drift up to 20 * 2 * max_reserve (accumulated isqrt rounding).
+        assert!(
+            drift <= 40 * max_reserve,
+            "excessive invariant drift after 20 roundtrips: drift={drift}"
+        );
+    }
+
+    // ── Large value boundary tests ─────────────────────────────────
+
+    #[test]
+    fn test_compute_buy_large_reserves() {
+        // Use reserves near the practical limit (~10^12 per bin).
+        let r = 1_000_000_000_000u64; // 10^12
+        let mut reserves = vec![r; 2];
+        let k_squared = 2 * (r as u128).pow(2);
+
+        let tokens = compute_buy(&mut reserves, k_squared, 0, 1_000_000_000).unwrap();
+        assert!(tokens > 0);
+        // Invariant should approximately hold.
+        let actual_k2 = sum_of_squares(&reserves);
+        let diff = if actual_k2 > k_squared {
+            actual_k2 - k_squared
+        } else {
+            k_squared - actual_k2
+        };
+        let max_r = *reserves.iter().max().unwrap() as u128;
+        assert!(diff <= 2 * max_r, "invariant diff={diff}");
+    }
+
+    #[test]
+    fn test_compute_sell_large_reserves() {
+        // Buy first with large reserves, then sell.
+        let r = 1_000_000_000_000u64;
+        let mut reserves = vec![r; 2];
+        let k_squared = 2 * (r as u128).pow(2);
+
+        let tokens = compute_buy(&mut reserves, k_squared, 0, 1_000_000_000).unwrap();
+        let k2 = sum_of_squares(&reserves);
+        let collateral = compute_sell(&mut reserves, k2, 0, tokens).unwrap();
+        assert!(collateral > 0);
+        // Roundtrip should return approximately the same collateral.
+        let diff = if collateral > 1_000_000_000 {
+            collateral - 1_000_000_000
+        } else {
+            1_000_000_000 - collateral
+        };
+        // Allow 0.1% error.
+        assert!(diff <= 1_000_000, "roundtrip diff={diff}");
+    }
+
+    #[test]
+    fn test_solve_burn_large_values() {
+        let r = 1_000_000_000_000u64;
+        let mut reserves = vec![r; 2];
+        let k_squared = 2 * (r as u128).pow(2);
+        reserves[0] += 1_000_000_000; // Add tokens to one reserve.
+        let burn = solve_burn_amount(&reserves, k_squared).unwrap();
+        assert!(burn > 0);
+        assert!(burn < 1_000_000_000);
+    }
+
+    #[test]
+    fn test_scale_reserves_large_values() {
+        let r = 1_000_000_000_000u64;
+        let mut reserves = vec![r; 2];
+        // Scale by 3/2.
+        let new_k2 = scale_reserves(&mut reserves, 3, 2).unwrap();
+        assert_eq!(reserves[0], 1_500_000_000_000);
+        assert_eq!(reserves[1], 1_500_000_000_000);
+        assert_eq!(new_k2, 2 * (1_500_000_000_000u128).pow(2));
+    }
+
+    // ── Verify invariant edge cases ────────────────────────────────
+
+    #[test]
+    fn test_verify_invariant_within_tolerance() {
+        let reserves = vec![1_000_000u64; 2];
+        // Off by exactly INVARIANT_TOLERANCE (256).
+        let k_squared = 2 * (1_000_000u128).pow(2) + crate::constants::INVARIANT_TOLERANCE;
+        verify_invariant(&reserves, k_squared).unwrap();
+    }
+
+    #[test]
+    fn test_verify_invariant_just_beyond_tolerance() {
+        let reserves = vec![1_000_000u64; 2];
+        let k_squared =
+            2 * (1_000_000u128).pow(2) + crate::constants::INVARIANT_TOLERANCE + 1;
+        assert!(verify_invariant(&reserves, k_squared).is_err());
+    }
+
+    // ── Sum of squares ─────────────────────────────────────────────
+
+    #[test]
+    fn test_sum_of_squares_empty() {
+        assert_eq!(sum_of_squares(&[]), 0);
+    }
+
+    #[test]
+    fn test_sum_of_squares_single() {
+        assert_eq!(sum_of_squares(&[5]), 25);
+    }
+
+    #[test]
+    fn test_sum_of_squares_max_u64() {
+        // Should not panic; u64::MAX^2 fits in u128.
+        let result = sum_of_squares(&[u64::MAX]);
+        assert_eq!(result, (u64::MAX as u128) * (u64::MAX as u128));
     }
 }

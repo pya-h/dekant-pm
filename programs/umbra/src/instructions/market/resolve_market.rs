@@ -43,9 +43,9 @@ pub fn handle_resolve_market(
 
     // Lazy deadline enforcement: transition to PendingResolution if expired,
     // so the oracle can resolve in a single tx.
-    if (market.state == STATE_ACTIVE || market.state == STATE_PAUSED)
-        && clock.unix_timestamp >= market.deadline
-    {
+    // Excludes STATE_PAUSED: a paused market must be explicitly unpaused
+    // by an admin before resolution can proceed (pause = emergency halt).
+    if market.state == STATE_ACTIVE && clock.unix_timestamp >= market.deadline {
         market.transition_to_pending()?;
     }
 
