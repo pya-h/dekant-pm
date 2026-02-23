@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token::{self, Token, TokenAccount};
 use crate::state::*;
 use crate::constants::*;
+use crate::errors::UmbraError;
+use crate::events::PayoutClaimed;
+use crate::engine::fixed_point::mul_div;
 
 // ── Accounts ─────────────────────────────────────────────────────────
 
@@ -29,7 +32,7 @@ pub struct ClaimPayout<'info> {
         seeds = [USER_POSITION_SEED, market.key().as_ref(), trader.key().as_ref()],
         bump = user_position.bump,
         has_one = market,
-        constraint = user_position.user == trader.key() @ crate::errors::UmbraError::Unauthorized,
+        constraint = user_position.user == trader.key() @ UmbraError::Unauthorized,
     )]
     pub user_position: Account<'info, UserPosition>,
 
@@ -55,4 +58,106 @@ pub struct ClaimPayout<'info> {
     pub trader_ata: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
+}
+
+// ── Handler ──────────────────────────────────────────────────────────
+
+pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
+    let market = &ctx.accounts.market;
+    let position = &ctx.accounts.user_position;
+
+    // ── Guards ────────────────────────────────────────────────────────
+    market.require_resolved()?;
+    require!(!position.claimed, UmbraError::AlreadyClaimed);
+
+    let winning_outcome = market.resolved_outcome as usize;
+    let winning_tokens = position.holdings[winning_outcome];
+    require!(winning_tokens > 0, UmbraError::NothingToClaim);
+
+    // ── Compute payout ───────────────────────────────────────────────
+    // winning_tokens_total = total_minted - reserves[winning_outcome]
+    // (all tokens of the winning outcome that are held by traders)
+    let winning_tokens_total = market
+        .total_minted
+        .checked_sub(market.reserves[winning_outcome] as u128)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    require!(winning_tokens_total > 0, UmbraError::NothingToClaim);
+
+    // payout_pool = vault_balance - lp_fee_accumulated
+    // Use the actual vault balance to be safe.
+    let vault_balance = ctx.accounts.vault.amount as u128;
+    let payout_pool = vault_balance
+        .checked_sub(market.lp_fee_accumulated)
+        .unwrap_or(vault_balance); // If fees > vault (shouldn't happen), use full vault.
+
+    // gross_payout = winning_tokens * payout_pool / winning_tokens_total
+    let gross_payout = mul_div(
+        winning_tokens as u128,
+        payout_pool,
+        winning_tokens_total,
+    )
+    .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    let gross_payout_u64 = u64::try_from(gross_payout)
+        .map_err(|_| error!(UmbraError::MathOverflow))?;
+
+    // ── Redemption fee ───────────────────────────────────────────────
+    let redemption_fee_bps = ctx.accounts.protocol_config.redemption_fee_bps;
+    let fee = (gross_payout as u128)
+        .checked_mul(redemption_fee_bps as u128)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?
+        / 10_000;
+    let fee_u64 = fee as u64;
+    let net_payout = gross_payout_u64
+        .checked_sub(fee_u64)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    // ── Update state ─────────────────────────────────────────────────
+    let position = &mut ctx.accounts.user_position;
+    position.claimed = true;
+    position.total_withdrawn = position
+        .total_withdrawn
+        .checked_add(net_payout)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    // Accumulate protocol fee from redemption.
+    let market = &mut ctx.accounts.market;
+    market.protocol_fee_accumulated = market
+        .protocol_fee_accumulated
+        .checked_add(fee_u64)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    // ── CPI: transfer net payout from vault to trader ────────────────
+    let market_key = ctx.accounts.market.key();
+    let seeds = &[
+        VAULT_AUTHORITY_SEED,
+        market_key.as_ref(),
+        &[ctx.accounts.market.vault_authority_bump],
+    ];
+    let signer_seeds = &[&seeds[..]];
+
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.trader_ata.to_account_info(),
+                authority: ctx.accounts.vault_authority.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        net_payout,
+    )?;
+
+    // ── Event ────────────────────────────────────────────────────────
+    emit!(PayoutClaimed {
+        market_id: ctx.accounts.market.market_id,
+        trader: ctx.accounts.trader.key(),
+        gross_amount: gross_payout_u64,
+        fee_paid: fee_u64,
+        net_amount: net_payout,
+    });
+
+    Ok(())
 }
