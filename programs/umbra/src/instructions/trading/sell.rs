@@ -94,9 +94,10 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
 
     // ── AMM computation ──────────────────────────────────────────────
     // compute_sell returns gross collateral before fees.
+    let k_sq = market.k_squared;
     let collateral_out = amm::compute_sell(
         &mut market.reserves,
-        market.k_squared,
+        k_sq,
         args.outcome as usize,
         args.token_amount,
     )?;

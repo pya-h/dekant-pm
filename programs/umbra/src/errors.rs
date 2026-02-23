@@ -99,6 +99,9 @@ pub enum UmbraError {
     #[msg("Fee exceeds the maximum allowed basis points")]
     FeeTooHigh,
 
+    #[msg("No protocol fees to collect")]
+    NoFeesToCollect,
+
     // ── LP ───────────────────────────────────────────────────────────
     #[msg("Cannot remove more LP shares than held")]
     InsufficientShares,

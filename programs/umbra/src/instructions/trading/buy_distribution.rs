@@ -113,9 +113,10 @@ pub fn handle_buy_distribution(
     )?;
 
     // ── AMM computation ──────────────────────────────────────────────
+    let k_sq = market.k_squared;
     let tokens_out = amm::compute_distribution_buy(
         &mut market.reserves,
-        market.k_squared,
+        k_sq,
         &weights,
         fees.net_amount,
     )?;
