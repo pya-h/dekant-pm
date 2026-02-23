@@ -1,0 +1,57 @@
+use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount};
+use crate::state::*;
+use crate::constants::*;
+
+// ── Accounts ─────────────────────────────────────────────────────────
+
+/// No args — payout is computed from on-chain state.
+#[derive(Accounts)]
+pub struct ClaimPayout<'info> {
+    #[account(mut)]
+    pub trader: Signer<'info>,
+
+    #[account(
+        seeds = [MARKET_SEED, market.market_id.to_le_bytes().as_ref()],
+        bump = market.bump,
+    )]
+    pub market: Account<'info, Market>,
+
+    #[account(
+        seeds = [PROTOCOL_CONFIG_SEED],
+        bump = protocol_config.bump,
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(
+        mut,
+        seeds = [USER_POSITION_SEED, market.key().as_ref(), trader.key().as_ref()],
+        bump = user_position.bump,
+        has_one = market,
+        has_one = user @ crate::errors::UmbraError::Unauthorized,
+    )]
+    pub user_position: Account<'info, UserPosition>,
+
+    /// CHECK: Vault authority PDA.
+    #[account(
+        seeds = [VAULT_AUTHORITY_SEED, market.key().as_ref()],
+        bump = market.vault_authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = vault.key() == market.vault,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    /// Trader's collateral token account (receives payout).
+    #[account(
+        mut,
+        constraint = trader_ata.mint == market.collateral_mint,
+        constraint = trader_ata.owner == trader.key(),
+    )]
+    pub trader_ata: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+}
