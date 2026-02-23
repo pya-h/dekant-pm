@@ -12,6 +12,7 @@ pub struct ClaimPayout<'info> {
     pub trader: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [MARKET_SEED, market.market_id.to_le_bytes().as_ref()],
         bump = market.bump,
     )]
