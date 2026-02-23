@@ -30,7 +30,7 @@ pub struct RemoveLiquidity<'info> {
         seeds = [LP_POSITION_SEED, market.key().as_ref(), provider.key().as_ref()],
         bump = lp_position.bump,
         has_one = market,
-        has_one = user @ crate::errors::UmbraError::Unauthorized,
+        constraint = lp_position.user == provider.key() @ crate::errors::UmbraError::Unauthorized,
     )]
     pub lp_position: Account<'info, LpPosition>,
 

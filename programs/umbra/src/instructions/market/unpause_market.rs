@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
 use crate::constants::*;
+use crate::events::MarketUnpaused;
+use super::pause_market::validate_admin_authority;
 
 // ── Accounts ─────────────────────────────────────────────────────────
 
@@ -23,4 +25,33 @@ pub struct UnpauseMarket<'info> {
 
     #[account(mut)]
     pub market: Account<'info, Market>,
+}
+
+// ── Handler ──────────────────────────────────────────────────────────
+
+pub fn handle_unpause_market(ctx: Context<UnpauseMarket>) -> Result<()> {
+    // ── 1. Validate admin authorization ────────────────────────────────
+    validate_admin_authority(
+        &ctx.accounts.authority,
+        &ctx.accounts.protocol_config,
+        &ctx.accounts.authority_role,
+        ctx.program_id,
+    )?;
+
+    // ── 2. Transition state ───────────────────────────────────────────
+    //
+    // Paused → Active if deadline has not passed.
+    // Paused → PendingResolution if deadline has passed (lazy enforcement).
+    let clock = Clock::get()?;
+    let market = &mut ctx.accounts.market;
+    market.unpause(clock.unix_timestamp)?;
+
+    // ── 3. Emit event ─────────────────────────────────────────────────
+    emit!(MarketUnpaused {
+        market_id: market.market_id,
+        admin: ctx.accounts.authority.key(),
+        timestamp: clock.unix_timestamp,
+    });
+
+    Ok(())
 }
