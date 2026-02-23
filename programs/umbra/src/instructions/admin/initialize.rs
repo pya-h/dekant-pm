@@ -30,3 +30,22 @@ pub struct Initialize<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
+// ── Handler ──────────────────────────────────────────────────────────
+
+pub fn handle_initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
+    let config = &mut ctx.accounts.protocol_config;
+
+    config.version = SCHEMA_VERSION;
+    config.superadmin = ctx.accounts.authority.key();
+    config.treasury = args.treasury;
+    config.market_count = 0;
+    config.creation_fee_bps = DEFAULT_CREATION_FEE_BPS;
+    config.trade_fee_bps = DEFAULT_TRADE_FEE_BPS;
+    config.redemption_fee_bps = DEFAULT_REDEMPTION_FEE_BPS;
+    config.lp_fee_share_bps = DEFAULT_LP_FEE_SHARE_BPS;
+    config.bump = ctx.bumps.protocol_config;
+    config._padding = [0u8; 64];
+
+    Ok(())
+}

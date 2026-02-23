@@ -19,26 +19,22 @@ pub mod umbra {
 
     /// One-time protocol initialization. Sets superadmin, treasury, and default fees.
     pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
-        // Implementation in task P-7.
-        todo!()
+        handle_initialize(ctx, args)
     }
 
     /// Assign a role (Admin, Oracle, Creator) to a wallet.
     pub fn assign_role(ctx: Context<AssignRole>, args: AssignRoleArgs) -> Result<()> {
-        // Implementation in task P-8.
-        todo!()
+        handle_assign_role(ctx, args)
     }
 
     /// Revoke a role from a wallet (closes the UserRole PDA).
     pub fn revoke_role(ctx: Context<RevokeRole>, args: RevokeRoleArgs) -> Result<()> {
-        // Implementation in task P-8.
-        todo!()
+        handle_revoke_role(ctx, args)
     }
 
     /// Update protocol fee parameters (superadmin only).
     pub fn update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {
-        // Implementation in task P-8.
-        todo!()
+        handle_update_fees(ctx, args)
     }
 
     // ── Market Management ────────────────────────────────────────────
