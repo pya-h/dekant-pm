@@ -49,11 +49,8 @@ pub struct RevokeRole<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_revoke_role(ctx: Context<RevokeRole>, args: RevokeRoleArgs) -> Result<()> {
-    // Validate role type.
     let role = Role::from_u8(args.role).ok_or(error!(UmbraError::InvalidRole))?;
 
-    // ── Authorization ──────────────────────────────────────────────────
-    //
     // Superadmin can revoke any role. Admin can revoke Oracle/Creator only.
     let is_superadmin = ctx.accounts.authority.key() == ctx.accounts.protocol_config.superadmin;
 
@@ -93,14 +90,10 @@ pub fn handle_revoke_role(ctx: Context<RevokeRole>, args: RevokeRoleArgs) -> Res
 
         require!(role_info.key() == expected, UmbraError::Unauthorized);
 
-        // Admin cannot revoke the Admin role.
         require!(role.admin_can_assign(), UmbraError::AdminCannotAssignAdmin);
     }
 
-    // ── Emit event ─────────────────────────────────────────────────────
-    //
-    // Anchor's `close = authority` handles zeroing data and transferring
-    // lamports back to the authority.
+    // Anchor's `close = authority` handles zeroing data and reclaiming rent.
     let clock = Clock::get()?;
     emit!(RoleRevoked {
         user: ctx.accounts.target_user.key(),

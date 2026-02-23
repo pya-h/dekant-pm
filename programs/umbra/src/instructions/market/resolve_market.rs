@@ -41,27 +41,17 @@ pub fn handle_resolve_market(
     let clock = Clock::get()?;
     let market = &mut ctx.accounts.market;
 
-    // ── 1. Lazy deadline enforcement ──────────────────────────────────
-    //
-    // If the market is Active or Paused and the deadline has passed,
-    // transition to PendingResolution. This lets the oracle resolve in
-    // a single tx even if no prior instruction triggered the transition.
+    // Lazy deadline enforcement: transition to PendingResolution if expired,
+    // so the oracle can resolve in a single tx.
     if (market.state == STATE_ACTIVE || market.state == STATE_PAUSED)
         && clock.unix_timestamp >= market.deadline
     {
         market.transition_to_pending()?;
     }
 
-    // ── 2. Resolve ────────────────────────────────────────────────────
-    //
-    // Market::resolve validates:
-    //   - state == PendingResolution
-    //   - outcome < num_outcomes (binary/multi)
-    //   - range_min <= value <= range_max (continuous)
-    //   - Computes winning bin for continuous via value_to_bin
+    // Market::resolve validates state, outcome bounds, and range for continuous.
     market.resolve(args.outcome, args.value, clock.unix_timestamp)?;
 
-    // ── 3. Emit event ─────────────────────────────────────────────────
     emit!(MarketResolved {
         market_id: market.market_id,
         oracle: ctx.accounts.oracle.key(),

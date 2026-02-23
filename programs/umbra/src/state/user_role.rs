@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use crate::constants::*;
 
 /// A role assignment for a single (user, role) pair.
 /// Existence of this PDA means the role is active; closing it revokes the role.

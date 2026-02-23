@@ -34,12 +34,10 @@ pub struct UpdateFees<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {
-    // Validate fee bounds.
-    // Creation, trade, and redemption fees are rates charged to users (max 50%).
     require!(args.creation_fee_bps <= MAX_FEE_BPS, UmbraError::FeeTooHigh);
     require!(args.trade_fee_bps <= MAX_FEE_BPS, UmbraError::FeeTooHigh);
     require!(args.redemption_fee_bps <= MAX_FEE_BPS, UmbraError::FeeTooHigh);
-    // LP fee share is a split of the trade fee (max 100% = 10_000 bps).
+    // LP fee share can be up to 100% of the trade fee (10_000 bps).
     require!(args.lp_fee_share_bps <= 10_000, UmbraError::FeeTooHigh);
 
     let config = &mut ctx.accounts.protocol_config;

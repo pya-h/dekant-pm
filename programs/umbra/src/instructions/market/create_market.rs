@@ -115,11 +115,8 @@ pub struct CreateMarket<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()> {
-    // ── 1. Validate creator authorization ──────────────────────────────
-    //
-    // Three paths: superadmin (no role PDA needed), Admin role, or Creator role.
-    // Role validation uses create_program_address (O(1)) instead of
-    // find_program_address (O(255)) for compute efficiency.
+    // Superadmin bypasses role check. Otherwise verify Creator or Admin role PDA
+    // using create_program_address (O(1)) for compute efficiency.
     let is_superadmin = ctx.accounts.creator.key() == ctx.accounts.protocol_config.superadmin;
 
     if !is_superadmin {
@@ -129,31 +126,26 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
             .as_ref()
             .ok_or(error!(UmbraError::Unauthorized))?;
 
-        // Must be owned by this program (prevents cross-program forgery).
         require!(
             role_info.owner == ctx.program_id,
             UmbraError::Unauthorized
         );
 
-        // Deserialize with discriminator check (prevents account type confusion).
         let data = role_info.try_borrow_data()?;
         let mut data_ref: &[u8] = &data;
         let user_role = UserRole::try_deserialize(&mut data_ref)
             .map_err(|_| error!(UmbraError::Unauthorized))?;
 
-        // Must hold Creator or Admin role.
         require!(
             user_role.role == ROLE_CREATOR || user_role.role == ROLE_ADMIN,
             UmbraError::Unauthorized
         );
 
-        // Role must belong to the signer.
         require!(
             user_role.user == ctx.accounts.creator.key(),
             UmbraError::Unauthorized
         );
 
-        // Re-derive PDA to ensure the account key matches the expected seeds.
         let expected_key = Pubkey::create_program_address(
             &[
                 USER_ROLE_SEED,
@@ -168,11 +160,8 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
         require!(role_info.key() == expected_key, UmbraError::Unauthorized);
     }
 
-    // ── 2. Compute creation fee ────────────────────────────────────────
-    //
-    // Fee is deducted from initial_liquidity. The net amount seeds the AMM;
-    // the fee stays in the vault as protocol_fee_accumulated, swept later
-    // via collect_fees.
+    // Fee deducted from initial_liquidity. Net amount seeds the AMM;
+    // fee stays in vault as protocol_fee_accumulated.
     let creation_fee_bps = ctx.accounts.protocol_config.creation_fee_bps;
     let creation_fee = ((args.initial_liquidity as u128)
         .checked_mul(creation_fee_bps as u128)
@@ -185,10 +174,7 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
         .checked_sub(creation_fee)
         .ok_or(error!(UmbraError::InsufficientBalance))?;
 
-    // ── 3. Transfer collateral from creator to vault ───────────────────
-    //
-    // Full initial_liquidity is transferred. The split between AMM reserves
-    // and protocol fees is purely accounting within the Market struct.
+    // Full initial_liquidity transferred; the AMM/fee split is purely accounting.
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -201,13 +187,7 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
         args.initial_liquidity,
     )?;
 
-    // ── 4. Initialize market state ─────────────────────────────────────
-    //
-    // Market::initialize validates: type, num_outcomes, net_liquidity >= MIN_LIQUIDITY,
-    // deadline > now, and range for continuous markets.
-    // AMM starts with uniform reserves: reserves[i] = net_liquidity for all i,
-    // k_squared = N * net_liquidity², ensuring a deterministic pricing curve
-    // (equal probabilities across all outcomes).
+    // AMM starts uniform: reserves[i] = net_liquidity, equal probabilities.
     let clock = Clock::get()?;
     let market_id = ctx.accounts.protocol_config.market_count;
     let market = &mut ctx.accounts.market;
@@ -232,10 +212,7 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
     // Record creation fee (swept to treasury via collect_fees).
     market.protocol_fee_accumulated = creation_fee;
 
-    // ── 5. Initialize creator's LP position ────────────────────────────
-    //
-    // The creator receives LP shares equal to net_liquidity (the first LP
-    // gets shares = collateral, matching Market::compute_lp_shares_for_deposit).
+    // First LP gets shares = collateral.
     let lp = &mut ctx.accounts.creator_lp_position;
     lp.version = SCHEMA_VERSION;
     lp.market = market.key();
@@ -245,16 +222,11 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
     lp.bump = ctx.bumps.creator_lp_position;
     lp._padding = [0u8; 16];
 
-    // ── 6. Increment market counter ────────────────────────────────────
-    //
-    // Deterministic PDA: the next create_market will use market_count + 1.
-    // Anti-front-running: two competing txs serialize on the ProtocolConfig
-    // account lock — each gets a unique, sequential ID.
+    // Sequential IDs: competing txs serialize on ProtocolConfig account lock.
     ctx.accounts.protocol_config.market_count = market_id
         .checked_add(1)
         .ok_or(error!(UmbraError::MathOverflow))?;
 
-    // ── 7. Emit event ──────────────────────────────────────────────────
     emit!(MarketCreated {
         market_id,
         market_type: args.market_type,

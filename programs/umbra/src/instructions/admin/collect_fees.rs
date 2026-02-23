@@ -59,10 +59,8 @@ pub fn handle_collect_fees(ctx: Context<CollectFees>) -> Result<()> {
     let amount = market.protocol_fee_accumulated;
     require!(amount > 0, UmbraError::NoFeesToCollect);
 
-    // Reset accumulated fees before transfer.
     market.protocol_fee_accumulated = 0;
 
-    // CPI: transfer from vault to treasury.
     let market_key = ctx.accounts.market.key();
     let seeds = &[
         VAULT_AUTHORITY_SEED,

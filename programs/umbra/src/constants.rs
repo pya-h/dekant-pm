@@ -1,5 +1,3 @@
-use anchor_lang::prelude::*;
-
 // ── PDA Seed Prefixes ────────────────────────────────────────────────
 
 pub const PROTOCOL_CONFIG_SEED: &[u8] = b"protocol_config";

@@ -29,11 +29,6 @@ pub struct PauseMarket<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_pause_market(ctx: Context<PauseMarket>) -> Result<()> {
-    // ── 1. Validate admin authorization ────────────────────────────────
-    //
-    // Superadmin bypasses role PDA check. Non-superadmin must hold an
-    // Admin role PDA, validated via the same 5-layer pattern used across
-    // all admin instructions.
     validate_admin_authority(
         &ctx.accounts.authority,
         &ctx.accounts.protocol_config,
@@ -41,11 +36,9 @@ pub fn handle_pause_market(ctx: Context<PauseMarket>) -> Result<()> {
         ctx.program_id,
     )?;
 
-    // ── 2. Transition state: Active → Paused ──────────────────────────
     let market = &mut ctx.accounts.market;
     market.pause()?;
 
-    // ── 3. Emit event ─────────────────────────────────────────────────
     let clock = Clock::get()?;
     emit!(MarketPaused {
         market_id: market.market_id,
@@ -75,19 +68,15 @@ pub fn validate_admin_authority<'info>(
             .as_ref()
             .ok_or(error!(UmbraError::Unauthorized))?;
 
-        // Must be owned by this program (prevents cross-program forgery).
         require!(role_info.owner == program_id, UmbraError::Unauthorized);
 
-        // Deserialize with discriminator check (prevents account type confusion).
         let data = role_info.try_borrow_data()?;
         let mut data_ref: &[u8] = &data;
         let user_role = UserRole::try_deserialize(&mut data_ref)
             .map_err(|_| error!(UmbraError::Unauthorized))?;
 
-        // Must hold Admin role.
         require!(user_role.role == ROLE_ADMIN, UmbraError::Unauthorized);
 
-        // Role must belong to the signer.
         require!(
             user_role.user == authority.key(),
             UmbraError::Unauthorized

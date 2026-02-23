@@ -81,14 +81,12 @@ pub fn handle_remove_liquidity(
         UmbraError::InsufficientShares
     );
 
-    // ── Compute collateral out ───────────────────────────────────────
     let collateral_out = market.compute_collateral_for_withdrawal(args.shares_to_burn)?;
     let fee_share = market.compute_lp_fee_share(args.shares_to_burn)?;
     let total_payout = collateral_out
         .checked_add(fee_share)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── Scale reserves down ──────────────────────────────────────────
     let total_before = market.total_minted;
     let numerator = total_before
         .checked_sub(collateral_out)
@@ -100,7 +98,6 @@ pub fn handle_remove_liquidity(
         total_before,
     )?;
 
-    // Update market state.
     market.k_squared = new_k_squared;
     market.total_minted = numerator;
     market.lp_shares_total = market
@@ -112,7 +109,6 @@ pub fn handle_remove_liquidity(
         .checked_sub(fee_share)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── LpPosition ───────────────────────────────────────────────────
     let lp = &mut ctx.accounts.lp_position;
     lp.shares = lp
         .shares
@@ -146,7 +142,6 @@ pub fn handle_remove_liquidity(
         payout_u64,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(LiquidityChanged {
         market_id: ctx.accounts.market.market_id,
         provider: ctx.accounts.provider.key(),

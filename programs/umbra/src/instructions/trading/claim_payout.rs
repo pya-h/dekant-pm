@@ -113,7 +113,6 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
         .checked_sub(fee_u64)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── Update state ─────────────────────────────────────────────────
     let position = &mut ctx.accounts.user_position;
     position.claimed = true;
     position.total_withdrawn = position
@@ -128,7 +127,6 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
         .checked_add(fee_u64)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── CPI: transfer net payout from vault to trader ────────────────
     let market_key = ctx.accounts.market.key();
     let seeds = &[
         VAULT_AUTHORITY_SEED,
@@ -150,7 +148,6 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
         net_payout,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(PayoutClaimed {
         market_id: ctx.accounts.market.market_id,
         trader: ctx.accounts.trader.key(),
