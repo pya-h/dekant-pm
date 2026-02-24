@@ -216,7 +216,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .initialize({ treasury: treasury.publicKey })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           systemProgram: SystemProgram.programId,
@@ -248,7 +248,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -272,7 +272,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_CREATOR })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -295,7 +295,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_ADMIN })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -356,7 +356,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -417,7 +417,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           outcome: 0,
           collateralAmount: new BN(2_000_000), // 2 USDC
         })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -466,7 +466,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           outcome: 1,
           collateralAmount: new BN(3_000_000), // 3 USDC
         })
-        .accounts({
+        .accountsPartial({
           trader: traderB.publicKey,
           market: marketPda,
           protocolConfig,
@@ -509,7 +509,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           outcome: 0,
           tokenAmount: new BN(sellAmount),
         })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -558,7 +558,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .addLiquidity({ amount: new BN(5_000_000) }) // 5 USDC
-        .accounts({
+        .accountsPartial({
           provider: lpProvider.publicKey,
           market: marketPda,
           lpPosition: lpPositionPda,
@@ -604,7 +604,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             outcome: 0,
             collateralAmount: new BN(1_000_000),
           })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -631,7 +631,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           outcome: 0,
           value: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           oracle: oracleKp.publicKey,
           market: marketPda,
         })
@@ -656,7 +656,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .claimPayout()
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -691,7 +691,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .claimPayout()
-          .accounts({
+          .accountsPartial({
             trader: traderB.publicKey,
             market: marketPda,
             protocolConfig,
@@ -726,7 +726,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .removeLiquidity({ sharesToBurn: lp.shares })
-        .accounts({
+        .accountsPartial({
           provider: lpProvider.publicKey,
           market: marketPda,
           lpPosition: lpPositionPda,
@@ -804,7 +804,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -845,7 +845,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 2, collateralAmount: new BN(2_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -872,7 +872,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 4, collateralAmount: new BN(3_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderB.publicKey,
           market: marketPda,
           protocolConfig,
@@ -903,7 +903,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .resolveMarket({ outcome: 2, value: new BN(0) })
-        .accounts({
+        .accountsPartial({
           oracle: oracleKp.publicKey,
           market: marketPda,
         })
@@ -930,7 +930,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Winner claims
       await program.methods
         .claimPayout()
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -960,7 +960,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .claimPayout()
-          .accounts({
+          .accountsPartial({
             trader: traderB.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1037,7 +1037,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: RANGE_MIN,
           rangeMax: RANGE_MAX,
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -1081,7 +1081,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           sigma: new BN(20).mul(SCALE),      // std dev = 20
           collateralAmount: new BN(5_000_000), // 5 USDC
         })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1125,7 +1125,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           sigma: new BN(10).mul(SCALE),
           collateralAmount: new BN(3_000_000),
         })
-        .accounts({
+        .accountsPartial({
           trader: traderB.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1164,7 +1164,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           outcome: 0, // Ignored for continuous — computed from value
           value: new BN(155).mul(SCALE),
         })
-        .accounts({
+        .accountsPartial({
           oracle: oracleKp.publicKey,
           market: marketPda,
         })
@@ -1197,7 +1197,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       if (winningTokens > 0) {
         await program.methods
           .claimPayout()
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1271,7 +1271,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -1299,7 +1299,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .pauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -1327,7 +1327,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1355,7 +1355,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .unpauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -1382,7 +1382,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1409,7 +1409,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           redemptionFeeBps: 25,    // 0.25%
           lpFeeShareBps: 6000,     // 60%
         })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
         })
@@ -1438,7 +1438,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 1, collateralAmount: new BN(2_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1480,7 +1480,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .collectFees()
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           market: marketPda,
@@ -1509,7 +1509,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           redemptionFeeBps: 50,
           lpFeeShareBps: 5000,
         })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
         })
@@ -1571,7 +1571,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -1605,7 +1605,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .buy({ outcome: 0, collateralAmount: new BN(100) }) // below MIN_TRADE (1000)
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1639,7 +1639,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1657,7 +1657,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .sell({ outcome: 0, tokenAmount: new BN(0) })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1695,7 +1695,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             outcome: 0,
             tokenAmount: new BN(holdings + 1_000_000), // way more than held
           })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1717,7 +1717,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .resolveMarket({ outcome: 0, value: new BN(0) })
-          .accounts({
+          .accountsPartial({
             oracle: traderA.publicKey, // Not the oracle
             market: marketPda,
           })
@@ -1742,7 +1742,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .assignRole({ role: ROLE_ORACLE })
-          .accounts({
+          .accountsPartial({
             authority: fakeAdmin.publicKey,
             protocolConfig,
             authorityRole: null,
@@ -1773,7 +1773,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .addLiquidity({ amount: new BN(100) }) // below MIN_LIQUIDITY
-          .accounts({
+          .accountsPartial({
             provider: lpProvider.publicKey,
             market: marketPda,
             lpPosition: lpPos,
@@ -1802,7 +1802,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .resolveMarket({ outcome: 0, value: new BN(0) })
-        .accounts({
+        .accountsPartial({
           oracle: oracleKp.publicKey,
           market: marketPda,
         })
@@ -1823,7 +1823,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // First claim should succeed
       await program.methods
         .claimPayout()
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -1840,7 +1840,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .claimPayout()
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -1867,7 +1867,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             redemptionFeeBps: 50,
             lpFeeShareBps: 5000,
           })
-          .accounts({
+          .accountsPartial({
             authority: superadmin.publicKey,
             protocolConfig,
           })
@@ -1895,7 +1895,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -1929,7 +1929,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .assignRole({ role: ROLE_ADMIN })
-          .accounts({
+          .accountsPartial({
             authority: adminKp.publicKey,
             protocolConfig,
             authorityRole: adminRolePda,
@@ -1969,7 +1969,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
         try {
           await program.methods
             .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
-            .accounts({
+            .accountsPartial({
               trader: traderA.publicKey,
               market: contMarketPda,
               protocolConfig,
@@ -2030,7 +2030,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -2055,7 +2055,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .buy({ outcome: 0, collateralAmount: new BN(2_000_000) })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: freshMarketPda,
           protocolConfig,
@@ -2073,7 +2073,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .sell({ outcome: 0, tokenAmount: new BN(500) })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: freshMarketPda,
             protocolConfig,
@@ -2106,7 +2106,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             sigma: new BN(100_000_000),
             collateralAmount: new BN(1_000_000),
           })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: freshMarketPda,
             protocolConfig,
@@ -2146,7 +2146,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2158,7 +2158,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .assignRole({ role: ROLE_CREATOR })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2178,7 +2178,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .revokeRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2202,7 +2202,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .revokeRole({ role: ROLE_CREATOR })
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -2228,7 +2228,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       const [tempAdminRolePda] = findUserRole(tempAdmin.publicKey, ROLE_ADMIN, program.programId);
       await program.methods
         .assignRole({ role: ROLE_ADMIN })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2244,7 +2244,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .revokeRole({ role: ROLE_ADMIN })
-          .accounts({
+          .accountsPartial({
             authority: adminKp.publicKey,
             protocolConfig,
             authorityRole: adminRolePda,
@@ -2261,7 +2261,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Cleanup: superadmin revokes the temp admin
       await program.methods
         .revokeRole({ role: ROLE_ADMIN })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2276,7 +2276,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       const [oracleRolePda] = findUserRole(tempUser1.publicKey, ROLE_ORACLE, program.programId);
       await program.methods
         .assignRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2293,7 +2293,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .revokeRole({ role: ROLE_ORACLE })
-          .accounts({
+          .accountsPartial({
             authority: randomUser.publicKey,
             protocolConfig,
             authorityRole: null,
@@ -2310,7 +2310,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Cleanup
       await program.methods
         .revokeRole({ role: ROLE_ORACLE })
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2366,7 +2366,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -2390,7 +2390,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .pauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -2415,7 +2415,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .resolveMarket({ outcome: 0, value: new BN(0) })
-          .accounts({
+          .accountsPartial({
             oracle: oracleKp.publicKey,
             market: marketPda,
           })
@@ -2436,7 +2436,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
 
       await program.methods
         .unpauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: adminKp.publicKey,
           protocolConfig,
           authorityRole: adminRolePda,
@@ -2452,7 +2452,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Now oracle resolves directly (already in PendingResolution state)
       await program.methods
         .resolveMarket({ outcome: 0, value: new BN(0) })
-        .accounts({
+        .accountsPartial({
           oracle: oracleKp.publicKey,
           market: marketPda,
         })
@@ -2512,7 +2512,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: RANGE_MIN,
           rangeMax: RANGE_MAX,
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -2543,7 +2543,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           sigma: new BN(15).mul(SCALE),
           collateralAmount: new BN(5_000_000),
         })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -2579,7 +2579,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           sigma: new BN(15).mul(SCALE),
           tokenAmount: new BN(sellAmount),
         })
-        .accounts({
+        .accountsPartial({
           trader: traderA.publicKey,
           market: marketPda,
           protocolConfig,
@@ -2618,7 +2618,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             sigma: new BN(15).mul(SCALE),
             tokenAmount: new BN(500), // below MIN_TRADE (1000)
           })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -2651,7 +2651,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
             sigma: new BN(100_000_000),
             tokenAmount: new BN(2_000),
           })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: discMarketPda,
             protocolConfig,
@@ -2677,7 +2677,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .sell({ outcome: 0, tokenAmount: new BN(2_000) })
-          .accounts({
+          .accountsPartial({
             trader: traderA.publicKey,
             market: marketPda,
             protocolConfig,
@@ -2740,7 +2740,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
           rangeMin: new BN(0),
           rangeMax: new BN(0),
         })
-        .accounts({
+        .accountsPartial({
           creator: creatorKp.publicKey,
           creatorRole: creatorRolePda,
           protocolConfig,
@@ -2763,7 +2763,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .pauseMarket()
-          .accounts({
+          .accountsPartial({
             authority: traderA.publicKey,
             protocolConfig,
             authorityRole: null,
@@ -2780,7 +2780,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
     it("superadmin can pause market without a role PDA", async () => {
       await program.methods
         .pauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2795,7 +2795,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
     it("superadmin can unpause market without a role PDA", async () => {
       await program.methods
         .unpauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2811,7 +2811,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Pause first
       await program.methods
         .pauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
@@ -2822,7 +2822,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       try {
         await program.methods
           .unpauseMarket()
-          .accounts({
+          .accountsPartial({
             authority: traderA.publicKey,
             protocolConfig,
             authorityRole: null,
@@ -2838,7 +2838,7 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
       // Cleanup: unpause
       await program.methods
         .unpauseMarket()
-        .accounts({
+        .accountsPartial({
           authority: superadmin.publicKey,
           protocolConfig,
           authorityRole: null,
