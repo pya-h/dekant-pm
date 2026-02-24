@@ -88,8 +88,10 @@ fn test_initialize_binary_market() {
     assert_eq!(m.market_type, MARKET_TYPE_BINARY);
     assert_eq!(m.state, STATE_ACTIVE);
     assert_eq!(m.num_outcomes, 2);
-    assert_eq!(m.reserves, vec![TEST_LIQUIDITY; 2]);
-    assert_eq!(m.k_squared, 2 * (TEST_LIQUIDITY as u128).pow(2));
+    // Position-based init: h = L - isqrt(L²/N), k² = L²
+    let expected_reserve = 292_894u64; // 1M - isqrt(10^12/2)
+    assert_eq!(m.reserves, vec![expected_reserve; 2]);
+    assert_eq!(m.k_squared, (TEST_LIQUIDITY as u128).pow(2));
     assert_eq!(m.total_minted, TEST_LIQUIDITY as u128);
     assert_eq!(m.lp_shares_total, TEST_LIQUIDITY as u128);
     assert_eq!(m.range_min, 0);
@@ -104,8 +106,10 @@ fn test_initialize_continuous_market() {
     assert_eq!(m.market_type, MARKET_TYPE_CONTINUOUS);
     assert_eq!(m.num_outcomes, 10);
     assert_eq!(m.reserves.len(), 10);
-    assert!(m.reserves.iter().all(|&r| r == TEST_LIQUIDITY));
-    assert_eq!(m.k_squared, 10 * (TEST_LIQUIDITY as u128).pow(2));
+    // Position-based init: h = L - isqrt(L²/N), k² = L²
+    let expected_reserve = 683_773u64; // 1M - isqrt(10^12/10)
+    assert!(m.reserves.iter().all(|&r| r == expected_reserve));
+    assert_eq!(m.k_squared, (TEST_LIQUIDITY as u128).pow(2));
     assert_eq!(m.range_min, 0);
     assert_eq!(m.range_max, 1_000_000_000);
 }
@@ -425,8 +429,9 @@ fn test_value_to_bin_large_i64_range() {
 fn test_mint_complete_sets() {
     let mut m = blank_market();
     init_binary(&mut m);
+    let h0 = m.reserves[0]; // 292_894
     m.mint_complete_sets(500_000).unwrap();
-    assert_eq!(m.reserves, vec![1_500_000, 1_500_000]);
+    assert_eq!(m.reserves, vec![h0 + 500_000; 2]);
     assert_eq!(m.total_minted, 1_500_000);
 }
 
@@ -434,9 +439,10 @@ fn test_mint_complete_sets() {
 fn test_burn_complete_sets() {
     let mut m = blank_market();
     init_binary(&mut m);
-    m.burn_complete_sets(500_000).unwrap();
-    assert_eq!(m.reserves, vec![500_000, 500_000]);
-    assert_eq!(m.total_minted, 500_000);
+    let h0 = m.reserves[0]; // 292_894
+    m.burn_complete_sets(200_000).unwrap();
+    assert_eq!(m.reserves, vec![h0 - 200_000; 2]);
+    assert_eq!(m.total_minted, 800_000);
 }
 
 #[test]
@@ -484,9 +490,15 @@ fn test_implied_probability_uniform() {
     init_binary(&mut m);
     let p0 = m.implied_probability(0).unwrap();
     let p1 = m.implied_probability(1).unwrap();
-    assert_eq!(p0, 500_000_000);
-    assert_eq!(p1, 500_000_000);
-    assert_eq!(p0 + p1, SCALE);
+    // Approximately 500M each (not exact due to isqrt rounding in init).
+    let diff0 = if p0 > 500_000_000 { p0 - 500_000_000 } else { 500_000_000 - p0 };
+    let diff1 = if p1 > 500_000_000 { p1 - 500_000_000 } else { 500_000_000 - p1 };
+    assert!(diff0 < 5_000, "p0={p0}");
+    assert!(diff1 < 5_000, "p1={p1}");
+    // Sum approximately SCALE.
+    let sum = p0 + p1;
+    let sum_diff = if sum > SCALE { sum - SCALE } else { SCALE - sum };
+    assert!(sum_diff < 5_000, "sum={sum}");
 }
 
 #[test]
@@ -572,13 +584,11 @@ fn test_validate_reserves_integrity() {
 fn test_recompute_k_squared() {
     let mut m = blank_market();
     init_binary(&mut m);
-    let original = m.k_squared;
 
-    m.reserves[0] = 2_000_000;
+    // recompute_k_squared now computes total_minted².
+    m.total_minted = 2_000_000;
     m.recompute_k_squared();
-    let expected = (2_000_000u128).pow(2) + (1_000_000u128).pow(2);
-    assert_eq!(m.k_squared, expected);
-    assert_ne!(m.k_squared, original);
+    assert_eq!(m.k_squared, (2_000_000u128).pow(2));
 }
 
 // ── Fee Computation Edge Cases ──────────────────────────────────
@@ -778,11 +788,12 @@ fn test_unpause_non_paused_fails() {
 // ── implied_probability edge cases ──────────────────────────────
 
 #[test]
-fn test_implied_probability_k_squared_zero() {
+fn test_implied_probability_total_minted_zero() {
     let mut m = blank_market();
     init_binary(&mut m);
-    m.k_squared = 0;
-    // Division by zero should be caught.
+    m.reserves = vec![0, 0];
+    m.total_minted = 0;
+    // total_minted² = 0, division by zero should be caught.
     assert_eq!(
         m.implied_probability(0).unwrap_err(),
         error!(DekantPmError::DivisionByZero)
@@ -793,16 +804,18 @@ fn test_implied_probability_k_squared_zero() {
 fn test_implied_probability_skewed() {
     let mut m = blank_market();
     init_binary(&mut m);
-    m.reserves = vec![800_000, 1_200_000];
+    // Use Pythagorean triple: tm=500K, h=[200K, 100K], x=[300K, 400K]
+    m.total_minted = 500_000;
+    m.reserves = vec![200_000, 100_000];
     m.recompute_k_squared();
     let p0 = m.implied_probability(0).unwrap();
     let p1 = m.implied_probability(1).unwrap();
-    // p0 should be less than p1 since reserve 0 < reserve 1.
+    // p0 = 300K²/500K² * SCALE = 360M, p1 = 400K²/500K² * SCALE = 640M
+    // Lower reserve → bigger position → higher probability.
     assert!(p0 < p1, "p0={p0}, p1={p1}");
-    // Sum should be approximately SCALE.
-    let sum = p0 + p1;
-    let diff = if sum > SCALE { sum - SCALE } else { SCALE - sum };
-    assert!(diff <= 2, "sum={sum}");
+    assert_eq!(p0, 360_000_000);
+    assert_eq!(p1, 640_000_000);
+    assert_eq!(p0 + p1, SCALE);
 }
 
 // ── mint/burn complete sets edge cases ───────────────────────────
@@ -822,10 +835,11 @@ fn test_mint_complete_sets_overflow() {
 fn test_burn_complete_sets_exact() {
     let mut m = blank_market();
     init_binary(&mut m);
-    // Burn exactly all liquidity.
-    m.burn_complete_sets(TEST_LIQUIDITY).unwrap();
+    // Burn exactly the reserve amount (max burnable per bin).
+    let h0 = m.reserves[0]; // 292_894
+    m.burn_complete_sets(h0).unwrap();
     assert_eq!(m.reserves, vec![0, 0]);
-    assert_eq!(m.total_minted, 0);
+    assert_eq!(m.total_minted, TEST_LIQUIDITY as u128 - h0 as u128);
 }
 
 // ── Multi-outcome market init ───────────────────────────────────
@@ -853,7 +867,7 @@ fn test_initialize_multi_outcome() {
     assert_eq!(m.market_type, MARKET_TYPE_MULTI);
     assert_eq!(m.num_outcomes, 5);
     assert_eq!(m.reserves.len(), 5);
-    assert_eq!(m.k_squared, 5 * (TEST_LIQUIDITY as u128).pow(2));
+    assert_eq!(m.k_squared, (TEST_LIQUIDITY as u128).pow(2));
 }
 
 // ── value_to_bin edge cases ─────────────────────────────────────

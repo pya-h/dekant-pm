@@ -110,10 +110,10 @@ pub fn handle_buy_distribution(
         ctx.accounts.protocol_config.lp_fee_share_bps,
     )?;
 
-    let k_sq = market.k_squared;
+    let total_minted = market.total_minted;
     let tokens_out = amm::compute_distribution_buy(
         &mut market.reserves,
-        k_sq,
+        total_minted,
         &weights,
         fees.net_amount,
     )?;
@@ -122,7 +122,10 @@ pub fn handle_buy_distribution(
         .total_minted
         .checked_add(fees.net_amount as u128)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-    market.k_squared = amm::sum_of_squares(&market.reserves);
+    market.k_squared = market
+        .total_minted
+        .checked_mul(market.total_minted)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
 
     let position = &mut ctx.accounts.user_position;

@@ -383,8 +383,12 @@ describe("DekantPM Prediction Market — Full Lifecycle", () => {
 
       // Creation fee = 0.5% of 10M = 50_000, net = 9_950_000
       const netLiq = initialLiquidity.toNumber() - Math.floor(initialLiquidity.toNumber() * 50 / 10000);
-      expect(market.reserves[0].toNumber()).to.equal(netLiq);
-      expect(market.reserves[1].toNumber()).to.equal(netLiq);
+      // Position-based init: reserve = L - isqrt(L² / N)
+      const n = 2;
+      const xPer = Math.floor(Math.sqrt(netLiq * netLiq / n));
+      const expectedReserve = netLiq - xPer;
+      expect(market.reserves[0].toNumber()).to.equal(expectedReserve);
+      expect(market.reserves[1].toNumber()).to.equal(expectedReserve);
       expect(market.protocolFeeAccumulated.toNumber()).to.equal(
         Math.floor(initialLiquidity.toNumber() * 50 / 10000)
       );
