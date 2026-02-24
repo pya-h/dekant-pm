@@ -1,9 +1,9 @@
-# Umbra Prediction Market — Product Requirements Document
+# DekantPM Prediction Market — Product Requirements Document
 
 **Version:** 1.0
 **Date:** 2026-02-23
 **Status:** Draft
-**Author:** Umbra Team
+**Author:** DekantPM Team
 
 ---
 
@@ -27,7 +27,7 @@
 
 ## 1. Executive Summary
 
-Umbra is a continuous decentralized prediction market protocol built on Solana. Unlike existing platforms (Polymarket, Kalshi) that only support binary yes/no outcomes, Umbra enables traders to express full probability distributions over continuous ranges of outcomes — powered by the L2-norm constant-function AMM described in Paradigm's *Distribution Markets* research.
+DekantPM is a continuous decentralized prediction market protocol built on Solana. Unlike existing platforms (Polymarket, Kalshi) that only support binary yes/no outcomes, DekantPM enables traders to express full probability distributions over continuous ranges of outcomes — powered by the L2-norm constant-function AMM described in Paradigm's *Distribution Markets* research.
 
 Traders can forecast anything from "What will ETH price be on June 1?" to "How many Academy Awards will this film win?" — placing capital behind their beliefs as parameterized probability distributions rather than simple directional bets.
 
@@ -51,9 +51,9 @@ There is no on-chain prediction market that combines:
 - **Automated market making** (continuous liquidity without relying on orderbook depth)
 - **Open market creation** (any authorized user can pose any question)
 
-### What Umbra Solves
+### What DekantPM Solves
 
-Umbra bridges this gap by implementing the Paradigm Distribution Markets AMM on Solana, enabling capital-backed continuous probability forecasting with automated liquidity, fair pricing, and permissioned market creation — accessible through a simple, intuitive web UI.
+DekantPM bridges this gap by implementing the Paradigm Distribution Markets AMM on Solana, enabling capital-backed continuous probability forecasting with automated liquidity, fair pricing, and permissioned market creation — accessible through a simple, intuitive web UI.
 
 ---
 
@@ -104,7 +104,7 @@ Trader (default, no assignment needed)
 
 ## 5. Market Types
 
-Umbra supports three market types, each mapping to a different AMM configuration:
+DekantPM supports three market types, each mapping to a different AMM configuration:
 
 ### 5.1 Binary Market
 

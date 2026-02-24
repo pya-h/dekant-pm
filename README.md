@@ -1,10 +1,10 @@
-# Umbra Prediction Market Protocol
+# DekantPM Prediction Market Protocol
 
 A decentralized prediction market protocol on Solana that supports **continuous outcome ranges** using an L2-norm constant-function AMM (CFAMM) based on Paradigm's [Distribution Markets](https://www.paradigm.xyz/2024/11/distribution-markets) research.
 
-Unlike binary-only platforms (Polymarket, Kalshi), Umbra lets traders express full probability distributions over continuous ranges of outcomes — placing capital behind parameterized beliefs rather than simple directional bets.
+Unlike binary-only platforms (Polymarket, Kalshi), DekantPM lets traders express full probability distributions over continuous ranges of outcomes — placing capital behind parameterized beliefs rather than simple directional bets.
 
-## What Makes Umbra Different
+## What Makes DekantPM Different
 
 - **Distribution Trading** — Traders specify a center (mu) and confidence (sigma) to place Gaussian-weighted positions across continuous outcomes, not just "Yes/No"
 - **Three Market Types** — Binary, multi-outcome (up to 32), and continuous range markets (up to 256 bins)
@@ -16,7 +16,7 @@ Unlike binary-only platforms (Polymarket, Kalshi), Umbra lets traders express fu
 
 ```
 pm-cont/
-├── programs/umbra/         # Solana program (Anchor/Rust)
+├── programs/dekant-pm/         # Solana program (Anchor/Rust)
 │   └── src/
 │       ├── lib.rs          # 16 instructions
 │       ├── state/          # 5 account types (PDA-based)
@@ -118,14 +118,14 @@ All fees are configurable by the superadmin via `update_fees`. Maximum rate fee 
 anchor build
 ```
 
-This compiles the program to `target/deploy/umbra.so` and generates the IDL at `target/idl/umbra.json`.
+This compiles the program to `target/deploy/dekant_pm.so` and generates the IDL at `target/idl/dekant_pm.json`.
 
 ### Run Rust Unit Tests
 
 The program has **142 unit tests** covering the AMM engine, market state machine, fixed-point arithmetic, and normal PDF computation.
 
 ```bash
-cargo test --manifest-path programs/umbra/Cargo.toml
+cargo test --manifest-path programs/dekant-pm/Cargo.toml
 ```
 
 Or run all workspace tests:
@@ -297,7 +297,7 @@ This package mirrors all on-chain account structures, enums, constants, and defi
 |------|---------|
 | `Anchor.toml` | Anchor framework config (version, program IDs, cluster, test script) |
 | `Cargo.toml` | Rust workspace with release optimizations (overflow-checks, LTO, single codegen unit) |
-| `programs/umbra/Cargo.toml` | Program crate (anchor-lang 0.32.1, anchor-spl 0.32.1) |
+| `programs/dekant-pm/Cargo.toml` | Program crate (anchor-lang 0.32.1, anchor-spl 0.32.1) |
 | `package.json` | Node dependencies (@coral-xyz/anchor 0.32.1, @solana/web3.js 1.98.4) |
 | `tsconfig.json` | TypeScript config for integration tests (ES6, Mocha/Chai) |
 

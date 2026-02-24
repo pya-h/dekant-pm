@@ -1,4 +1,4 @@
-# Umbra — Implementation Task Breakdown
+# DekantPM — Implementation Task Breakdown
 
 **Derived from:** TDD v1.0
 **Convention:** Each task is one focused coding session. Tasks are ordered by dependency — a task's prerequisites are listed in `Depends on`. Cross-layer dependencies (e.g., frontend needs program deployed) are noted explicitly.
@@ -87,7 +87,7 @@ FRONTEND
 - Root directory with workspace layout:
   ```
   pm-cont/
-  ├── programs/umbra/        # Anchor program (Rust)
+  ├── programs/dekant-pm/        # Anchor program (Rust)
   ├── backend/               # NestJS app
   ├── frontend/              # Next.js app
   ├── packages/shared/       # Shared types (IDL-derived)
@@ -110,7 +110,7 @@ FRONTEND
 **Goal:** Create a buildable Anchor program skeleton.
 
 **Deliverable:**
-- `anchor init` inside `programs/umbra/` (or adjust `Anchor.toml` to point there)
+- `anchor init` inside `programs/dekant-pm/` (or adjust `Anchor.toml` to point there)
 - `Anchor.toml` configured for devnet, program keypair generated
 - Verify `anchor build` succeeds with the empty program
 - Verify `anchor test` runs the default test
@@ -129,7 +129,7 @@ FRONTEND
 - `.env.example` with all required env vars:
   ```
   SOLANA_RPC_URL=http://localhost:8899
-  DATABASE_URL=postgresql://umbra:umbra@localhost:5432/umbra
+  DATABASE_URL=postgresql://dekant_pm:dekant_pm@localhost:5432/dekant_pm
   PROGRAM_ID=<from anchor build>
   ```
 - `scripts/setup-dev.sh` that starts PostgreSQL, builds the program, runs validator
@@ -155,7 +155,7 @@ FRONTEND
 - Role types: `ROLE_ADMIN`, `ROLE_ORACLE`, `ROLE_CREATOR`
 
 **Deliverable — `errors.rs`:**
-- `UmbraError` enum with all error codes:
+- `DekantPmError` enum with all error codes:
   - `Unauthorized`, `InvalidRole`, `RoleAlreadyAssigned`
   - `MarketNotActive`, `MarketClosed`, `MarketNotPendingResolution`, `MarketAlreadyResolved`
   - `InvalidOutcome`, `InvalidRange`, `InvalidDeadline`, `InvalidNumOutcomes`
@@ -176,7 +176,7 @@ FRONTEND
 **Deliverable — `engine/fixed_point.rs`:**
 - `scaled_mul(a: u128, b: u128) -> Result<u128>` — multiply two SCALE-ed values
 - `scaled_div(a: u128, b: u128) -> Result<u128>` — divide with SCALE precision
-- `checked_add_u128`, `checked_sub_u128`, `checked_mul_u128` — wrappers that return UmbraError::MathOverflow
+- `checked_add_u128`, `checked_sub_u128`, `checked_mul_u128` — wrappers that return DekantPmError::MathOverflow
 - Rounding helpers: `div_ceil(a: u128, b: u128)`, `div_floor(a: u128, b: u128)`
 
 **Deliverable — `engine/sqrt.rs`:**
@@ -1014,8 +1014,8 @@ FRONTEND
 **Goal:** Build the persistent layout (navbar, sidebar, footer).
 
 **Deliverable:**
-- `components/layout/Navbar.tsx`: Logo ("Umbra"), nav links (Markets, Portfolio, Admin, Oracle), WalletButton on the right
-- `components/layout/Footer.tsx`: Minimal footer ("Umbra Protocol — Devnet")
+- `components/layout/Navbar.tsx`: Logo ("DekantPM"), nav links (Markets, Portfolio, Admin, Oracle), WalletButton on the right
+- `components/layout/Footer.tsx`: Minimal footer ("DekantPM Protocol — Devnet")
 - `app/layout.tsx`: Assemble Navbar + main content area + Footer
 - Navigation links use Next.js `<Link>`, active state styling
 - Admin and Oracle links only visible if user has the corresponding role (check via on-chain PDA or backend; for MVP, always show but gate the page content)
