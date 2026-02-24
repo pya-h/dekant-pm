@@ -225,7 +225,7 @@ describe("Paused Market Cannot Be Resolved", () => {
 
   before(async () => {
     await ensureSetup();
-    const mkt = await createBinaryMarket({ deadline: Math.floor(Date.now() / 1000) + 20 });
+    const mkt = await createBinaryMarket({ deadline: Math.floor(Date.now() / 1000) + 8 });
     marketPda = mkt.marketPda;
     vaultAuthority = mkt.vaultAuthority;
   });

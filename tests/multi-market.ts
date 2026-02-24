@@ -17,7 +17,6 @@ describe("Multi-Outcome Market Lifecycle", () => {
   let vaultAuthority: PublicKey;
   let vault: PublicKey;
   const NUM_OUTCOMES = 5;
-  const deadline = Math.floor(Date.now() / 1000) + 60;
   const initialLiquidity = new BN(20_000_000);
   const buyAmountA = randomAmount(1_500_000, 4_000_000);
   const buyAmountB = randomAmount(1_500_000, 4_000_000);
@@ -26,6 +25,7 @@ describe("Multi-Outcome Market Lifecycle", () => {
 
   before(async () => {
     await ensureSetup();
+    const deadline = Math.floor(Date.now() / 1000) + 30;
     const mkt = await createMultiMarket({
       numOutcomes: NUM_OUTCOMES,
       deadline,

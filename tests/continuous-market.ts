@@ -20,11 +20,11 @@ describe("Continuous Market Lifecycle", () => {
   const NUM_BINS = 64;
   const RANGE_MIN = new BN(100).mul(SCALE);
   const RANGE_MAX = new BN(300).mul(SCALE);
-  const deadline = Math.floor(Date.now() / 1000) + 90;
   const initialLiquidity = new BN(20_000_000);
 
   before(async () => {
     await ensureSetup();
+    const deadline = Math.floor(Date.now() / 1000) + 15;
     const mkt = await createContinuousMarket({
       numBins: NUM_BINS,
       rangeMin: RANGE_MIN,
@@ -296,6 +296,24 @@ describe("Sell Distribution on Continuous Market", () => {
     const binaryMkt = await createBinaryMarket();
     const [posA] = findUserPosition(binaryMkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
     const traderAAta = await getAssociatedTokenAddress(ctx.collateralMint, ctx.traderA.publicKey);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(5_000_000));
+
+    // Create user_position by buying first, so the account exists for sell_distribution
+    await ctx.program.methods
+      .buy({ outcome: 0, collateralAmount: new BN(2_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: binaryMkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: binaryMkt.vaultAuthority,
+        vault: binaryMkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
 
     try {
       await ctx.program.methods
