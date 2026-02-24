@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MarketEntity } from './market.entity';
-import { TradeEntity } from './trade.entity';
+import { MarketEntity } from './entity/market.entity';
+import { TradeEntity } from './entity/trade.entity';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 

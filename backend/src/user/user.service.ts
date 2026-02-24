@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
-import { UserPositionEntity } from './user-position.entity';
-import { LpPositionEntity } from './lp-position.entity';
-import { UserRoleEntity } from './user-role.entity';
-import { TradeEntity } from '../market/trade.entity';
-import { MarketEntity } from '../market/market.entity';
+import { UserPositionEntity } from './entity/user-position.entity';
+import { LpPositionEntity } from './entity/lp-position.entity';
+import { UserRoleEntity } from './entity/user-role.entity';
+import { TradeEntity } from '../market/entity/trade.entity';
+import { MarketEntity } from '../market/entity/market.entity';
 
 @Injectable()
 export class UserService {

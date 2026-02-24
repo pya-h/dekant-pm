@@ -2,11 +2,11 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserService } from './user.service';
 import { UserController, AdminController } from './user.controller';
-import { UserPositionEntity } from './user-position.entity';
-import { LpPositionEntity } from './lp-position.entity';
-import { UserRoleEntity } from './user-role.entity';
-import { TradeEntity } from '../market/trade.entity';
-import { MarketEntity } from '../market/market.entity';
+import { UserPositionEntity } from './entity/user-position.entity';
+import { LpPositionEntity } from './entity/lp-position.entity';
+import { UserRoleEntity } from './entity/user-role.entity';
+import { TradeEntity } from '../market/entity/trade.entity';
+import { MarketEntity } from '../market/entity/market.entity';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({

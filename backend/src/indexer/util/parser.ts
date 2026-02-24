@@ -1,5 +1,5 @@
 import { BorshCoder, EventParser, Event } from '@coral-xyz/anchor';
-import { IDL } from '../common/idl';
+import { IDL } from '../../common/idl';
 
 let eventParser: EventParser | null = null;
 

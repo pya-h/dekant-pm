@@ -12,7 +12,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
-import { AuthGuard } from '../auth/auth.guard';
+import { AuthGuard } from '../auth/guard/auth.guard';
 
 @ApiTags('users')
 @Controller('users')

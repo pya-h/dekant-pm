@@ -17,7 +17,7 @@ import {
 import { MarketService } from './market.service';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
-import { AuthGuard } from '../auth/auth.guard';
+import { AuthGuard } from '../auth/guard/auth.guard';
 
 @ApiTags('markets')
 @Controller('markets')
