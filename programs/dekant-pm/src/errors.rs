@@ -75,6 +75,18 @@ pub enum DekantPmError {
     #[msg("This instruction is not valid for this market type")]
     WrongMarketType,
 
+    #[msg("Target probability out of valid range")]
+    InvalidProbability,
+
+    #[msg("Target probability is already met or on the wrong side of current price")]
+    TargetAlreadyMet,
+
+    #[msg("Required collateral exceeds max_collateral")]
+    MaxCollateralExceeded,
+
+    #[msg("Returned collateral is below min_collateral_out")]
+    MinCollateralNotMet,
+
     // ── Settlement ───────────────────────────────────────────────────
     #[msg("Payout has already been claimed")]
     AlreadyClaimed,

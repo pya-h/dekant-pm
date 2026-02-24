@@ -1,6 +1,8 @@
 use dekant_pm::engine::amm::*;
 use dekant_pm::engine::sqrt::isqrt;
 use dekant_pm::constants::{SCALE, INVARIANT_TOLERANCE};
+use dekant_pm::errors::DekantPmError;
+use anchor_lang::prelude::error;
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -716,5 +718,177 @@ fn test_successive_buys_yield_fewer_tokens() {
     assert!(
         tokens_2 > tokens_3,
         "second buy should yield more than third: t2={tokens_2}, t3={tokens_3}"
+    );
+}
+
+// ── Price-targeted trading helpers ──────────────────────────────
+
+#[test]
+fn test_collateral_for_target_prob_binary_50_to_70() {
+    let reserves = init_reserves(2, L);
+    let effective = compute_collateral_for_target_prob(&reserves, L, 0, 700_000_000).unwrap();
+    assert!(effective > 0, "should need positive collateral to go from 50% to 70%");
+
+    // Verify: execute the buy and check the resulting probability.
+    let mut reserves_exec = reserves.clone();
+    compute_buy(&mut reserves_exec, L, 0, effective).unwrap();
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    // Should be close to 70% (700_000_000 / SCALE), within isqrt rounding.
+    let diff = if probs[0] > 700_000_000 {
+        probs[0] - 700_000_000
+    } else {
+        700_000_000 - probs[0]
+    };
+    assert!(
+        diff <= 2_000, // tolerance for isqrt rounding
+        "probability should be ~70%: got {}, diff={}",
+        probs[0], diff
+    );
+}
+
+#[test]
+fn test_collateral_for_target_prob_binary_50_to_90() {
+    let reserves = init_reserves(2, L);
+    let effective = compute_collateral_for_target_prob(&reserves, L, 0, 900_000_000).unwrap();
+    assert!(effective > 0);
+
+    let mut reserves_exec = reserves.clone();
+    compute_buy(&mut reserves_exec, L, 0, effective).unwrap();
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    let diff = if probs[0] > 900_000_000 {
+        probs[0] - 900_000_000
+    } else {
+        900_000_000 - probs[0]
+    };
+    assert!(
+        diff <= 2_000,
+        "probability should be ~90%: got {}, diff={}",
+        probs[0], diff
+    );
+}
+
+#[test]
+fn test_collateral_for_target_prob_multi_outcome() {
+    // 4-outcome market, uniform start (~25% each), buy outcome 2 to 40%.
+    let reserves = init_reserves(4, L);
+    let effective = compute_collateral_for_target_prob(&reserves, L, 2, 400_000_000).unwrap();
+    assert!(effective > 0);
+
+    let mut reserves_exec = reserves.clone();
+    compute_buy(&mut reserves_exec, L, 2, effective).unwrap();
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    let diff = if probs[2] > 400_000_000 {
+        probs[2] - 400_000_000
+    } else {
+        400_000_000 - probs[2]
+    };
+    assert!(
+        diff <= 5_000,
+        "probability should be ~40%: got {}, diff={}",
+        probs[2], diff
+    );
+}
+
+#[test]
+fn test_collateral_for_target_prob_invalid_zero() {
+    let reserves = init_reserves(2, L);
+    let err = compute_collateral_for_target_prob(&reserves, L, 0, 0).unwrap_err();
+    assert_eq!(err, error!(DekantPmError::InvalidProbability));
+}
+
+#[test]
+fn test_collateral_for_target_prob_invalid_scale() {
+    let reserves = init_reserves(2, L);
+    let err = compute_collateral_for_target_prob(&reserves, L, 0, SCALE).unwrap_err();
+    assert_eq!(err, error!(DekantPmError::InvalidProbability));
+}
+
+#[test]
+fn test_collateral_for_target_prob_target_below_current() {
+    let reserves = init_reserves(2, L);
+    // Current is ~50%, target 30% → should error (need to sell, not buy).
+    let err = compute_collateral_for_target_prob(&reserves, L, 0, 300_000_000).unwrap_err();
+    assert_eq!(err, error!(DekantPmError::TargetAlreadyMet));
+}
+
+#[test]
+fn test_tokens_for_target_prob_binary_50_to_30() {
+    // First buy outcome 0 to ~70%, then sell back toward 30%.
+    let mut reserves = init_reserves(2, L);
+    let buy_c = 500_000u64;
+    let tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
+    let tm = L + buy_c as u128;
+
+    let probs_before = compute_probabilities(&reserves, tm);
+    assert!(probs_before[0] > 500_000_000, "should be above 50% after buy");
+
+    let tokens_in = compute_tokens_for_target_prob(&reserves, tm, 0, 300_000_000).unwrap();
+    assert!(tokens_in > 0, "should need to sell some tokens");
+
+    // Execute the sell and verify probability.
+    let mut reserves_exec = reserves.clone();
+    let collateral_out = compute_sell(&mut reserves_exec, tm, 0, tokens_in).unwrap();
+    let tm_after = tm - collateral_out as u128;
+    let probs = compute_probabilities(&reserves_exec, tm_after);
+    let diff = if probs[0] > 300_000_000 {
+        probs[0] - 300_000_000
+    } else {
+        300_000_000 - probs[0]
+    };
+    assert!(
+        diff <= 5_000,
+        "probability should be ~30%: got {}, diff={}",
+        probs[0], diff
+    );
+}
+
+#[test]
+fn test_tokens_for_target_prob_target_above_current() {
+    let reserves = init_reserves(2, L);
+    // Current ~50%, target 70% → should error (need to buy, not sell).
+    let err = compute_tokens_for_target_prob(&reserves, L, 0, 700_000_000).unwrap_err();
+    assert_eq!(err, error!(DekantPmError::TargetAlreadyMet));
+}
+
+#[test]
+fn test_tokens_for_target_prob_to_zero() {
+    // Buy outcome 0 to ~70%, then sell to 0% (sell entire position).
+    let mut reserves = init_reserves(2, L);
+    let buy_c = 500_000u64;
+    let tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
+    let tm = L + buy_c as u128;
+
+    let tokens_in = compute_tokens_for_target_prob(&reserves, tm, 0, 0).unwrap();
+    // Should require selling the full position.
+    let x_i = tm - reserves[0] as u128;
+    assert_eq!(tokens_in, x_i as u64, "sell to 0% should sell entire position");
+}
+
+#[test]
+fn test_buy_then_sell_to_price_roundtrip() {
+    // Buy outcome 0 to 70%, then sell back to ~50%. Check market is near original.
+    let mut reserves = init_reserves(2, L);
+    let total_minted = L;
+
+    // Buy to 70%.
+    let buy_c = compute_collateral_for_target_prob(&reserves, total_minted, 0, 700_000_000).unwrap();
+    compute_buy(&mut reserves, total_minted, 0, buy_c).unwrap();
+    let tm_after_buy = total_minted + buy_c as u128;
+
+    // Sell back to 50%.
+    let sell_tokens = compute_tokens_for_target_prob(&reserves, tm_after_buy, 0, 500_000_000).unwrap();
+    let collateral_out = compute_sell(&mut reserves, tm_after_buy, 0, sell_tokens).unwrap();
+    let tm_final = tm_after_buy - collateral_out as u128;
+
+    let probs = compute_probabilities(&reserves, tm_final);
+    let diff = if probs[0] > 500_000_000 {
+        probs[0] - 500_000_000
+    } else {
+        500_000_000 - probs[0]
+    };
+    assert!(
+        diff <= 5_000,
+        "should be back near 50%: got {}, diff={}",
+        probs[0], diff
     );
 }

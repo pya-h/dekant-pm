@@ -76,6 +76,16 @@ pub mod dekant_pm {
         handle_sell(ctx, args)
     }
 
+    /// Buy outcome tokens to reach a target probability.
+    pub fn buy_to_price(ctx: Context<Buy>, args: BuyToPriceArgs) -> Result<()> {
+        handle_buy_to_price(ctx, args)
+    }
+
+    /// Sell outcome tokens to reach a target probability.
+    pub fn sell_to_price(ctx: Context<Sell>, args: SellToPriceArgs) -> Result<()> {
+        handle_sell_to_price(ctx, args)
+    }
+
     // ── Distribution Trading (Continuous) ────────────────────────────
 
     /// Buy across bins proportional to a Normal(mu, sigma) distribution.
