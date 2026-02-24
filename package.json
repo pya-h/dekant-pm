@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+    "test": "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/*.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
