@@ -22,7 +22,6 @@ export class AuthGuard implements CanActivate {
     const token = authHeader.slice(7);
     const payload = this.authService.verifyToken(token);
 
-    // Attach wallet address to request for downstream handlers
     (request as any).walletAddress = payload.sub;
     return true;
   }

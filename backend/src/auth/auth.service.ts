@@ -17,7 +17,6 @@ export class AuthService {
   constructor(private readonly jwtService: JwtService) {}
 
   createChallenge(walletAddress: string): { nonce: string; message: string } {
-    // Validate the wallet address
     try {
       new PublicKey(walletAddress);
     } catch {
@@ -30,7 +29,7 @@ export class AuthService {
     this.challenges.set(walletAddress, {
       nonce,
       message,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     return { nonce, message };
@@ -56,7 +55,6 @@ export class AuthService {
       throw new UnauthorizedException('Challenge expired');
     }
 
-    // Verify ed25519 signature
     const messageBytes = new TextEncoder().encode(challenge.message);
     const signatureBytes = Buffer.from(signature, 'base64');
     const publicKeyBytes = new PublicKey(walletAddress).toBytes();
@@ -71,7 +69,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid signature');
     }
 
-    // Clean up used challenge
     this.challenges.delete(walletAddress);
 
     const payload = { sub: walletAddress };

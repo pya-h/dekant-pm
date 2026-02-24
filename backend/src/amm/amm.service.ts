@@ -46,7 +46,6 @@ export class AmmService {
       effectiveCollateral,
     );
 
-    // Compute new reserves after trade
     const newReserves = [...reserves];
     for (let i = 0; i < newReserves.length; i++) {
       newReserves[i] += effectiveCollateral;
@@ -85,7 +84,6 @@ export class AmmService {
     const fee = Math.floor((grossCollateral * tradeFeesBps) / 10000);
     const collateralOut = grossCollateral - fee;
 
-    // Compute new reserves after trade
     const newReserves = [...reserves];
     newReserves[outcome] += tokenAmount;
     let kNewSq = 0;
@@ -135,7 +133,6 @@ export class AmmService {
       effectiveCollateral,
     );
 
-    // Compute new reserves
     const newReserves = [...reserves];
     for (let i = 0; i < newReserves.length; i++) {
       newReserves[i] += effectiveCollateral;
