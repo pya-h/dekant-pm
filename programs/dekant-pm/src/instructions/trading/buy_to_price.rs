@@ -48,11 +48,10 @@ pub fn handle_buy_to_price(ctx: Context<Buy>, args: BuyToPriceArgs) -> Result<()
     // Invert fees: gross = ceil(effective * 10000 / (10000 - fee_bps))
     let fee_bps = ctx.accounts.protocol_config.trade_fee_bps as u128;
     let fee_denom = 10_000u128 - fee_bps;
-    let gross_collateral = ((effective_collateral as u128)
+    let gross_collateral = (effective_collateral as u128)
         .checked_mul(10_000)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?
-        + fee_denom - 1) // ceiling division
-        / fee_denom;
+        .div_ceil(fee_denom);
     let gross_collateral = gross_collateral as u64;
 
     require!(

@@ -49,7 +49,6 @@ pub fn handle_resolve_market(
         market.transition_to_pending()?;
     }
 
-    // Market::resolve validates state, outcome bounds, and range for continuous.
     market.resolve(args.outcome, args.value, clock.unix_timestamp)?;
 
     emit!(MarketResolved {

@@ -74,9 +74,7 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
     let winning_tokens = position.holdings[winning_outcome];
     require!(winning_tokens > 0, DekantPmError::NothingToClaim);
 
-    // ── Compute payout ───────────────────────────────────────────────
-    // winning_tokens_total = total_minted - reserves[winning_outcome]
-    // (all tokens of the winning outcome that are held by traders)
+    // Total outstanding tokens of the winning outcome (held by traders).
     let winning_tokens_total = market
         .total_minted
         .checked_sub(market.reserves[winning_outcome] as u128)
@@ -84,15 +82,13 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
 
     require!(winning_tokens_total > 0, DekantPmError::NothingToClaim);
 
-    // payout_pool = vault_balance - lp_fee_accumulated - protocol_fee_accumulated
-    // Both fee pools belong to LPs / protocol, not to winning traders.
+    // Fee pools belong to LPs / protocol, not to winning traders.
     let vault_balance = ctx.accounts.vault.amount as u128;
     let payout_pool = vault_balance
         .checked_sub(market.lp_fee_accumulated)
         .and_then(|v| v.checked_sub(market.protocol_fee_accumulated as u128))
         .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
 
-    // gross_payout = winning_tokens * payout_pool / winning_tokens_total
     let gross_payout = mul_div(
         winning_tokens as u128,
         payout_pool,

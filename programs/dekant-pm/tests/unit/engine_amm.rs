@@ -1,6 +1,6 @@
 use dekant_pm::engine::amm::*;
 use dekant_pm::engine::sqrt::isqrt;
-use dekant_pm::constants::{SCALE, INVARIANT_TOLERANCE};
+use dekant_pm::constants::SCALE;
 use dekant_pm::errors::DekantPmError;
 use anchor_lang::prelude::error;
 
@@ -136,7 +136,7 @@ fn test_compute_buy_then_sell_roundtrip() {
     total_minted += 100_000;
 
     let collateral = compute_sell(&mut reserves, total_minted, 0, tokens).unwrap();
-    total_minted -= collateral as u128;
+    let _total_minted = total_minted - collateral as u128;
 
     // Should get back approximately the same collateral (within rounding).
     let diff = if collateral > 100_000 {
@@ -816,7 +816,7 @@ fn test_tokens_for_target_prob_binary_50_to_30() {
     // First buy outcome 0 to ~70%, then sell back toward 30%.
     let mut reserves = init_reserves(2, L);
     let buy_c = 500_000u64;
-    let tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
+    let _tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
     let tm = L + buy_c as u128;
 
     let probs_before = compute_probabilities(&reserves, tm);
@@ -855,7 +855,7 @@ fn test_tokens_for_target_prob_to_zero() {
     // Buy outcome 0 to ~70%, then sell to 0% (sell entire position).
     let mut reserves = init_reserves(2, L);
     let buy_c = 500_000u64;
-    let tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
+    let _tokens = compute_buy(&mut reserves, L, 0, buy_c).unwrap();
     let tm = L + buy_c as u128;
 
     let tokens_in = compute_tokens_for_target_prob(&reserves, tm, 0, 0).unwrap();

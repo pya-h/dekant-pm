@@ -2,8 +2,6 @@
 ///
 /// Returns ⌊√n⌋ such that result² ≤ n < (result+1)².
 /// Converges in ≤ 64 iterations for u128.
-///
-/// Implementation in task P-2.
 pub fn isqrt(n: u128) -> u128 {
     if n == 0 {
         return 0;

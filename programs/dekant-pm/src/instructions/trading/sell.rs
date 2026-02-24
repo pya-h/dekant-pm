@@ -91,7 +91,6 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         DekantPmError::InsufficientHoldings
     );
 
-    // compute_sell returns gross collateral before fees.
     let total_minted = market.total_minted;
     let collateral_out = amm::compute_sell(
         &mut market.reserves,
