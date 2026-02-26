@@ -6,13 +6,13 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BinaryInput } from "./binary-input";
 import { MultiOutcomeInput } from "./multi-outcome-input";
+import { DistributionInput } from "./distribution-input";
 import { CostPreview } from "./cost-preview";
 import { MarketType, MarketState, type MarketDetail } from "@/lib/types";
 
-interface TradeParams {
-  outcome: number;
-  amount: string;
-}
+type TradeParams =
+  | { outcome: number; amount: string }
+  | { mu: number; sigma: number; amount: string };
 
 interface TradingPanelProps {
   market: MarketDetail;
@@ -28,6 +28,8 @@ export function TradingPanel({ market }: TradingPanelProps) {
   );
 
   const isDisabled = market.state !== MarketState.Active;
+  const isContinuous = market.marketType === MarketType.Continuous;
+  const hasValidParams = params !== null && Number(params.amount) > 0;
 
   return (
     <Card className="border-primary/20">
@@ -57,8 +59,31 @@ export function TradingPanel({ market }: TradingPanelProps) {
       <CardContent className="space-y-4">
         {isDisabled ? (
           <DisabledMessage state={market.state} />
-        ) : market.marketType === MarketType.Continuous ? (
-          <ContinuousPlaceholder />
+        ) : isContinuous ? (
+          side === "sell" ? (
+            <SellUnavailable />
+          ) : (
+            <>
+              <DistributionInput
+                market={market}
+                onParamsChange={handleParamsChange}
+              />
+
+              {hasValidParams && params && "mu" in params && (
+                <CostPreview
+                  marketId={market.id}
+                  side="buy"
+                  mu={params.mu}
+                  sigma={params.sigma}
+                  amount={params.amount}
+                />
+              )}
+
+              <Button className="w-full" disabled={!hasValidParams}>
+                Place Buy Order
+              </Button>
+            </>
+          )
         ) : (
           <>
             {market.marketType === MarketType.Binary ? (
@@ -75,7 +100,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
               />
             )}
 
-            {params && Number(params.amount) > 0 && (
+            {hasValidParams && params && "outcome" in params && (
               <CostPreview
                 marketId={market.id}
                 side={side}
@@ -86,7 +111,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
 
             <Button
               className="w-full"
-              disabled={!params || Number(params.amount) <= 0}
+              disabled={!hasValidParams}
             >
               {side === "buy" ? "Place Buy Order" : "Place Sell Order"}
             </Button>
@@ -112,14 +137,14 @@ function DisabledMessage({ state }: { state: MarketState }) {
   );
 }
 
-function ContinuousPlaceholder() {
+function SellUnavailable() {
   return (
-    <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 text-center">
+    <div className="flex h-24 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 text-center">
       <p className="text-sm text-muted-foreground">
-        Distribution trading coming soon
+        Distribution selling coming soon
       </p>
       <p className="mt-1 text-xs text-muted-foreground/60">
-        Express your full probability distribution
+        Sell estimation for continuous markets is not yet available
       </p>
     </div>
   );

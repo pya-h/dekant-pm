@@ -2,18 +2,28 @@
 
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
-import { USDC_DECIMALS } from "@/lib/types";
+import { USDC_DECIMALS, SCALE } from "@/lib/types";
 
 interface CostPreviewProps {
   marketId: string;
   side: "buy" | "sell";
-  outcome: number;
   /** Human-readable amount (e.g. "10" for $10 USDC) */
   amount: string;
+  outcome?: number;
+  /** Distribution center (human-readable, for continuous markets) */
+  mu?: number;
+  /** Distribution width (human-readable, for continuous markets) */
+  sigma?: number;
 }
 
 interface BuyEstimate {
   tokensOut: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
+interface DistributionBuyEstimate {
+  tokensPerBin: number[];
   fee: number;
   newProbabilities: number[];
 }
@@ -27,15 +37,18 @@ interface SellEstimate {
 export function CostPreview({
   marketId,
   side,
-  outcome,
   amount,
+  outcome,
+  mu,
+  sigma,
 }: CostPreviewProps) {
-  const [estimate, setEstimate] = useState<BuyEstimate | SellEstimate | null>(
-    null,
-  );
+  type Estimate = BuyEstimate | DistributionBuyEstimate | SellEstimate;
+  const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const isDistribution = mu !== undefined && sigma !== undefined;
 
   useEffect(() => {
     setError(null);
@@ -52,16 +65,29 @@ export function CostPreview({
       setIsLoading(true);
       try {
         if (side === "buy") {
-          const res = await api.post<BuyEstimate>("/amm/estimate-buy", {
-            marketId: Number(marketId),
-            outcome,
-            amount: rawAmount,
-          });
-          setEstimate(res);
+          if (isDistribution) {
+            const res = await api.post<DistributionBuyEstimate>(
+              "/amm/estimate-buy",
+              {
+                marketId: Number(marketId),
+                mu: mu * SCALE,
+                sigma: sigma * SCALE,
+                amount: rawAmount,
+              },
+            );
+            setEstimate(res);
+          } else {
+            const res = await api.post<BuyEstimate>("/amm/estimate-buy", {
+              marketId: Number(marketId),
+              outcome: outcome ?? 0,
+              amount: rawAmount,
+            });
+            setEstimate(res);
+          }
         } else {
           const res = await api.post<SellEstimate>("/amm/estimate-sell", {
             marketId: Number(marketId),
-            outcome,
+            outcome: outcome ?? 0,
             amount: rawAmount,
           });
           setEstimate(res);
@@ -78,7 +104,7 @@ export function CostPreview({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [marketId, side, outcome, amount]);
+  }, [marketId, side, outcome, amount, mu, sigma, isDistribution]);
 
   if (!estimate && !isLoading && !error) return null;
 
@@ -93,11 +119,29 @@ export function CostPreview({
         <p className="text-xs text-destructive">{error}</p>
       ) : estimate ? (
         <dl className="space-y-1.5">
-          {side === "buy" && "tokensOut" in estimate ? (
+          {"tokensPerBin" in estimate ? (
+            <>
+              <PreviewRow
+                label="Trade fee"
+                value={formatUsdcRaw(estimate.fee)}
+              />
+              <PreviewRow
+                label="Peak payout"
+                value={formatUsdcRaw(
+                  Math.max(
+                    ...(estimate as DistributionBuyEstimate).tokensPerBin,
+                  ),
+                )}
+                highlight
+              />
+            </>
+          ) : "tokensOut" in estimate ? (
             <>
               <PreviewRow
                 label="Shares received"
-                value={formatTokens(estimate.tokensOut)}
+                value={formatTokens(
+                  (estimate as BuyEstimate).tokensOut,
+                )}
               />
               <PreviewRow
                 label="Trade fee"
@@ -105,7 +149,9 @@ export function CostPreview({
               />
               <PreviewRow
                 label="Max payout"
-                value={formatUsdcRaw(estimate.tokensOut)}
+                value={formatUsdcRaw(
+                  (estimate as BuyEstimate).tokensOut,
+                )}
                 highlight
               />
             </>
