@@ -77,6 +77,7 @@ FRONTEND                                                    │
                                                   (E2E smoke)
 
   F-7 + B-9 ──► F-14 (continuous sell UI)
+  F-8 ──► F-15 (buy-to-price / sell-to-price UI)
 
 DEVKIT (program interaction scripts)
   S-1 ──► S-2 ──► S-3 ──► S-4
@@ -1343,6 +1344,35 @@ DEVKIT (program interaction scripts)
 - Fee displayed correctly
 
 **Depends on:** F-7, B-9
+
+---
+
+### F-15: Buy-to-Price & Sell-to-Price Trading UI
+
+**Goal:** Add target-price trading to the frontend, allowing traders to buy/sell until a specific outcome probability is reached.
+
+**Deliverable — `components/trading/TradingPanel.tsx` (update):**
+- Add a "Target Price" mode toggle alongside the existing amount-based trading
+- When active, user enters a target probability (0–100%) instead of a collateral amount
+- On submit, compute the required collateral amount to reach the target probability and execute the trade
+
+**Deliverable — `components/trading/target-price-input.tsx` (new):**
+- Target probability input (numeric, 0–100%)
+- Display current probability for the selected outcome
+- Estimated cost preview: compute how much collateral is needed to move price from current to target
+- Works for Binary and MultiOutcome markets (discrete outcomes only)
+
+**Deliverable — `lib/transactions.ts` (update):**
+- Add `executeBuyToPrice()` and `executeSellToPrice()` that call the on-chain `buy_to_price` / `sell_to_price` instructions
+- These instructions already exist in the program (P-12/P-13)
+
+**Tests (manual):**
+- Select target price mode → probability input appears
+- Enter target probability → estimated cost displayed
+- Execute → outcome probability moves to (or near) target
+- Verify works for both binary and multi-outcome markets
+
+**Depends on:** F-8
 
 ---
 
