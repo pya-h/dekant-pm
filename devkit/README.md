@@ -285,15 +285,23 @@ npx ts-node src/trade.ts remove-lp 0 all
 ### View Position
 
 ```bash
+# Your position
 npx ts-node src/trade.ts position 0
+
+# Another wallet's position
+npx ts-node src/trade.ts position 0 --wallet 7xKX...abc
 ```
 
 ### Fund Wallet (Localnet Only)
 
-Mint test collateral tokens to your wallet from a market's mint authority.
+Mint test collateral tokens from a market's mint authority.
 
 ```bash
+# Fund yourself
 npx ts-node src/trade.ts fund 0 500
+
+# Fund another wallet (e.g. Phantom)
+npx ts-node src/trade.ts fund 0 500 --wallet 7xKX...abc
 ```
 
 ---
@@ -442,6 +450,21 @@ Show vault balance, authority PDA, and fee accumulation for a market.
 
 ```bash
 npx ts-node src/query.ts vault 0
+```
+
+### `query balance`
+
+Show SOL and collateral token balances for a wallet.
+
+```bash
+# Your balances
+npx ts-node src/query.ts balance
+
+# Another wallet's balances
+npx ts-node src/query.ts balance --wallet 7xKX...abc
+
+# Only show collateral for a specific market
+npx ts-node src/query.ts balance --market 0
 ```
 
 ---
@@ -594,3 +617,4 @@ npx ts-node src/market.ts claim 1
 | | `lp <id>` | LP position with share % |
 | | `roles <wallet>` | Role checklist + superadmin |
 | | `vault <id>` | Vault balance & fees |
+| | `balance` | SOL + collateral balances |

@@ -428,13 +428,15 @@ program_
 // ─── position ────────────────────────────────────────────────────────────────
 program_
   .command("position")
-  .description("View your position in a market")
+  .description("View a user's position in a market")
   .argument("<market-id>", "Market ID")
-  .action(async (marketIdStr) => {
+  .option("--wallet <address>", "Wallet to query (default: signer)")
+  .action(async (marketIdStr, opts) => {
     const ctx = loadContext();
     const marketId = parseInt(marketIdStr, 10);
+    const wallet = opts.wallet ? new PublicKey(opts.wallet) : ctx.keypair.publicKey;
     const [marketPda] = findMarket(marketId, ctx.programId);
-    const [userPosition] = findUserPosition(marketPda, ctx.keypair.publicKey, ctx.programId);
+    const [userPosition] = findUserPosition(marketPda, wallet, ctx.programId);
 
     try {
       const position = await ctx.program.account.userPosition.fetch(userPosition);
@@ -450,34 +452,41 @@ program_
       ]);
 
       console.log("\n  Holdings:");
+      let hasHoldings = false;
       for (let i = 0; i < position.holdings.length; i++) {
         const h = position.holdings[i];
         if (h.toNumber() > 0) {
+          hasHoldings = true;
           const label = outcomeLabel(market.marketType, i);
           console.log(`    ${label.padEnd(12)} ${h.toString()}`);
         }
       }
+      if (!hasHoldings) {
+        console.log("    (no holdings)");
+      }
     } catch (e: any) {
-      console.log(`  No position found for market #${marketId}`);
+      console.log(`  No position found for wallet ${wallet.toBase58()} in market #${marketId}`);
     }
   });
 
 // ─── fund ────────────────────────────────────────────────────────────────────
 program_
   .command("fund")
-  .description("Mint collateral tokens to your wallet (localnet only)")
+  .description("Mint collateral tokens to a wallet (localnet only)")
   .argument("<market-id>", "Market ID (to get the collateral mint)")
   .argument("<amount>", "Amount to mint (human-readable)")
-  .action(async (marketIdStr, amountStr) => {
+  .option("--wallet <address>", "Target wallet to fund (default: signer)")
+  .action(async (marketIdStr, amountStr, opts) => {
     const ctx = loadContext();
     const marketId = parseInt(marketIdStr, 10);
     const [marketPda] = findMarket(marketId, ctx.programId);
 
+    const target = opts.wallet ? new PublicKey(opts.wallet) : ctx.keypair.publicKey;
     const market = await ctx.program.account.market.fetch(marketPda);
     const ata = await getOrCreateAta(
       ctx.connection,
       market.collateralMint,
-      ctx.keypair.publicKey,
+      target,
       ctx.keypair
     );
 
@@ -485,7 +494,8 @@ program_
     await mintTokens(ctx.connection, market.collateralMint, ata, ctx.keypair, BigInt(amount.toString()));
 
     const balance = await getTokenBalance(ctx.connection, ata);
-    console.log(`  Minted ${amountStr} tokens. New balance: ${formatTokenAmount(balance)}`);
+    console.log(`  Minted ${amountStr} tokens to ${target.toBase58()}`);
+    console.log(`  New balance: ${formatTokenAmount(balance)}`);
   });
 
 program_.parse(process.argv);

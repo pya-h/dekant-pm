@@ -296,4 +296,4 @@ export function outcomeLabel(marketType: number, index: number): string {
 }
 
 // Re-export for convenience
-export { BN, PublicKey, Keypair, SystemProgram, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };
+export { BN, PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };

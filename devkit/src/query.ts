@@ -24,6 +24,7 @@ import {
   MARKET_TYPE_NAMES,
   MARKET_STATE_NAMES,
   SCALE,
+  LAMPORTS_PER_SOL,
   BN,
   PublicKey,
 } from "./common";
@@ -336,6 +337,68 @@ program_
       ["Protocol fees", formatTokenAmount(market.protocolFeeAccumulated)],
       ["LP fees", market.lpFeeAccumulated.toString()],
     ]);
+  });
+
+// ─── balance ────────────────────────────────────────────────────────────────
+program_
+  .command("balance")
+  .description("Show SOL and collateral token balances for a wallet")
+  .option("--wallet <address>", "Wallet to query (default: signer)")
+  .option("--market <id>", "Market ID to show collateral balance for (shows all if omitted)")
+  .action(async (opts) => {
+    const ctx = loadContext();
+    const wallet = opts.wallet ? new PublicKey(opts.wallet) : ctx.keypair.publicKey;
+
+    console.log(`\nBalances for ${wallet.toBase58()}:\n`);
+
+    // SOL balance
+    const solBalance = await ctx.connection.getBalance(wallet);
+    console.log(`  SOL: ${(solBalance / LAMPORTS_PER_SOL).toFixed(9)}`);
+
+    // Get market count
+    const [protocolConfig] = findProtocolConfig(ctx.programId);
+    const config = await ctx.program.account.protocolConfig.fetch(protocolConfig);
+    const totalMarkets = config.marketCount.toNumber();
+
+    // Collect unique collateral mints
+    const mintsSeen = new Map<string, { marketIds: number[]; mint: PublicKey }>();
+
+    const marketIds = opts.market !== undefined
+      ? [parseInt(opts.market, 10)]
+      : Array.from({ length: totalMarkets }, (_, i) => i);
+
+    for (const id of marketIds) {
+      try {
+        const [pda] = findMarket(id, ctx.programId);
+        const market = await ctx.program.account.market.fetch(pda);
+        const mintKey = market.collateralMint.toBase58();
+        if (mintsSeen.has(mintKey)) {
+          mintsSeen.get(mintKey)!.marketIds.push(id);
+        } else {
+          mintsSeen.set(mintKey, { marketIds: [id], mint: market.collateralMint });
+        }
+      } catch {}
+    }
+
+    if (mintsSeen.size === 0) {
+      console.log("\n  No markets found.");
+      return;
+    }
+
+    console.log("");
+    for (const [mintKey, { marketIds: ids, mint }] of mintsSeen) {
+      try {
+        const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
+        const ata = getAssociatedTokenAddressSync(mint, wallet);
+        const balance = await getTokenBalance(ctx.connection, ata);
+        const marketsLabel = ids.length <= 5 ? ids.join(", ") : `${ids.slice(0, 5).join(", ")}...`;
+        console.log(`  Collateral (markets ${marketsLabel}):`);
+        console.log(`    Mint:    ${mintKey}`);
+        console.log(`    Balance: ${formatTokenAmount(balance)}`);
+      } catch {
+        // ATA doesn't exist — wallet has no tokens of this mint
+      }
+    }
   });
 
 // ─── helpers ────────────────────────────────────────────────────────────────
