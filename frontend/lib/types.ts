@@ -77,18 +77,18 @@ export interface MarketFilters {
 // AMM probability computation (client-side, matches backend getPrices logic)
 // ---------------------------------------------------------------------------
 
-export function computeProbabilities(reserves: string[]): number[] {
+export function computeProbabilities(
+  reserves: string[],
+  totalMinted: string | number,
+): number[] {
   const n = reserves.length;
   if (n === 0) return [];
-  const nums = reserves.map(Number);
-  const totalInvSq = nums.reduce((sum, r) => {
-    if (r === 0) return sum;
-    return sum + 1 / (r * r);
-  }, 0);
-  if (totalInvSq === 0) return Array(n).fill(1 / n);
-  return nums.map((r) => {
-    if (r === 0) return 0;
-    return 1 / (r * r) / totalInvSq;
+  const k = Number(totalMinted);
+  if (k === 0) return Array(n).fill(1 / n);
+  const kSq = k * k;
+  return reserves.map((r) => {
+    const x = k - Number(r);
+    return (x * x) / kSq;
   });
 }
 
