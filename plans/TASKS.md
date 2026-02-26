@@ -1048,7 +1048,7 @@ FRONTEND
 
 ---
 
-### F-5: Market Detail Page — Info & Chart ⬅️
+### F-5: Market Detail Page — Info & Chart ✅
 
 **Goal:** Build the market detail page showing market info and current probability distribution.
 
@@ -1075,7 +1075,7 @@ FRONTEND
 
 ---
 
-### F-6: Trading Panel — Binary & Multi-Outcome Input
+### F-6: Trading Panel — Binary & Multi-Outcome Input ⬅️
 
 **Goal:** Build the trading input components for discrete markets.
 
