@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { PublicKey } from "@solana/web3.js";
+import { Loader2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +14,16 @@ import { MultiOutcomeInput } from "./multi-outcome-input";
 import { DistributionInput } from "./distribution-input";
 import { CostPreview } from "./cost-preview";
 import { MarketType, MarketState, type MarketDetail } from "@/lib/types";
+import { useProgram } from "@/lib/solana";
+import {
+  executeBuy,
+  executeSell,
+  executeBuyDistribution,
+} from "@/lib/transactions";
+import {
+  showTradeSuccess,
+  showTradeError,
+} from "@/components/common/transaction-toast";
 
 type TradeParams =
   | { outcome: number; amount: string }
@@ -21,6 +36,12 @@ interface TradingPanelProps {
 export function TradingPanel({ market }: TradingPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [params, setParams] = useState<TradeParams | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const { publicKey, connected } = useWallet();
+  const { setVisible } = useWalletModal();
+  const program = useProgram();
+  const queryClient = useQueryClient();
 
   const handleParamsChange = useCallback(
     (p: TradeParams | null) => setParams(p),
@@ -30,6 +51,82 @@ export function TradingPanel({ market }: TradingPanelProps) {
   const isDisabled = market.state !== MarketState.Active;
   const isContinuous = market.marketType === MarketType.Continuous;
   const hasValidParams = params !== null && Number(params.amount) > 0;
+
+  const handleSubmit = useCallback(async () => {
+    if (!connected || !publicKey || !program) {
+      setVisible(true);
+      return;
+    }
+    if (!params) return;
+
+    setLoading(true);
+    try {
+      const marketPubkey = new PublicKey(market.pubkey);
+      let signature: string;
+
+      if (side === "buy") {
+        if (isContinuous && "mu" in params) {
+          signature = await executeBuyDistribution(
+            program,
+            marketPubkey,
+            publicKey,
+            params.mu,
+            params.sigma,
+            params.amount,
+          );
+        } else if ("outcome" in params) {
+          signature = await executeBuy(
+            program,
+            marketPubkey,
+            publicKey,
+            params.outcome,
+            params.amount,
+          );
+        } else {
+          return;
+        }
+      } else {
+        if ("outcome" in params) {
+          signature = await executeSell(
+            program,
+            marketPubkey,
+            publicKey,
+            params.outcome,
+            params.amount,
+          );
+        } else {
+          return;
+        }
+      }
+
+      showTradeSuccess(signature, side === "buy" ? "Buy" : "Sell");
+      queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+      setParams(null);
+    } catch (error) {
+      showTradeError(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    connected,
+    publicKey,
+    program,
+    params,
+    side,
+    market.pubkey,
+    market.id,
+    isContinuous,
+    setVisible,
+    queryClient,
+  ]);
+
+  const buttonLabel = !connected
+    ? "Connect Wallet"
+    : loading
+      ? "Confirming..."
+      : side === "buy"
+        ? "Place Buy Order"
+        : "Place Sell Order";
 
   return (
     <Card className="border-primary/20">
@@ -79,8 +176,15 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 />
               )}
 
-              <Button className="w-full" disabled={!hasValidParams}>
-                Place Buy Order
+              <Button
+                className="w-full"
+                disabled={(!hasValidParams && connected) || loading}
+                onClick={handleSubmit}
+              >
+                {loading && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {buttonLabel}
               </Button>
             </>
           )
@@ -111,9 +215,11 @@ export function TradingPanel({ market }: TradingPanelProps) {
 
             <Button
               className="w-full"
-              disabled={!hasValidParams}
+              disabled={(!hasValidParams && connected) || loading}
+              onClick={handleSubmit}
             >
-              {side === "buy" ? "Place Buy Order" : "Place Sell Order"}
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {buttonLabel}
             </Button>
           </>
         )}
