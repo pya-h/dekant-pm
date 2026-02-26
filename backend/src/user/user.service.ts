@@ -32,6 +32,16 @@ export class UserService {
     });
   }
 
+  async getPositionByMarket(
+    walletAddress: string,
+    marketId: string,
+  ): Promise<UserPositionEntity | null> {
+    return this.positionRepo.findOne({
+      where: { userAddress: walletAddress, marketId },
+      relations: ['market'],
+    });
+  }
+
   async getTradeHistory(
     walletAddress: string,
     page = 1,

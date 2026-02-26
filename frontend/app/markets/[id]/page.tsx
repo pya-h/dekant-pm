@@ -17,6 +17,7 @@ import {
   timeUntil,
 } from "@/lib/types";
 import { TradingPanel } from "@/components/trading/trading-panel";
+import { UserPositionDisplay } from "@/components/trading/user-position-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -117,6 +118,9 @@ export default function MarketDetailPage({
               />
             </CardContent>
           </Card>
+
+          {/* User position (only shows when wallet connected & has holdings) */}
+          <UserPositionDisplay market={market} />
 
           {/* Market details table */}
           <Card>

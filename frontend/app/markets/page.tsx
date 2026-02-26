@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useDeferredValue } from "react";
+import { useState, useDeferredValue, useMemo } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
+import { useUserPositions } from "@/hooks/use-positions";
 import { MarketCard } from "@/components/market/market-card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,7 +15,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MarketType, MarketState, type MarketFilters } from "@/lib/types";
+import { MarketType, MarketState, type MarketFilters, type UserPosition } from "@/lib/types";
 import { Search, SlidersHorizontal, ArrowUpDown, Tag } from "lucide-react";
 
 const typeOptions = [
@@ -46,6 +48,21 @@ export default function MarketsPage() {
   const deferredCategory = useDeferredValue(category);
   const [sortBy, setSortBy] = useState<MarketFilters["sortBy"]>("newest");
   const [page, setPage] = useState(1);
+
+  const { publicKey } = useWallet();
+  const address = publicKey?.toBase58();
+  const { data: positions } = useUserPositions(address);
+
+  // Build map of marketId -> UserPosition for markets with non-zero holdings
+  const positionMap = useMemo(() => {
+    if (!positions) return new Map<string, UserPosition>();
+    const map = new Map<string, UserPosition>();
+    for (const pos of positions) {
+      const hasHoldings = pos.holdings.some((h) => Number(h) > 0);
+      if (hasHoldings) map.set(pos.marketId, pos);
+    }
+    return map;
+  }, [positions]);
 
   const limit = 20;
 
@@ -202,7 +219,7 @@ export default function MarketsPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.data.map((market) => (
-              <MarketCard key={market.id} market={market} />
+              <MarketCard key={market.id} market={market} userPosition={positionMap.get(market.id)} />
             ))}
           </div>
 

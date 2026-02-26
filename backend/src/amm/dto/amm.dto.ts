@@ -28,6 +28,50 @@ export class EstimateBuyDto {
   sigma?: number;
 }
 
+export class EstimateBuyBySharesDto {
+  @ApiProperty({ description: 'Market ID' })
+  @IsNumber()
+  @IsNotEmpty()
+  marketId!: number;
+
+  @ApiProperty({ description: 'Outcome index' })
+  @IsNumber()
+  @IsNotEmpty()
+  outcome!: number;
+
+  @ApiProperty({ description: 'Desired token amount (base units)' })
+  @IsNumber()
+  @IsNotEmpty()
+  desiredTokens!: number;
+}
+
+export class EstimateSellByCollateralDto {
+  @ApiProperty({ description: 'Market ID' })
+  @IsNumber()
+  @IsNotEmpty()
+  marketId!: number;
+
+  @ApiPropertyOptional({ description: 'Outcome index (discrete markets)' })
+  @IsNumber()
+  @IsOptional()
+  outcome?: number;
+
+  @ApiProperty({ description: 'Desired collateral received (base units)' })
+  @IsNumber()
+  @IsNotEmpty()
+  desiredCollateral!: number;
+
+  @ApiPropertyOptional({ description: 'Distribution center (continuous markets)' })
+  @IsNumber()
+  @IsOptional()
+  mu?: number;
+
+  @ApiPropertyOptional({ description: 'Distribution width (continuous markets)' })
+  @IsNumber()
+  @IsOptional()
+  sigma?: number;
+}
+
 export class EstimateSellDto {
   @ApiProperty({ description: 'Market ID' })
   @IsNumber()
