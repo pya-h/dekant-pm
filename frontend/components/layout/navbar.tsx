@@ -12,7 +12,7 @@ import { Menu, X } from "lucide-react";
 
 const navLinks: { href: string; label: string; soon?: boolean }[] = [
   { href: "/markets", label: "Markets" },
-  { href: "/portfolio", label: "Portfolio", soon: true },
+  { href: "/portfolio", label: "Portfolio" },
   { href: "/admin", label: "Admin", soon: true },
   { href: "/oracle", label: "Oracle", soon: true },
 ];

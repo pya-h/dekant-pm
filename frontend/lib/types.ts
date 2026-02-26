@@ -59,6 +59,30 @@ export interface MarketSummary {
 // Same as MarketSummary -- the backend returns the full entity for both list and detail.
 export type MarketDetail = MarketSummary;
 
+// Matches UserPositionEntity with nested market relation.
+export interface UserPosition {
+  id: string;
+  marketId: string;
+  market: MarketSummary;
+  userAddress: string;
+  holdings: string[];
+  totalDeposited: string;
+  totalWithdrawn: string;
+  claimed: boolean;
+  updatedAt: string;
+}
+
+// Matches LpPositionEntity with nested market relation.
+export interface LpPosition {
+  id: string;
+  marketId: string;
+  market: MarketSummary;
+  userAddress: string;
+  shares: string;
+  depositedCollateral: string;
+  updatedAt: string;
+}
+
 // Backend findAll returns { data, total } -- no page/limit/hasMore
 export interface PaginatedResponse<T> {
   data: T[];
