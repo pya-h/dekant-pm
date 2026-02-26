@@ -31,6 +31,14 @@ export class AmmController {
   @ApiOperation({ summary: 'Estimate sell return' })
   @ApiResponse({ status: 200, description: 'Sell estimate' })
   estimateSell(@Body() dto: EstimateSellDto) {
+    if (dto.mu !== undefined && dto.sigma !== undefined) {
+      return this.ammService.estimateDistributionSell(
+        dto.marketId,
+        dto.mu,
+        dto.sigma,
+        dto.amount,
+      );
+    }
     return this.ammService.estimateSell(
       dto.marketId,
       dto.outcome ?? 0,

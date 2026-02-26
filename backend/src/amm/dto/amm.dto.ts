@@ -43,4 +43,14 @@ export class EstimateSellDto {
   @IsNumber()
   @IsNotEmpty()
   amount!: number;
+
+  @ApiPropertyOptional({ description: 'Distribution center (continuous markets)' })
+  @IsNumber()
+  @IsOptional()
+  mu?: number;
+
+  @ApiPropertyOptional({ description: 'Distribution width (continuous markets)' })
+  @IsNumber()
+  @IsOptional()
+  sigma?: number;
 }
