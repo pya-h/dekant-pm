@@ -1162,7 +1162,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-8: Trade Execution & Transaction Flow
+### F-8: Trade Execution & Transaction Flow ✅
 
 **Goal:** Wire up the "Place Trade" button to build, sign, and submit Solana transactions.
 
