@@ -10,6 +10,7 @@ import { MarketTypeBadge } from "./market-type-badge";
 import {
   MarketType,
   type MarketSummary,
+  computeProbabilities,
   formatUsdc,
   formatProbability,
   timeUntil,
@@ -21,7 +22,7 @@ interface MarketCardProps {
 
 export function MarketCard({ market }: MarketCardProps) {
   return (
-    <Link href={`/markets/${market.marketId}`} className="group block">
+    <Link href={`/markets/${market.id}`} className="group block">
       <Card className="h-full transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
         <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-3">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -57,7 +58,10 @@ export function MarketCard({ market }: MarketCardProps) {
 }
 
 function ProbabilityDisplay({ market }: { market: MarketSummary }) {
-  const { marketType, probabilities, outcomeLabels } = market;
+  const { marketType, reserves, outcomeLabels } = market;
+  const probabilities = computeProbabilities(reserves);
+
+  if (probabilities.length === 0) return null;
 
   if (marketType === MarketType.Binary && probabilities.length >= 2) {
     const yesLabel = outcomeLabels?.[0] ?? "Yes";
@@ -110,22 +114,26 @@ function ProbabilityDisplay({ market }: { market: MarketSummary }) {
   }
 
   // Continuous
-  if (marketType === MarketType.Continuous) {
+  if (marketType === MarketType.Continuous && probabilities.length > 0) {
     const maxP = Math.max(...probabilities);
+    if (maxP === 0) return null;
     const peakIdx = probabilities.indexOf(maxP);
-    const { rangeMin, rangeMax, numOutcomes } = market;
+    const rMin = market.rangeMin != null ? Number(market.rangeMin) : null;
+    const rMax = market.rangeMax != null ? Number(market.rangeMax) : null;
     const binWidth =
-      rangeMin != null && rangeMax != null
-        ? (rangeMax - rangeMin) / numOutcomes
+      rMin != null && rMax != null ? (rMax - rMin) / market.numOutcomes : null;
+    const peakValue =
+      binWidth != null && rMin != null
+        ? rMin + binWidth * (peakIdx + 0.5)
         : null;
-    const peakValue = binWidth != null && rangeMin != null
-      ? rangeMin + binWidth * (peakIdx + 0.5)
-      : null;
     return (
       <div className="space-y-1.5">
         {peakValue != null && (
           <div className="text-xs text-muted-foreground">
-            Peak: <span className="font-medium text-foreground">${peakValue.toFixed(2)}</span>
+            Peak:{" "}
+            <span className="font-medium text-foreground">
+              ${peakValue.toFixed(2)}
+            </span>
           </div>
         )}
         <div className="flex h-8 items-end gap-px">

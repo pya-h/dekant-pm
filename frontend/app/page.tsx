@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WalletButton } from "@/components/common/wallet-button";
@@ -18,7 +19,9 @@ export default function Home() {
         </p>
       </div>
       <div className="flex gap-4">
-        <Button size="lg">Explore Markets</Button>
+        <Button asChild size="lg">
+          <Link href="/markets">Explore Markets</Link>
+        </Button>
         <WalletButton />
       </div>
     </div>
