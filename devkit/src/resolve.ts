@@ -2,11 +2,7 @@
 import { Command } from "commander";
 import {
   loadContext,
-  findProtocolConfig,
   findMarket,
-  findVaultAuthority,
-  findUserPosition,
-  getOrCreateAta,
   getTokenBalance,
   formatTokenAmount,
   formatTimestamp,
@@ -19,8 +15,6 @@ import {
   MARKET_STATE_NAMES,
   SCALE,
   BN,
-  PublicKey,
-  TOKEN_PROGRAM_ID,
 } from "./common";
 
 const program_ = new Command();
@@ -34,7 +28,7 @@ program_
   .command("market")
   .description("Resolve a market (signer must be the assigned oracle)")
   .argument("<market-id>", "Market ID (numeric)")
-  .argument("<outcome>", "Winning outcome index (0-based) for binary/multi, or --value for continuous")
+  .argument("[outcome]", "Winning outcome index (0-based) — required for binary/multi, ignored for continuous")
   .option("--value <number>", "Resolved value for continuous markets (human-readable)")
   .action(async (marketIdStr, outcomeStr, opts) => {
     const ctx = loadContext();
@@ -46,13 +40,21 @@ program_
     let outcome: number;
     let value: BN;
 
-    if (market.marketType === MARKET_TYPE_CONTINUOUS && opts.value) {
+    if (market.marketType === MARKET_TYPE_CONTINUOUS) {
+      if (!opts.value) {
+        console.error("Error: --value <number> is required for continuous market resolution");
+        process.exit(1);
+      }
       // Continuous resolution: value determines the winning bin
       value = new BN(opts.value).mul(SCALE);
-      outcome = parseInt(outcomeStr, 10); // ignored on-chain for continuous, but required
+      outcome = outcomeStr != null ? parseInt(outcomeStr, 10) : 0;
       console.log(`Resolving continuous market #${marketId} with value ${opts.value}...`);
     } else {
       // Binary/multi resolution: outcome is the winning index
+      if (outcomeStr == null) {
+        console.error("Error: <outcome> index is required for binary/multi market resolution");
+        process.exit(1);
+      }
       outcome = parseInt(outcomeStr, 10);
       value = new BN(0);
       const label = market.marketType === MARKET_TYPE_BINARY
@@ -81,65 +83,6 @@ program_
         ? [["Resolved value", (Number(resolved.resolvedValue.toString()) / Number(SCALE.toString())).toString()] as [string, string]]
         : []),
     ]);
-  });
-
-// ─── claim ───────────────────────────────────────────────────────────────────
-program_
-  .command("claim")
-  .description("Claim payout from a resolved market")
-  .argument("<market-id>", "Market ID (numeric)")
-  .action(async (marketIdStr) => {
-    const ctx = loadContext();
-    const marketId = parseInt(marketIdStr, 10);
-    const [protocolConfig] = findProtocolConfig(ctx.programId);
-    const [marketPda] = findMarket(marketId, ctx.programId);
-    const [vaultAuthority] = findVaultAuthority(marketPda, ctx.programId);
-    const [userPosition] = findUserPosition(marketPda, ctx.keypair.publicKey, ctx.programId);
-
-    const market = await ctx.program.account.market.fetch(marketPda);
-    const traderAta = await getOrCreateAta(
-      ctx.connection,
-      market.collateralMint,
-      ctx.keypair.publicKey,
-      ctx.keypair
-    );
-
-    // Show holdings before claim
-    try {
-      const position = await ctx.program.account.userPosition.fetch(userPosition);
-      if (position.claimed) {
-        console.log(`  Payout already claimed for market #${marketId}`);
-        return;
-      }
-      console.log(`Claiming payout from market #${marketId}...`);
-      console.log(`  Winning outcome: ${market.resolvedOutcome}`);
-      const winHoldings = position.holdings[market.resolvedOutcome];
-      console.log(`  Your winning holdings: ${winHoldings.toString()}`);
-    } catch {
-      console.log(`  No position found for market #${marketId}`);
-      return;
-    }
-
-    const balanceBefore = await getTokenBalance(ctx.connection, traderAta);
-
-    const tx = await ctx.program.methods
-      .claimPayout()
-      .accountsPartial({
-        trader: ctx.keypair.publicKey,
-        market: marketPda,
-        protocolConfig,
-        userPosition,
-        vaultAuthority,
-        vault: market.vault,
-        traderAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .rpc();
-
-    const balanceAfter = await getTokenBalance(ctx.connection, traderAta);
-
-    console.log(`  Payout claimed! Tx: ${tx}`);
-    console.log(`  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)}`);
   });
 
 // ─── info ────────────────────────────────────────────────────────────────────

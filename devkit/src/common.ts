@@ -288,5 +288,12 @@ export function printTable(rows: [string, string][]) {
   }
 }
 
+/** Human-readable label for an outcome/bin index given market type. */
+export function outcomeLabel(marketType: number, index: number): string {
+  if (marketType === MARKET_TYPE_BINARY) return index === 0 ? "Yes" : "No";
+  if (marketType === MARKET_TYPE_CONTINUOUS) return `Bin ${index}`;
+  return `Outcome ${index}`;
+}
+
 // Re-export for convenience
 export { BN, PublicKey, Keypair, SystemProgram, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };

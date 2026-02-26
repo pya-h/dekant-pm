@@ -6,6 +6,7 @@ import {
   findUserRole,
   findMarket,
   findVaultAuthority,
+  findUserPosition,
   findLpPosition,
   getOrCreateAta,
   mintTokens,
@@ -170,6 +171,65 @@ program_
       .rpc();
 
     console.log(`  Market unpaused! Tx: ${tx}`);
+  });
+
+// ─── claim ───────────────────────────────────────────────────────────────────
+program_
+  .command("claim")
+  .description("Claim payout from a resolved market")
+  .argument("<market-id>", "Market ID (numeric)")
+  .action(async (marketIdStr) => {
+    const ctx = loadContext();
+    const marketId = parseInt(marketIdStr, 10);
+    const [protocolConfig] = findProtocolConfig(ctx.programId);
+    const [marketPda] = findMarket(marketId, ctx.programId);
+    const [vaultAuthority] = findVaultAuthority(marketPda, ctx.programId);
+    const [userPosition] = findUserPosition(marketPda, ctx.keypair.publicKey, ctx.programId);
+
+    const market = await ctx.program.account.market.fetch(marketPda);
+    const traderAta = await getOrCreateAta(
+      ctx.connection,
+      market.collateralMint,
+      ctx.keypair.publicKey,
+      ctx.keypair
+    );
+
+    // Show holdings before claim
+    try {
+      const position = await ctx.program.account.userPosition.fetch(userPosition);
+      if (position.claimed) {
+        console.log(`  Payout already claimed for market #${marketId}`);
+        return;
+      }
+      console.log(`Claiming payout from market #${marketId}...`);
+      console.log(`  Winning outcome: ${market.resolvedOutcome}`);
+      const winHoldings = position.holdings[market.resolvedOutcome];
+      console.log(`  Your winning holdings: ${winHoldings.toString()}`);
+    } catch {
+      console.log(`  No position found for market #${marketId}`);
+      return;
+    }
+
+    const balanceBefore = await getTokenBalance(ctx.connection, traderAta);
+
+    const tx = await ctx.program.methods
+      .claimPayout()
+      .accountsPartial({
+        trader: ctx.keypair.publicKey,
+        market: marketPda,
+        protocolConfig,
+        userPosition,
+        vaultAuthority,
+        vault: market.vault,
+        traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    const balanceAfter = await getTokenBalance(ctx.connection, traderAta);
+
+    console.log(`  Payout claimed! Tx: ${tx}`);
+    console.log(`  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)}`);
   });
 
 // ─── info ────────────────────────────────────────────────────────────────────
