@@ -19,6 +19,7 @@ import {
   executeBuy,
   executeSell,
   executeBuyDistribution,
+  executeSellDistribution,
 } from "@/lib/transactions";
 import {
   showTradeSuccess,
@@ -86,7 +87,16 @@ export function TradingPanel({ market }: TradingPanelProps) {
           return;
         }
       } else {
-        if ("outcome" in params) {
+        if (isContinuous && "mu" in params) {
+          signature = await executeSellDistribution(
+            program,
+            marketPubkey,
+            publicKey,
+            params.mu,
+            params.sigma,
+            params.amount,
+          );
+        } else if ("outcome" in params) {
           signature = await executeSell(
             program,
             marketPubkey,
@@ -164,37 +174,35 @@ export function TradingPanel({ market }: TradingPanelProps) {
         {isDisabled ? (
           <DisabledMessage state={market.state} />
         ) : isContinuous ? (
-          side === "sell" ? (
-            <SellUnavailable />
-          ) : (
-            <>
-              <DistributionInput
-                market={market}
-                onParamsChange={handleParamsChange}
+          <>
+            <DistributionInput
+              market={market}
+              side={side}
+              onParamsChange={handleParamsChange}
+            />
+
+            {hasValidParams && params && "mu" in params && (
+              <CostPreview
+                marketId={market.id}
+                side={side}
+                mu={params.mu}
+                sigma={params.sigma}
+                amount={params.amount}
               />
+            )}
 
-              {hasValidParams && params && "mu" in params && (
-                <CostPreview
-                  marketId={market.id}
-                  side="buy"
-                  mu={params.mu}
-                  sigma={params.sigma}
-                  amount={params.amount}
-                />
+            <Button
+              className="w-full"
+              disabled={(!hasValidParams && connected) || loading}
+              onClick={handleSubmit}
+            >
+              {loading && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
+              {buttonLabel}
+            </Button>
+          </>
 
-              <Button
-                className="w-full"
-                disabled={(!hasValidParams && connected) || loading}
-                onClick={handleSubmit}
-              >
-                {loading && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                {buttonLabel}
-              </Button>
-            </>
-          )
         ) : (
           <>
             {market.marketType === MarketType.Binary ? (
@@ -250,15 +258,3 @@ function DisabledMessage({ state }: { state: MarketState }) {
   );
 }
 
-function SellUnavailable() {
-  return (
-    <div className="flex h-24 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 text-center">
-      <p className="text-sm text-muted-foreground">
-        Distribution selling coming soon
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground/60">
-        Sell estimation for continuous markets is not yet available
-      </p>
-    </div>
-  );
-}

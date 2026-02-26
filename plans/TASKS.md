@@ -78,6 +78,7 @@ FRONTEND                                                    │
 
   F-7 + B-9 ──► F-14 (continuous sell UI)
   F-8 ──► F-15 (buy-to-price / sell-to-price UI)
+  F-8 ──► F-16 (pre-trade validation & error messages)
 
 DEVKIT (program interaction scripts)
   S-1 ──► S-2 ──► S-3 ──► S-4
@@ -1325,7 +1326,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-14: Continuous Market Sell Trading UI
+### F-14: Continuous Market Sell Trading UI ✅
 
 **Goal:** Wire up the sell tab for continuous markets using distribution sell estimation from B-9.
 
@@ -1371,6 +1372,61 @@ DEVKIT (program interaction scripts)
 - Enter target probability → estimated cost displayed
 - Execute → outcome probability moves to (or near) target
 - Verify works for both binary and multi-outcome markets
+
+**Depends on:** F-8
+
+---
+
+### F-16: Pre-Trade Validation & User-Friendly Error Messages
+
+**Goal:** Add client-side validation checks before submitting transactions, replacing raw Anchor/Solana errors with clear, actionable messages users can understand.
+
+**Context:** Currently, errors like insufficient collateral balance, insufficient position holdings, or expired markets surface as raw transaction simulation errors (e.g., `"InsufficientBalance"`, `"Simulation failed"`, `"custom program error: 0x1771"`). These are cryptic and unhelpful. By checking conditions client-side before building the transaction, we can show clear messages like "You only have 5.20 USDC — reduce your trade amount or add funds."
+
+**Deliverable — `lib/validation.ts` (new):**
+- `validateBuy(connection, trader, collateralMint, amount, market)` — Pre-trade checks for buy orders:
+  - Wallet connected check
+  - Collateral token account exists
+  - Collateral balance >= trade amount (fetch via `getTokenAccountBalance`)
+  - Market state is Active
+  - Market deadline has not passed
+  - Amount >= minimum trade size
+  - Returns `{ valid: true }` or `{ valid: false, message: string }`
+- `validateSell(connection, trader, marketPubkey, outcome, amount, market)` — Pre-trade checks for sell orders:
+  - Wallet connected check
+  - UserPosition account exists (has traded before)
+  - Holdings for the selected outcome >= sell amount (fetch on-chain UserPosition)
+  - For distribution sell: holdings in each weighted bin >= proportional sell amount
+  - Market state is Active
+  - Market deadline has not passed
+- `validateClaim(connection, trader, marketPubkey, market)` — Pre-claim checks:
+  - Market is Resolved
+  - UserPosition exists
+  - Not already claimed
+  - Has holdings in winning outcome
+
+**Deliverable — `components/trading/trading-panel.tsx` (update):**
+- Call `validateBuy` / `validateSell` before `execute*()` in `handleSubmit`
+- On validation failure: show the message via toast (warning level, not error) and abort — no transaction sent
+- Keep existing error handling for unexpected on-chain errors as fallback
+
+**Deliverable — `components/common/transaction-toast.tsx` (update):**
+- Enhance `showTradeError` to map known Anchor error codes to human-readable messages:
+  - `InsufficientBalance` → "Not enough USDC in your wallet. You need at least $X."
+  - `InsufficientHoldings` → "You don't hold enough shares to sell this amount."
+  - `MarketNotActive` → "This market is no longer accepting trades."
+  - `MarketClosed` → "This market's deadline has passed."
+  - `TradeTooSmall` → "Trade amount is below the minimum."
+  - `NothingToClaim` → "You have no winnings to claim from this market."
+  - `AlreadyClaimed` → "You've already claimed your payout."
+  - Other codes → "Transaction failed: [code]. Please try again."
+
+**Tests (manual):**
+- Try to buy with more USDC than wallet holds → clear "insufficient balance" message, no wallet popup
+- Try to sell more shares than held → clear "insufficient holdings" message
+- Try to trade on a paused/resolved market → clear status message
+- Try to claim on a market where user has no position → clear message
+- Actual on-chain error (e.g., stale reserves race condition) → still shows fallback error with mapped message
 
 **Depends on:** F-8
 
@@ -1491,9 +1547,9 @@ DEVKIT (program interaction scripts)
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 9 | B-1 → B-9 | ✅ Done |
-| Frontend | 14 | F-1 → F-14 | ⬅️ F-1→F-7 done, F-8 next |
+| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-8, F-14 done; F-9→F-13, F-15, F-16 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
-| **Total** | **50** | | |
+| **Total** | **51** | | |
 
 ### Critical Path (longest dependency chain):
 
