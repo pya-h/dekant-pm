@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 interface DistributionChartProps {
   probabilities: number[];
@@ -25,6 +25,7 @@ export function DistributionChart({
   height = DEFAULT_HEIGHT,
 }: DistributionChartProps) {
   const [hoveredBin, setHoveredBin] = useState<number | null>(null);
+  const gradientId = useId();
 
   const binWidth = (rangeMax - rangeMin) / numBins;
   const plotW = VIEW_W - CHART_PADDING.left - CHART_PADDING.right;
@@ -85,7 +86,7 @@ export function DistributionChart({
         ))}
 
         {/* Filled area */}
-        <path d={areaPath} fill="url(#distChartGradient)" />
+        <path d={areaPath} fill={`url(#${gradientId})`} />
 
         {/* Line on top of area */}
         <polyline
@@ -173,7 +174,7 @@ export function DistributionChart({
 
         {/* Gradient definition */}
         <defs>
-          <linearGradient id="distChartGradient" x1="0" x2="0" y1="0" y2="1">
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgb(6 182 212)" stopOpacity={0.35} />
             <stop
               offset="100%"

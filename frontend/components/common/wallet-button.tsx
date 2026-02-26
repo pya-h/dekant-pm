@@ -5,7 +5,15 @@ import dynamic from "next/dynamic";
 const WalletMultiButtonDynamic = dynamic(
   async () =>
     (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false },
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="animate-pulse rounded-[var(--radius)] bg-muted"
+        style={{ height: "2.5rem", width: "10rem" }}
+      />
+    ),
+  },
 );
 
 export function WalletButton() {

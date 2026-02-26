@@ -32,9 +32,13 @@ function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
   return address;
 }
 
-/** Human-readable amount → token base units (6 decimals for USDC). */
+/** Human-readable amount → token base units (6 decimals for USDC).
+ *  Uses string-based parsing to avoid floating-point truncation. */
 function toBaseUnits(amount: string): BN {
-  return new BN(Math.floor(Number(amount) * 10 ** USDC_DECIMALS));
+  const trimmed = amount.trim();
+  const [whole = "0", frac = ""] = trimmed.split(".");
+  const padded = (frac + "000000").slice(0, USDC_DECIMALS);
+  return new BN(whole + padded);
 }
 
 /** Human-readable value → SCALE-denominated BN (for distribution mu/sigma). */

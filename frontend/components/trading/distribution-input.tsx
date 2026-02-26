@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useId, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { computeBinWeights, sliderToSigma } from "@/lib/normal";
@@ -42,8 +42,8 @@ export function DistributionInput({
 
   // Market's current distribution
   const marketProbabilities = useMemo(
-    () => computeProbabilities(market.reserves, market.totalMinted),
-    [market.reserves, market.totalMinted],
+    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
+    [market.reserves, market.totalMinted, market.kSquared],
   );
 
   // Trader's distribution preview
@@ -173,6 +173,7 @@ function DistributionPreview({
   numBins: number;
   mu: number;
 }) {
+  const gradientId = useId();
   const innerW = VIEW_W - PAD.left - PAD.right;
   const innerH = PREVIEW_H - PAD.top - PAD.bottom;
   const baseline = PAD.top + innerH;
@@ -222,7 +223,7 @@ function DistributionPreview({
         className="w-full h-auto"
       >
         <defs>
-          <linearGradient id="traderGradient" x1="0" x2="0" y1="0" y2="1">
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.3} />
             <stop
               offset="100%"
@@ -233,7 +234,7 @@ function DistributionPreview({
         </defs>
 
         {/* Trader distribution — blue filled area */}
-        <path d={traderArea} fill="url(#traderGradient)" />
+        <path d={traderArea} fill={`url(#${gradientId})`} />
         <polyline
           points={traderLine}
           fill="none"

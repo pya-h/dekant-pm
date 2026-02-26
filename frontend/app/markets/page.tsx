@@ -57,7 +57,7 @@ export default function MarketsPage() {
     sortBy,
   };
 
-  const { data, isLoading, isError, error } = useMarkets({
+  const { data, isLoading, isError, error, refetch } = useMarkets({
     page,
     limit,
     ...filters,
@@ -185,7 +185,7 @@ export default function MarketsPage() {
             variant="outline"
             size="sm"
             className="mt-3"
-            onClick={() => window.location.reload()}
+            onClick={() => refetch()}
           >
             Retry
           </Button>
@@ -242,7 +242,8 @@ function MarketGridSkeleton() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="h-52 animate-pulse rounded-xl border bg-card"
+          className="h-52 animate-pulse rounded-xl border bg-card/50"
+          style={{ animationDelay: `${i * 100}ms`, animationFillMode: "backwards" }}
         />
       ))}
     </div>

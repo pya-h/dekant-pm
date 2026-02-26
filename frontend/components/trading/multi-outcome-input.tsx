@@ -74,7 +74,7 @@ export function MultiOutcomeInput({
   const [selectedOutcome, setSelectedOutcome] = useState(0);
   const [amount, setAmount] = useState("");
 
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
