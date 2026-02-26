@@ -1,15 +1,12 @@
-import { BorshCoder, EventParser, Event } from '@coral-xyz/anchor';
-import { IDL } from '../../common/idl';
+import { BorshCoder, EventParser } from '@coral-xyz/anchor';
+import { IDL, PROGRAM_ID } from '../../common/idl';
 
 let eventParser: EventParser | null = null;
 
 function getEventParser(): EventParser {
   if (!eventParser) {
     const coder = new BorshCoder(IDL as any);
-    eventParser = new EventParser(
-      undefined as any, // programId not needed for parsing
-      coder,
-    );
+    eventParser = new EventParser(PROGRAM_ID, coder);
   }
   return eventParser;
 }
