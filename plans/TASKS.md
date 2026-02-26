@@ -962,7 +962,7 @@ FRONTEND
 
 ## Frontend Tasks
 
-### F-1: Next.js Project Scaffolding ⬅️
+### F-1: Next.js Project Scaffolding ✅
 
 **Goal:** Create the frontend project with all base dependencies and configuration.
 
@@ -978,7 +978,7 @@ FRONTEND
 
 ---
 
-### F-2: Wallet & Provider Setup
+### F-2: Wallet & Provider Setup ✅
 
 **Goal:** Configure Solana wallet integration and global providers.
 
@@ -1009,7 +1009,7 @@ FRONTEND
 
 ---
 
-### F-3: Layout & Navigation Shell
+### F-3: Layout & Navigation Shell ✅
 
 **Goal:** Build the persistent layout (navbar, sidebar, footer).
 
@@ -1024,7 +1024,7 @@ FRONTEND
 
 ---
 
-### F-4: Market Discovery Page
+### F-4: Market Discovery Page ✅
 
 **Goal:** Build the main markets list page with filtering and search.
 
@@ -1048,7 +1048,7 @@ FRONTEND
 
 ---
 
-### F-5: Market Detail Page — Info & Chart
+### F-5: Market Detail Page — Info & Chart ⬅️
 
 **Goal:** Build the market detail page showing market info and current probability distribution.
 
@@ -1299,7 +1299,7 @@ FRONTEND
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 8 | B-1 → B-8 | ✅ Done |
-| Frontend | 13 | F-1 → F-13 | ⬅️ Next |
+| Frontend | 13 | F-1 → F-13 | ⬅️ F-1→F-4 done, F-5 next |
 | **Total** | **43** | | |
 
 ### Critical Path (longest dependency chain):

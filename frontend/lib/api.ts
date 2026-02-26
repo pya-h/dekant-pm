@@ -1,0 +1,70 @@
+import { env } from "./env";
+
+class ApiClient {
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = env.backendUrl;
+  }
+
+  async get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
+    const url = new URL(path, this.baseUrl);
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== "") {
+          if (Array.isArray(value)) {
+            value.forEach((v) => url.searchParams.append(key, String(v)));
+          } else {
+            url.searchParams.set(key, String(value));
+          }
+        }
+      }
+    }
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(
+        res.status,
+        body?.message ?? res.statusText,
+        body?.code,
+      );
+    }
+    return res.json();
+  }
+
+  async post<T>(path: string, body: unknown, token?: string): Promise<T> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(new URL(path, this.baseUrl).toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new ApiError(
+        res.status,
+        data?.message ?? res.statusText,
+        data?.code,
+      );
+    }
+    return res.json();
+  }
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export const api = new ApiClient();
