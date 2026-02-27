@@ -89,6 +89,15 @@ export interface PaginatedResponse<T> {
   total: number;
 }
 
+// Matches UserRoleEntity as serialized by NestJS.
+export interface UserRoleEntry {
+  id: string;
+  userAddress: string;
+  role: number;
+  assignedBy: string;
+  assignedAt: string;
+}
+
 export interface MarketFilters {
   marketType?: MarketType;
   state?: MarketState;
