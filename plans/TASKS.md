@@ -1295,7 +1295,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-13: End-to-End Smoke Test
+### F-13: End-to-End Smoke Test ✅
 
 **Goal:** Verify the entire stack works together (program + backend + frontend) on local validator.
 
@@ -1547,7 +1547,7 @@ DEVKIT (program interaction scripts)
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 9 | B-1 → B-9 | ✅ Done |
-| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-9, F-14, F-16 done; F-10→F-13, F-15 remaining |
+| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-14, F-16 done; F-15 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | **Total** | **51** | | |
 
