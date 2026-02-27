@@ -249,13 +249,17 @@ BIN_DEADLINE=$(($(date +%s) + BIN_DEADLINE_SEC))
 BIN_FUND_EACH=$(rand 100 300)
 
 step "4.1 Creating binary market (liquidity=$BIN_LIQUIDITY, deadline=${BIN_DEADLINE_SEC}s)"
-BINARY_OUTPUT=$(devkit market.ts create-binary "$WALLET_ADDR" "$BIN_LIQUIDITY" "$BIN_DEADLINE" 2>&1)
+if ! BINARY_OUTPUT=$(devkit market.ts create-binary "$WALLET_ADDR" "$BIN_LIQUIDITY" "$BIN_DEADLINE" 2>&1); then
+  echo "$BINARY_OUTPUT"
+  fail "Failed to create binary market"
+  exit 1
+fi
 echo "$BINARY_OUTPUT"
-BINARY_ID=$(echo "$BINARY_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
-COLLATERAL_MINT=$(echo "$BINARY_OUTPUT" | grep "Mint:" | tail -1 | awk '{print $NF}')
+BINARY_ID=$(echo "$BINARY_OUTPUT" | grep "Market ID:" | awk '{print $NF}' || true)
+COLLATERAL_MINT=$(echo "$BINARY_OUTPUT" | grep "Mint:" | tail -1 | awk '{print $NF}' || true)
 
 if [ -z "$BINARY_ID" ]; then
-  fail "Failed to create binary market"
+  fail "Failed to parse binary market ID from output"
   exit 1
 fi
 success "Binary market created: ID=$BINARY_ID, Mint=$COLLATERAL_MINT"
@@ -389,12 +393,16 @@ MULTI_FUND_EACH=$(rand 100 300)
 MULTI_OUTCOMES=4
 
 step "5.1 Creating multi-outcome market ($MULTI_OUTCOMES outcomes, liquidity=$MULTI_LIQUIDITY, deadline=${MULTI_DEADLINE_SEC}s)"
-MULTI_OUTPUT=$(devkit market.ts create-multi "$WALLET_ADDR" "$MULTI_LIQUIDITY" "$MULTI_DEADLINE" "$MULTI_OUTCOMES" --mint "$COLLATERAL_MINT" 2>&1)
+if ! MULTI_OUTPUT=$(devkit market.ts create-multi "$WALLET_ADDR" "$MULTI_LIQUIDITY" "$MULTI_DEADLINE" "$MULTI_OUTCOMES" --mint "$COLLATERAL_MINT" 2>&1); then
+  echo "$MULTI_OUTPUT"
+  fail "Failed to create multi-outcome market"
+  exit 1
+fi
 echo "$MULTI_OUTPUT"
-MULTI_ID=$(echo "$MULTI_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
+MULTI_ID=$(echo "$MULTI_OUTPUT" | grep "Market ID:" | awk '{print $NF}' || true)
 
 if [ -z "$MULTI_ID" ]; then
-  fail "Failed to create multi-outcome market"
+  fail "Failed to parse multi-outcome market ID from output"
   exit 1
 fi
 success "Multi-outcome market created: ID=$MULTI_ID"
@@ -500,12 +508,16 @@ CONT_FUND_EACH=$(rand 100 300)
 CONT_BINS=64
 
 step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, liquidity=$CONT_LIQUIDITY)"
-CONT_OUTPUT=$(devkit market.ts create-continuous "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" --bins $CONT_BINS --mint "$COLLATERAL_MINT" 2>&1)
+if ! CONT_OUTPUT=$(devkit market.ts create-continuous "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" --bins $CONT_BINS --mint "$COLLATERAL_MINT" 2>&1); then
+  echo "$CONT_OUTPUT"
+  fail "Failed to create continuous market"
+  exit 1
+fi
 echo "$CONT_OUTPUT"
-CONT_ID=$(echo "$CONT_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
+CONT_ID=$(echo "$CONT_OUTPUT" | grep "Market ID:" | awk '{print $NF}' || true)
 
 if [ -z "$CONT_ID" ]; then
-  fail "Failed to create continuous market"
+  fail "Failed to parse continuous market ID from output"
   exit 1
 fi
 success "Continuous market created: ID=$CONT_ID"
