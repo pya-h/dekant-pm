@@ -102,6 +102,7 @@ export interface MarketFilters {
   marketType?: MarketType;
   state?: MarketState;
   category?: string;
+  oracle?: string;
   search?: string;
   sortBy?: "newest" | "deadline" | "volume";
 }

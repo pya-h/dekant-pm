@@ -144,6 +144,23 @@ export async function executeClaimPayout(
   return program.methods.claimPayout().accountsPartial(accounts).rpc();
 }
 
+/** Resolve a market (Oracle only). */
+export async function executeResolveMarket(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  oracle: PublicKey,
+  outcome: number,
+  value: BN,
+): Promise<string> {
+  return program.methods
+    .resolveMarket({ outcome, value })
+    .accountsPartial({
+      oracle,
+      market: marketPubkey,
+    })
+    .rpc();
+}
+
 /** Sell distribution position (Continuous markets). */
 export async function executeSellDistribution(
   program: Program<DekantPm>,

@@ -20,6 +20,11 @@ export class MarketFilterDto {
   @IsOptional()
   state?: number;
 
+  @ApiPropertyOptional({ description: 'Filter by oracle wallet address' })
+  @IsString()
+  @IsOptional()
+  oracle?: string;
+
   @ApiPropertyOptional({ description: 'Text search on title' })
   @IsString()
   @IsOptional()
