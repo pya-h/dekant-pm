@@ -1,8 +1,33 @@
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { Program } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
+import { Program, BN } from "@coral-xyz/anchor";
 import type { DekantPm } from "./program/dekant_pm";
-import { deriveProtocolConfig, deriveUserRole } from "./solana";
+import {
+  deriveProtocolConfig,
+  deriveUserRole,
+  deriveMarket,
+  deriveVaultAuthority,
+  deriveLpPosition,
+} from "./solana";
 import { Role } from "./types";
+
+// ---------------------------------------------------------------------------
+// Token program constants (duplicated from transactions.ts — private there)
+// ---------------------------------------------------------------------------
+
+const TOKEN_PROGRAM_ID = new PublicKey(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+);
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+);
+
+function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
+  const [address] = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  return address;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,4 +161,102 @@ export async function executeUnpauseMarket(
       market: marketPubkey,
     })
     .rpc();
+}
+
+// ---------------------------------------------------------------------------
+// Market creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the creator's role PDA for createMarket.
+ * Superadmin → null, Admin → Admin PDA, Creator → Creator PDA.
+ */
+function resolveCreatorRole(
+  creator: PublicKey,
+  isSuperadmin: boolean,
+  isAdmin: boolean,
+): PublicKey | null {
+  if (isSuperadmin) return null;
+  if (isAdmin) {
+    const [pda] = deriveUserRole(creator, Role.Admin);
+    return pda;
+  }
+  const [pda] = deriveUserRole(creator, Role.Creator);
+  return pda;
+}
+
+export interface CreateMarketParams {
+  marketType: number;
+  numOutcomes: number;
+  deadline: number; // Unix timestamp (seconds)
+  oracle: PublicKey;
+  collateralMint: PublicKey;
+  initialLiquidity: BN; // Token base units
+  rangeMin: BN; // SCALE-denominated for continuous, BN(0) for discrete
+  rangeMax: BN;
+  isSuperadmin: boolean;
+  isAdmin: boolean;
+}
+
+export interface CreateMarketResult {
+  signature: string;
+  marketId: number;
+  marketPubkey: PublicKey;
+}
+
+export async function executeCreateMarket(
+  program: Program<DekantPm>,
+  creator: PublicKey,
+  params: CreateMarketParams,
+): Promise<CreateMarketResult> {
+  const [protocolConfig] = deriveProtocolConfig();
+
+  // Fetch current market count to derive the new market PDA
+  const config = await program.account.protocolConfig.fetch(protocolConfig);
+  const marketId = (config.marketCount as BN).toNumber();
+  const [marketPda] = deriveMarket(marketId);
+  const [vaultAuthority] = deriveVaultAuthority(marketPda);
+
+  // Vault must be a new keypair (signer for token account init)
+  const vaultKp = Keypair.generate();
+
+  // Derive remaining PDAs
+  const creatorRole = resolveCreatorRole(
+    creator,
+    params.isSuperadmin,
+    params.isAdmin,
+  );
+  const [oracleRolePda] = deriveUserRole(params.oracle, Role.Oracle);
+  const [creatorLpPos] = deriveLpPosition(marketPda, creator);
+  const creatorAta = getAta(params.collateralMint, creator);
+
+  const signature = await program.methods
+    .createMarket({
+      marketType: params.marketType,
+      numOutcomes: params.numOutcomes,
+      deadline: new BN(params.deadline),
+      oracle: params.oracle,
+      initialLiquidity: params.initialLiquidity,
+      rangeMin: params.rangeMin,
+      rangeMax: params.rangeMax,
+    })
+    .accountsPartial({
+      creator,
+      creatorRole,
+      protocolConfig,
+      oracleRole: oracleRolePda,
+      market: marketPda,
+      collateralMint: params.collateralMint,
+      vaultAuthority,
+      vault: vaultKp.publicKey,
+      creatorAta,
+      creatorLpPosition: creatorLpPos,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([vaultKp])
+    .rpc();
+
+  return { signature, marketId, marketPubkey: marketPda };
 }
