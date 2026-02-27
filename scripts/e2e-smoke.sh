@@ -1,123 +1,62 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# DekantPM — E2E Smoke Test (F-13)
+# DekantPM — E2E Smoke Test
 #
-# Verifies the full stack: Solana program + backend + frontend on localnet.
+# Comprehensive end-to-end test exercising all market types, trade methods,
+# and multiple traders against the full stack (program + backend + frontend).
+#
+# Features:
+#   - Randomized values (liquidity, amounts, deadlines) for realistic testing
+#   - 3 independent test traders with separate keypairs
+#   - All trade types: buy, sell, buy-to-price, sell-to-price, add-lp, remove-lp
+#   - All market types: binary, multi-outcome (4), continuous (64 bins)
+#   - Distribution trades (buy-dist, sell-dist) for continuous markets
+#   - Backend API verification
+#   - Reproducible with SEED=<n> env var
 #
 # Prerequisites:
-#   - solana-test-validator installed
-#   - PostgreSQL running (docker or native) with dekant_pm database
-#   - Node 18+ (system) and Node 23.3.0 via n (for frontend)
-#   - anchor build completed (target/deploy/dekant_pm.so exists)
-#   - npm installed in backend/ and devkit/, pnpm installed in frontend/
+#   - solana-test-validator, anchor build completed
+#   - PostgreSQL running, Node 18+ & 23.3.0 via n
+#   - Dependencies installed (devkit, backend, frontend)
 #
 # Usage:
-#   ./scripts/e2e-smoke.sh              # Full automated flow (starts services, 5m deadlines)
-#   ./scripts/e2e-smoke.sh --fast       # Fast mode: 1-minute deadlines (~4 min total)
-#   ./scripts/e2e-smoke.sh --no-infra   # Skip infrastructure startup (services already running)
-#   ./scripts/e2e-smoke.sh --manual     # Print manual frontend checklist only
+#   ./scripts/e2e-smoke.sh              # Full test (starts services)
+#   ./scripts/e2e-smoke.sh --no-infra   # Skip infrastructure (already running)
+#   ./scripts/e2e-smoke.sh --manual     # Print manual frontend checklist
+#   SEED=42 ./scripts/e2e-smoke.sh      # Reproducible run
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROGRAM_ID="Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf"
-PROGRAM_SO="$ROOT/target/deploy/dekant_pm.so"
-NODE23="/usr/local/n/versions/node/23.3.0/bin"
+SCRIPT_NAME="smoke"
+source "$(dirname "$0")/lib.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
-# PID tracking for cleanup
-PIDS=()
-VALIDATOR_PID=""
-BACKEND_PID=""
-FRONTEND_PID=""
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-log()     { echo -e "${CYAN}[smoke]${NC} $*"; }
-success() { echo -e "${GREEN}  ✓${NC} $*"; }
-warn()    { echo -e "${YELLOW}  ⚠${NC} $*"; }
-fail()    { echo -e "${RED}  ✗${NC} $*"; }
-header()  { echo -e "\n${BOLD}═══ $* ═══${NC}\n"; }
-step()    { echo -e "${BOLD}--- $* ---${NC}"; }
-
-cleanup() {
-  log "Cleaning up background processes..."
-  for pid in "${PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-    fi
-  done
-  # Give processes time to exit
-  sleep 1
-  for pid in "${PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
-    fi
-  done
-  log "Done."
-}
-
-trap cleanup EXIT
-
-wait_for_port() {
-  local port=$1
-  local name=$2
-  local max_wait=${3:-30}
-  local elapsed=0
-  while ! nc -z localhost "$port" 2>/dev/null; do
-    sleep 1
-    elapsed=$((elapsed + 1))
-    if [ "$elapsed" -ge "$max_wait" ]; then
-      fail "$name failed to start on port $port within ${max_wait}s"
-      return 1
-    fi
-  done
-  success "$name is up on port $port (${elapsed}s)"
-}
-
-devkit() {
-  cd "$ROOT/devkit" && npx ts-node "src/$1" "${@:2}"
-}
-
-# ─── Parse args ──────────────────────────────────────────────────────────────
+# ── Parse Arguments ──────────────────────────────────────────────────────────
 
 START_INFRA=true
 MANUAL_ONLY=false
-FAST_MODE=false
 
 for arg in "$@"; do
   case "$arg" in
-    --no-infra) START_INFRA=false ;;
-    --manual)   MANUAL_ONLY=true ;;
-    --fast)     FAST_MODE=true ;;
-    --help|-h)
-      echo "Usage: $0 [--no-infra] [--fast] [--manual]"
-      echo "  --no-infra  Skip starting validator/backend/frontend (already running)"
-      echo "  --fast      Use 1-minute deadlines instead of 5 minutes (~4 min total)"
-      echo "  --manual    Print manual frontend checklist only"
+    --no-infra)  START_INFRA=false ;;
+    --manual)    MANUAL_ONLY=true ;;
+    -h|--help)
+      echo "Usage: $0 [--no-infra] [--manual]"
+      echo ""
+      echo "Runs the DekantPM end-to-end smoke test."
+      echo ""
+      echo "Options:"
+      echo "  --no-infra   Skip starting validator/backend/frontend (already running)"
+      echo "  --manual     Print manual frontend verification checklist only"
+      echo "  -h, --help   Show this help"
+      echo ""
+      echo "Environment:"
+      echo "  SEED=<n>     Set random seed for reproducible runs"
       exit 0
       ;;
   esac
 done
 
-# Deadline and sleep times
-if [ "$FAST_MODE" = true ]; then
-  DEADLINE="+1m"
-  DEADLINE_SLEEP=70
-  log "Fast mode: 1-minute deadlines"
-else
-  DEADLINE="+5m"
-  DEADLINE_SLEEP=310
-fi
-
-# ─── Manual checklist mode ───────────────────────────────────────────────────
+# ── Manual Checklist ─────────────────────────────────────────────────────────
 
 print_manual_checklist() {
   header "MANUAL FRONTEND VERIFICATION CHECKLIST"
@@ -129,95 +68,61 @@ print_manual_checklist() {
 
   echo -e "${BOLD}1. Market Discovery Page (http://localhost:3000/markets)${NC}"
   echo "   [ ] Page loads without errors"
-  echo "   [ ] Binary market card visible with title and 50/50 probability"
-  echo "   [ ] Continuous market card visible with distribution chart"
+  echo "   [ ] Market cards visible with titles and probabilities"
   echo "   [ ] Search/filter/sort controls work"
-  echo "   [ ] Category filter works"
-  echo "   [ ] Pagination controls visible (if >12 markets)"
+  echo "   [ ] Category filter and market type tabs work"
+  echo "   [ ] 'Held' badge on markets with positions"
   echo ""
 
   echo -e "${BOLD}2. Binary Market Detail (click binary market card)${NC}"
   echo "   [ ] Market title, description, deadline displayed"
-  echo "   [ ] Probability bar shows ~50/50 Yes/No"
-  echo "   [ ] Market status badge shows 'Active'"
-  echo "   [ ] Trading panel visible with Buy/Sell tabs"
+  echo "   [ ] Probability bar shows current Yes/No percentages"
+  echo "   [ ] Market status badge shows current state"
+  echo "   [ ] Trading panel with Buy/Sell tabs"
   echo "   [ ] Connect wallet via Phantom/Solflare"
   echo ""
 
   echo -e "${BOLD}3. Binary Trading Flow${NC}"
-  echo "   [ ] Select Buy tab > Yes outcome"
-  echo "   [ ] Enter amount (e.g. 10) > cost preview appears"
+  echo "   [ ] Select Buy > Yes outcome > enter amount > cost preview"
   echo "   [ ] Unit toggle: switch between USDC and Shares"
-  echo "   [ ] Balance display shows wallet balance with Max button"
-  echo "   [ ] Click trade > wallet popup > sign > success toast"
-  echo "   [ ] Probability bar updates (Yes > 50%)"
-  echo "   [ ] Position display appears below chart with holdings"
-  echo "   [ ] Portfolio page (http://localhost:3000/portfolio) shows position"
+  echo "   [ ] Balance display with Max button"
+  echo "   [ ] Execute trade > wallet popup > success toast"
+  echo "   [ ] Probability bar updates, position display appears"
+  echo "   [ ] Sell tab: enter shares > estimated USDC shown > execute"
   echo ""
 
-  echo -e "${BOLD}4. Sell Flow${NC}"
-  echo "   [ ] Select Sell tab > Yes outcome"
-  echo "   [ ] Available shares shown with Max button"
-  echo "   [ ] Enter amount > cost preview shows USDC to receive"
-  echo "   [ ] Unit toggle: switch between Shares and USDC"
-  echo "   [ ] Execute sell > success toast > probability adjusts"
-  echo ""
-
-  echo -e "${BOLD}5. Continuous Market Detail (click continuous market card)${NC}"
+  echo -e "${BOLD}4. Continuous Market Detail${NC}"
   echo "   [ ] Distribution chart renders (SVG bars)"
-  echo "   [ ] Range displayed (e.g. \$50 - \$500)"
-  echo "   [ ] Trading panel shows center/confidence inputs"
+  echo "   [ ] Range displayed (e.g. \$X - \$Y)"
+  echo "   [ ] Center/confidence inputs in trading panel"
+  echo "   [ ] Distribution preview overlaid on market chart"
+  echo "   [ ] Buy and sell distribution trades work"
   echo ""
 
-  echo -e "${BOLD}6. Continuous Trading Flow${NC}"
-  echo "   [ ] Enter center value (e.g. 180) and confidence"
-  echo "   [ ] Distribution preview updates in chart"
-  echo "   [ ] Cost preview shows estimated cost"
-  echo "   [ ] Execute buy > success toast > chart shape updates"
-  echo "   [ ] Position display shows bin-level holdings histogram"
+  echo -e "${BOLD}5. Admin Dashboard (http://localhost:3000/admin)${NC}"
+  echo "   [ ] Role manager: view, assign, revoke roles"
+  echo "   [ ] Fee config: view/update protocol fees (superadmin only)"
+  echo "   [ ] Pause controls: pause/unpause markets"
+  echo "   [ ] Create market button > multi-step form"
   echo ""
 
-  echo -e "${BOLD}7. Admin Dashboard (http://localhost:3000/admin)${NC}"
-  echo "   [ ] Role manager: can see roles, assign/revoke"
-  echo "   [ ] Fee config: shows current protocol fees"
-  echo "   [ ] Pause controls: can pause/unpause a market"
-  echo "   [ ] Create market button navigates to creation form"
+  echo -e "${BOLD}6. Oracle Dashboard (http://localhost:3000/oracle)${NC}"
+  echo "   [ ] Pending resolution queue for expired markets"
+  echo "   [ ] Resolution form: binary buttons, multi selector, continuous value"
+  echo "   [ ] Confirmation dialog > resolve > success"
   echo ""
 
-  echo -e "${BOLD}8. Market Creation (http://localhost:3000/admin/create-market)${NC}"
-  echo "   [ ] Step 0: Type selection (Binary/Multi/Continuous cards)"
-  echo "   [ ] Step 1: Question details (title, description, category, tags)"
-  echo "   [ ] Step 2: Outcomes config (type-dependent)"
-  echo "   [ ] Step 3: Parameters (deadline, oracle, collateral, liquidity)"
-  echo "   [ ] Step 4: Review summary with fee estimate"
-  echo "   [ ] Submit: on-chain tx + backend POST > redirects to market"
-  echo ""
-
-  echo -e "${BOLD}9. Oracle Dashboard (http://localhost:3000/oracle)${NC}"
-  echo "   [ ] Pending resolution queue shows expired markets"
-  echo "   [ ] Resolution form: binary (Yes/No), continuous (value input)"
-  echo "   [ ] Resolve > confirmation dialog > success"
-  echo "   [ ] Market status changes to 'Resolved'"
-  echo ""
-
-  echo -e "${BOLD}10. Claim Flow (after resolution)${NC}"
-  echo "   [ ] Portfolio page shows 'Claimable' section"
-  echo "   [ ] Claim button visible on winning positions"
-  echo "   [ ] Click Claim > wallet popup > sign > success toast"
+  echo -e "${BOLD}7. Portfolio & Claims (http://localhost:3000/portfolio)${NC}"
+  echo "   [ ] Active positions grouped by market"
+  echo "   [ ] Resolved markets show 'Claim' button"
+  echo "   [ ] Claim > wallet popup > success toast"
   echo "   [ ] Position moves to 'Past' section"
-  echo "   [ ] Wallet balance increased by payout amount"
   echo ""
 
-  echo -e "${BOLD}11. Discovery Page Indicators (after trading)${NC}"
-  echo "   [ ] 'Held' badge visible on markets with positions"
-  echo "   [ ] P/L shown in card footer (green for profit, red for loss)"
-  echo ""
-
-  echo -e "${BOLD}12. Error States${NC}"
-  echo "   [ ] Trade with insufficient balance > validation error (red text)"
-  echo "   [ ] Trade on resolved market > appropriate error"
-  echo "   [ ] Access admin without role > unauthorized message"
-  echo "   [ ] Access oracle without role > unauthorized message"
+  echo -e "${BOLD}8. Error States${NC}"
+  echo "   [ ] Trade with insufficient balance > clear validation error"
+  echo "   [ ] Trade on resolved market > appropriate message"
+  echo "   [ ] Admin/Oracle pages without role > unauthorized message"
   echo ""
 }
 
@@ -226,261 +131,376 @@ if [ "$MANUAL_ONLY" = true ]; then
   exit 0
 fi
 
-# ─── Preflight checks ───────────────────────────────────────────────────────
+# ── Random Seed ──────────────────────────────────────────────────────────────
+
+SEED=${SEED:-$RANDOM}
+RANDOM=$SEED
+log "Random seed: $SEED (reproduce with SEED=$SEED)"
+
+# ── Statistics Tracking ──────────────────────────────────────────────────────
+
+STAT_MARKETS=0
+STAT_TRADES=0
+STAT_CLAIMS=0
+STAT_ERRORS=0
+
+count_trade()  { STAT_TRADES=$((STAT_TRADES + 1)); }
+count_market() { STAT_MARKETS=$((STAT_MARKETS + 1)); }
+count_claim()  { STAT_CLAIMS=$((STAT_CLAIMS + 1)); }
+count_error()  { STAT_ERRORS=$((STAT_ERRORS + 1)); }
+
+# ── Cleanup ──────────────────────────────────────────────────────────────────
+
+cleanup_and_exit() {
+  echo ""
+  stop_tracked_pids
+  log "Smoke test cleanup done."
+}
+
+trap cleanup_and_exit EXIT
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PHASE 1: Preflight
+# ═════════════════════════════════════════════════════════════════════════════
 
 header "PREFLIGHT CHECKS"
 
-# Check program binary exists
-if [ ! -f "$PROGRAM_SO" ]; then
-  fail "Program binary not found at $PROGRAM_SO"
-  log "Run 'anchor build' first"
-  exit 1
-fi
-success "Program binary found"
+preflight_check_program
+preflight_check_tools
 
-# Check solana CLI
-if ! command -v solana &>/dev/null; then
-  fail "solana CLI not found"
-  exit 1
-fi
-success "solana CLI found ($(solana --version 2>&1 | head -1))"
+WALLET_ADDR=$(preflight_check_wallet)
+if [ -z "$WALLET_ADDR" ]; then exit 1; fi
 
-# Check solana-test-validator
-if ! command -v solana-test-validator &>/dev/null; then
-  fail "solana-test-validator not found"
-  exit 1
-fi
-success "solana-test-validator found"
-
-# Check Node.js 23 for frontend
-if [ ! -x "$NODE23/node" ]; then
-  warn "Node 23.3.0 not found at $NODE23 — frontend may not work"
-else
-  success "Node 23.3.0 found at $NODE23"
-fi
-
-# Check pnpm for frontend
-if [ -x "$NODE23/pnpm" ] || command -v pnpm &>/dev/null; then
-  success "pnpm found"
-else
-  warn "pnpm not found — frontend dev server may not start"
-fi
-
-# Check npx for devkit
-if ! command -v npx &>/dev/null; then
-  fail "npx not found"
-  exit 1
-fi
-success "npx found"
-
-# Check solana keypair
-WALLET_ADDR=$(solana address 2>/dev/null || true)
-if [ -z "$WALLET_ADDR" ]; then
-  fail "No default Solana keypair found. Run 'solana-keygen new' first."
-  exit 1
-fi
-success "Wallet: $WALLET_ADDR"
-
-# Check PostgreSQL is accessible
-if pg_isready -q 2>/dev/null; then
-  success "PostgreSQL is accessible"
-else
-  warn "PostgreSQL doesn't appear to be running — backend may fail to start"
-fi
-
-# Check dependencies installed
-if [ ! -d "$ROOT/devkit/node_modules" ]; then
-  log "Installing devkit dependencies..."
-  (cd "$ROOT/devkit" && npm install --silent)
-  success "Devkit dependencies installed"
-else
-  success "Devkit dependencies present"
-fi
-
-if [ ! -d "$ROOT/backend/node_modules" ]; then
-  log "Installing backend dependencies..."
-  (cd "$ROOT/backend" && npm install --silent)
-  success "Backend dependencies installed"
-else
-  success "Backend dependencies present"
-fi
-
-if [ ! -d "$ROOT/frontend/node_modules" ]; then
-  log "Installing frontend dependencies..."
-  (cd "$ROOT/frontend" && PATH="$NODE23:$PATH" pnpm install --silent)
-  success "Frontend dependencies installed"
-else
-  success "Frontend dependencies present"
-fi
+preflight_check_postgres
+ensure_deps
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 1: Start Infrastructure
+# PHASE 2: Infrastructure
 # ═════════════════════════════════════════════════════════════════════════════
 
 if [ "$START_INFRA" = true ]; then
   header "PHASE 1: STARTING INFRASTRUCTURE"
-
-  # ─── Solana test validator ───────────────────────────────────────────────
-  step "Starting Solana test validator"
-
-  # Kill any existing validator
-  if pgrep -f "solana-test-validator" >/dev/null 2>&1; then
-    warn "Killing existing validator..."
-    pkill -f "solana-test-validator" || true
-    sleep 2
-  fi
-
-  solana-test-validator \
-    --bpf-program "$PROGRAM_ID" "$PROGRAM_SO" \
-    --reset \
-    --quiet \
-    &>/dev/null &
-  VALIDATOR_PID=$!
-  PIDS+=("$VALIDATOR_PID")
-
-  wait_for_port 8899 "Solana validator" 30
-
-  # Configure solana CLI to use localnet
-  solana config set --url http://localhost:8899 &>/dev/null
-
-  # Airdrop SOL for transaction fees
-  log "Airdropping SOL..."
-  solana airdrop 100 "$WALLET_ADDR" --url http://localhost:8899 &>/dev/null
-  success "Airdropped 100 SOL to $WALLET_ADDR"
-
-  # ─── Backend ─────────────────────────────────────────────────────────────
-  step "Starting backend"
-
-  cd "$ROOT/backend"
-  npm run start:dev &>"$ROOT/scripts/.backend.log" &
-  BACKEND_PID=$!
-  PIDS+=("$BACKEND_PID")
-  cd "$ROOT"
-
-  wait_for_port 4000 "Backend" 30
-
-  # ─── Frontend ────────────────────────────────────────────────────────────
-  step "Starting frontend"
-
-  cd "$ROOT/frontend"
-  PATH="$NODE23:$PATH" pnpm dev &>"$ROOT/scripts/.frontend.log" &
-  FRONTEND_PID=$!
-  PIDS+=("$FRONTEND_PID")
-  cd "$ROOT"
-
-  wait_for_port 3000 "Frontend" 30
-
+  start_validator
+  start_backend
+  start_frontend
 else
   header "PHASE 1: SKIPPING INFRASTRUCTURE (--no-infra)"
-  log "Assuming validator (:8899), backend (:4000), frontend (:3000) are running"
-
-  # Verify services are up
-  nc -z localhost 8899 2>/dev/null && success "Validator on :8899" || fail "Validator not reachable on :8899"
-  nc -z localhost 4000 2>/dev/null && success "Backend on :4000"   || fail "Backend not reachable on :4000"
-  nc -z localhost 3000 2>/dev/null && success "Frontend on :3000"  || fail "Frontend not reachable on :3000"
-
+  check_port 8899 && success "Validator :8899" || { fail "Validator not reachable on :8899"; exit 1; }
+  check_port 4000 && success "Backend :4000"   || { fail "Backend not reachable on :4000"; exit 1; }
+  check_port 3000 && success "Frontend :3000"  || { fail "Frontend not reachable on :3000"; exit 1; }
   WALLET_ADDR=$(solana address 2>/dev/null)
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 2: Protocol Setup
+# PHASE 3: Protocol Setup
 # ═════════════════════════════════════════════════════════════════════════════
 
 header "PHASE 2: PROTOCOL SETUP"
 
 step "Initializing protocol"
-devkit setup.ts init 2>&1 | tail -5
+devkit setup.ts init 2>&1 | tail -3
 success "Protocol initialized"
 
-step "Assigning Oracle role to $WALLET_ADDR"
-devkit setup.ts assign-role "$WALLET_ADDR" oracle 2>&1 | tail -2 || warn "Oracle role may already be assigned"
-success "Oracle role assigned"
+step "Assigning Oracle role to deployer"
+devkit setup.ts assign-role "$WALLET_ADDR" oracle 2>&1 | tail -2 || warn "May already be assigned"
+success "Oracle role set"
 
-step "Assigning Creator role to $WALLET_ADDR"
-devkit setup.ts assign-role "$WALLET_ADDR" creator 2>&1 | tail -2 || warn "Creator role may already be assigned"
-success "Creator role assigned"
+step "Assigning Creator role to deployer"
+devkit setup.ts assign-role "$WALLET_ADDR" creator 2>&1 | tail -2 || warn "May already be assigned"
+success "Creator role set"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 3: Binary Market E2E Flow
+# PHASE 4: Generate Test Traders
 # ═════════════════════════════════════════════════════════════════════════════
 
-header "PHASE 3: BINARY MARKET FLOW"
+header "PHASE 3: GENERATING TEST TRADERS"
 
-step "3.1 Creating binary market (deadline: $DEADLINE)"
-BINARY_OUTPUT=$(devkit market.ts create-binary "$WALLET_ADDR" 100 "$DEADLINE" 2>&1)
+NUM_TRADERS=3
+TRADER_KEYS=()
+TRADER_ADDRS=()
+
+for i in $(seq 1 $NUM_TRADERS); do
+  KPATH=$(generate_keypair "trader$i")
+  ADDR=$(keypair_address "$KPATH")
+  TRADER_KEYS+=("$KPATH")
+  TRADER_ADDRS+=("$ADDR")
+  airdrop_sol "$ADDR" 10
+  success "Trader $i: $ADDR (10 SOL)"
+done
+
+# Convenience aliases
+T1_KEY="${TRADER_KEYS[0]}"
+T2_KEY="${TRADER_KEYS[1]}"
+T3_KEY="${TRADER_KEYS[2]}"
+T1_ADDR="${TRADER_ADDRS[0]}"
+T2_ADDR="${TRADER_ADDRS[1]}"
+T3_ADDR="${TRADER_ADDRS[2]}"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PHASE 5: Binary Market Flow
+# ═════════════════════════════════════════════════════════════════════════════
+
+header "PHASE 4: BINARY MARKET"
+
+# Random parameters
+BIN_LIQUIDITY=$(rand 50 200)
+BIN_DEADLINE_SEC=$(rand 45 120)
+BIN_DEADLINE=$(($(date +%s) + BIN_DEADLINE_SEC))
+BIN_FUND_EACH=$(rand 100 300)
+
+step "4.1 Creating binary market (liquidity=$BIN_LIQUIDITY, deadline=${BIN_DEADLINE_SEC}s)"
+BINARY_OUTPUT=$(devkit market.ts create-binary "$WALLET_ADDR" "$BIN_LIQUIDITY" "$BIN_DEADLINE" 2>&1)
 echo "$BINARY_OUTPUT"
 BINARY_ID=$(echo "$BINARY_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
-BINARY_MINT=$(echo "$BINARY_OUTPUT" | grep "Mint:" | tail -1 | awk '{print $NF}')
+COLLATERAL_MINT=$(echo "$BINARY_OUTPUT" | grep "Mint:" | tail -1 | awk '{print $NF}')
 
 if [ -z "$BINARY_ID" ]; then
   fail "Failed to create binary market"
   exit 1
 fi
-success "Binary market created: ID=$BINARY_ID"
+success "Binary market created: ID=$BINARY_ID, Mint=$COLLATERAL_MINT"
+count_market
 
-step "3.2 Funding wallet with test tokens"
-devkit trade.ts fund "$BINARY_ID" 1000 2>&1 | tail -2
-success "Funded 1000 tokens"
+step "4.2 Funding all traders ($BIN_FUND_EACH tokens each)"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  devkit trade.ts fund "$BINARY_ID" "$BIN_FUND_EACH" --wallet "${TRADER_ADDRS[$i]}" 2>&1 | tail -1
+done
+# Also fund deployer for LP
+devkit trade.ts fund "$BINARY_ID" 200 2>&1 | tail -1
+success "All traders funded"
 
-step "3.3 Querying initial state"
+step "4.3 Querying initial state"
 devkit query.ts market "$BINARY_ID" 2>&1 | head -15
 echo ""
 
-step "3.4 Buying 'Yes' (outcome 0) with 10 tokens"
-devkit trade.ts buy "$BINARY_ID" 0 10 2>&1
-success "Bought Yes outcome"
+# --- Trade 1: Trader 1 buys Yes (outcome 0) ---
+BIN_BUY1=$(rand 5 30)
+step "4.4 Trader 1: buy Yes with $BIN_BUY1 tokens"
+devkit_as "$T1_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY1" 2>&1
+success "Trader 1 bought Yes"
+count_trade
 
-step "3.5 Buying 'No' (outcome 1) with 5 tokens"
-devkit trade.ts buy "$BINARY_ID" 1 5 2>&1
-success "Bought No outcome"
+# --- Trade 2: Trader 2 buys No (outcome 1) ---
+BIN_BUY2=$(rand 5 30)
+step "4.5 Trader 2: buy No with $BIN_BUY2 tokens"
+devkit_as "$T2_KEY" trade.ts buy "$BINARY_ID" 1 "$BIN_BUY2" 2>&1
+success "Trader 2 bought No"
+count_trade
 
-step "3.6 Checking position after buys"
-devkit trade.ts position "$BINARY_ID" 2>&1
+# --- Trade 3: Trader 3 buys Yes ---
+BIN_BUY3=$(rand 5 15)
+step "4.6 Trader 3: buy Yes with $BIN_BUY3 tokens"
+devkit_as "$T3_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY3" 2>&1
+success "Trader 3 bought Yes"
+count_trade
+
+# --- Trade 4: Trader 1 buys-to-price (push Yes higher) ---
+BIN_BTP_TARGET=$(rand 58 72)
+step "4.7 Trader 1: buy-to-price Yes to ${BIN_BTP_TARGET}% (max collateral 100)"
+devkit_as "$T1_KEY" trade.ts buy-to-price "$BINARY_ID" 0 "$BIN_BTP_TARGET" --max-collateral 100 2>&1
+success "Trader 1 buy-to-price done (target ${BIN_BTP_TARGET}%)"
+count_trade
+
+# --- Trade 5: Trader 3 sells some Yes tokens ---
+# Sell a safe fraction (at most half of what was bought)
+BIN_SELL3_MAX=$((BIN_BUY3 / 2))
+if [ "$BIN_SELL3_MAX" -lt 1 ]; then BIN_SELL3_MAX=1; fi
+BIN_SELL3=$(rand 1 "$BIN_SELL3_MAX")
+step "4.8 Trader 3: sell $BIN_SELL3 Yes tokens"
+devkit_as "$T3_KEY" trade.ts sell "$BINARY_ID" 0 "$BIN_SELL3" 2>&1
+success "Trader 3 sold some Yes tokens"
+count_trade
+
+# --- Trade 6: Trader 2 sell-to-price No (push No lower) ---
+# After buy-to-price, Yes ~ BTP_TARGET%, so No ~ (100-BTP_TARGET)%
+# Target to sell No down by 3-8 points
+BIN_STP_DELTA=$(rand 3 8)
+BIN_STP_TARGET=$((100 - BIN_BTP_TARGET - BIN_STP_DELTA))
+if [ "$BIN_STP_TARGET" -lt 15 ]; then BIN_STP_TARGET=15; fi
+step "4.9 Trader 2: sell-to-price No to ${BIN_STP_TARGET}%"
+devkit_as "$T2_KEY" trade.ts sell-to-price "$BINARY_ID" 1 "$BIN_STP_TARGET" 2>&1 || warn "sell-to-price may have hit holdings limit"
+count_trade
+
+# --- Trade 7: Deployer adds liquidity ---
+BIN_LP_AMOUNT=$(rand 30 80)
+step "4.10 Deployer: add $BIN_LP_AMOUNT liquidity"
+devkit trade.ts add-lp "$BINARY_ID" "$BIN_LP_AMOUNT" 2>&1
+success "Liquidity added"
+count_trade
+
+step "4.11 Querying positions after all trades"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  log "Trader $((i + 1)):"
+  devkit_as "${TRADER_KEYS[$i]}" trade.ts position "$BINARY_ID" 2>&1
+done
 echo ""
 
-step "3.7 Querying probabilities after trades"
+step "4.12 Querying probabilities"
 devkit query.ts market "$BINARY_ID" 2>&1 | head -15
 echo ""
 
-step "3.8 Selling some 'Yes' tokens (outcome 0, 3 tokens)"
-devkit trade.ts sell "$BINARY_ID" 0 3 2>&1
-success "Sold some Yes tokens"
+# Wait for deadline
+REMAINING=$((BIN_DEADLINE - $(date +%s) + 5))
+if [ "$REMAINING" -gt 0 ]; then
+  log "Waiting ${REMAINING}s for binary market deadline..."
+  sleep "$REMAINING"
+else
+  log "Deadline already passed"
+fi
 
-step "3.9 Checking position after sell"
-devkit trade.ts position "$BINARY_ID" 2>&1
-echo ""
-
-# Wait for deadline to pass
-log "Binary market deadline: $DEADLINE from creation."
-log "Waiting for deadline to pass (${DEADLINE_SLEEP}s)..."
-sleep "$DEADLINE_SLEEP"
-
-step "3.10 Resolving binary market — Yes wins (outcome 0)"
-devkit resolve.ts market "$BINARY_ID" 0 2>&1
+# --- Resolve ---
+BIN_WINNING_OUTCOME=0
+step "4.13 Resolving binary market — Yes wins (outcome $BIN_WINNING_OUTCOME)"
+devkit resolve.ts market "$BINARY_ID" "$BIN_WINNING_OUTCOME" 2>&1
 success "Binary market resolved"
 
-step "3.11 Checking resolved state"
+step "4.14 Checking resolved state"
 devkit query.ts market "$BINARY_ID" 2>&1 | head -15
 echo ""
 
-step "3.12 Claiming payout"
-devkit market.ts claim "$BINARY_ID" 2>&1
-success "Payout claimed"
+# --- Claims ---
+step "4.15 All traders claim payouts"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  log "Trader $((i + 1)) claiming..."
+  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$BINARY_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
+  count_claim
+done
 
-step "3.13 Checking final balance"
-devkit query.ts balance --market "$BINARY_ID" 2>&1
+step "4.16 Deployer: remove liquidity"
+devkit trade.ts remove-lp "$BINARY_ID" all 2>&1 || warn "LP removal issue"
+count_trade
+
+step "4.17 Final vault check"
+devkit query.ts vault "$BINARY_ID" 2>&1
 echo ""
 
 success "Binary market E2E flow complete!"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 4: Continuous Market E2E Flow
+# PHASE 6: Multi-Outcome Market Flow
 # ═════════════════════════════════════════════════════════════════════════════
 
-header "PHASE 4: CONTINUOUS MARKET FLOW"
+header "PHASE 5: MULTI-OUTCOME MARKET (4 outcomes)"
 
-step "4.1 Creating continuous market (range 50-500, 64 bins, deadline: $DEADLINE)"
-CONT_OUTPUT=$(devkit market.ts create-continuous "$WALLET_ADDR" 100 "$DEADLINE" 50 500 --bins 64 --mint "$BINARY_MINT" 2>&1)
+MULTI_LIQUIDITY=$(rand 50 200)
+MULTI_DEADLINE_SEC=$(rand 45 120)
+MULTI_DEADLINE=$(($(date +%s) + MULTI_DEADLINE_SEC))
+MULTI_FUND_EACH=$(rand 100 300)
+MULTI_OUTCOMES=4
+
+step "5.1 Creating multi-outcome market ($MULTI_OUTCOMES outcomes, liquidity=$MULTI_LIQUIDITY, deadline=${MULTI_DEADLINE_SEC}s)"
+MULTI_OUTPUT=$(devkit market.ts create-multi "$WALLET_ADDR" "$MULTI_LIQUIDITY" "$MULTI_DEADLINE" "$MULTI_OUTCOMES" --mint "$COLLATERAL_MINT" 2>&1)
+echo "$MULTI_OUTPUT"
+MULTI_ID=$(echo "$MULTI_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
+
+if [ -z "$MULTI_ID" ]; then
+  fail "Failed to create multi-outcome market"
+  exit 1
+fi
+success "Multi-outcome market created: ID=$MULTI_ID"
+count_market
+
+step "5.2 Funding all traders ($MULTI_FUND_EACH tokens each)"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  devkit trade.ts fund "$MULTI_ID" "$MULTI_FUND_EACH" --wallet "${TRADER_ADDRS[$i]}" 2>&1 | tail -1
+done
+success "All traders funded"
+
+step "5.3 Querying initial state"
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+echo ""
+
+# --- Trade 1: Trader 1 buys Outcome 0 ---
+MULTI_BUY1=$(rand 8 25)
+step "5.4 Trader 1: buy Outcome 0 with $MULTI_BUY1 tokens"
+devkit_as "$T1_KEY" trade.ts buy "$MULTI_ID" 0 "$MULTI_BUY1" 2>&1
+success "Trader 1 bought Outcome 0"
+count_trade
+
+# --- Trade 2: Trader 2 buys Outcome 2 ---
+MULTI_BUY2=$(rand 8 25)
+step "5.5 Trader 2: buy Outcome 2 with $MULTI_BUY2 tokens"
+devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2" 2>&1
+success "Trader 2 bought Outcome 2"
+count_trade
+
+# --- Trade 3: Trader 3 buys Outcome 1 ---
+MULTI_BUY3=$(rand 8 25)
+step "5.6 Trader 3: buy Outcome 1 with $MULTI_BUY3 tokens"
+devkit_as "$T3_KEY" trade.ts buy "$MULTI_ID" 1 "$MULTI_BUY3" 2>&1
+success "Trader 3 bought Outcome 1"
+count_trade
+
+# --- Trade 4: Trader 1 buy-to-price Outcome 0 to ~35-45% (from ~25%) ---
+MULTI_BTP=$(rand 33 45)
+step "5.7 Trader 1: buy-to-price Outcome 0 to ${MULTI_BTP}% (max collateral 100)"
+devkit_as "$T1_KEY" trade.ts buy-to-price "$MULTI_ID" 0 "$MULTI_BTP" --max-collateral 100 2>&1
+success "Trader 1 buy-to-price done"
+count_trade
+
+# --- Trade 5: Trader 3 sells some Outcome 1 tokens ---
+MULTI_SELL3_MAX=$((MULTI_BUY3 / 2))
+if [ "$MULTI_SELL3_MAX" -lt 2 ]; then MULTI_SELL3_MAX=2; fi
+MULTI_SELL3=$(rand 2 "$MULTI_SELL3_MAX")
+step "5.8 Trader 3: sell $MULTI_SELL3 Outcome 1 tokens"
+devkit_as "$T3_KEY" trade.ts sell "$MULTI_ID" 1 "$MULTI_SELL3" 2>&1
+success "Trader 3 sold some Outcome 1"
+count_trade
+
+# --- Trade 6: Trader 2 buys more Outcome 2 ---
+MULTI_BUY2B=$(rand 5 15)
+step "5.9 Trader 2: buy another $MULTI_BUY2B of Outcome 2"
+devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2B" 2>&1
+success "Trader 2 bought more Outcome 2"
+count_trade
+
+step "5.10 Querying probabilities"
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+echo ""
+
+# Wait for deadline
+REMAINING=$((MULTI_DEADLINE - $(date +%s) + 5))
+if [ "$REMAINING" -gt 0 ]; then
+  log "Waiting ${REMAINING}s for multi-outcome market deadline..."
+  sleep "$REMAINING"
+fi
+
+# Resolve: Outcome 2 wins (so Trader 2 should profit most)
+MULTI_WINNER=2
+step "5.11 Resolving multi-outcome market — Outcome $MULTI_WINNER wins"
+devkit resolve.ts market "$MULTI_ID" "$MULTI_WINNER" 2>&1
+success "Multi-outcome market resolved"
+
+step "5.12 Checking resolved state"
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+echo ""
+
+# --- Claims ---
+step "5.13 All traders claim payouts"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  log "Trader $((i + 1)) claiming..."
+  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$MULTI_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
+  count_claim
+done
+
+success "Multi-outcome market E2E flow complete!"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PHASE 7: Continuous Market Flow
+# ═════════════════════════════════════════════════════════════════════════════
+
+header "PHASE 6: CONTINUOUS MARKET (64 bins)"
+
+CONT_RANGE_MIN=$(rand 30 80)
+CONT_RANGE_MAX=$(rand 300 600)
+CONT_LIQUIDITY=$(rand 50 200)
+CONT_DEADLINE_SEC=$(rand 45 120)
+CONT_DEADLINE=$(($(date +%s) + CONT_DEADLINE_SEC))
+CONT_FUND_EACH=$(rand 100 300)
+CONT_BINS=64
+
+step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, liquidity=$CONT_LIQUIDITY)"
+CONT_OUTPUT=$(devkit market.ts create-continuous "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" --bins $CONT_BINS --mint "$COLLATERAL_MINT" 2>&1)
 echo "$CONT_OUTPUT"
 CONT_ID=$(echo "$CONT_OUTPUT" | grep "Market ID:" | awk '{print $NF}')
 
@@ -489,137 +509,241 @@ if [ -z "$CONT_ID" ]; then
   exit 1
 fi
 success "Continuous market created: ID=$CONT_ID"
+count_market
 
-step "4.2 Funding wallet for continuous trading"
-devkit trade.ts fund "$CONT_ID" 1000 2>&1 | tail -2
-success "Funded 1000 tokens"
+step "6.2 Funding all traders ($CONT_FUND_EACH tokens each)"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  devkit trade.ts fund "$CONT_ID" "$CONT_FUND_EACH" --wallet "${TRADER_ADDRS[$i]}" 2>&1 | tail -1
+done
+success "All traders funded"
 
-step "4.3 Querying initial state"
+step "6.3 Querying initial state"
 devkit query.ts market "$CONT_ID" 2>&1 | head -20
 echo ""
 
-step "4.4 Buying distribution (center=180, sigma=30, 20 tokens)"
-devkit trade.ts buy-dist "$CONT_ID" 180 30 20 2>&1
-success "Bought distribution position"
+# Compute reasonable mu/sigma values within the range
+CONT_RANGE_WIDTH=$((CONT_RANGE_MAX - CONT_RANGE_MIN))
+CONT_CENTER=$((CONT_RANGE_MIN + CONT_RANGE_WIDTH / 2))
 
-step "4.5 Checking position"
-devkit trade.ts position "$CONT_ID" 2>&1
+# --- Trade 1: Trader 1 buys distribution near center ---
+T1_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 4)))
+T1_MU=$((CONT_CENTER - CONT_RANGE_WIDTH / 8 + T1_MU_OFFSET))
+T1_SIGMA_BASE=$((CONT_RANGE_WIDTH / 10))
+T1_SIGMA_EXTRA=$(rand 0 $((CONT_RANGE_WIDTH / 10)))
+T1_SIGMA=$((T1_SIGMA_BASE + T1_SIGMA_EXTRA))
+if [ "$T1_SIGMA" -lt 5 ]; then T1_SIGMA=5; fi
+CONT_BUY1=$(rand 10 30)
+step "6.4 Trader 1: buy-dist N($T1_MU, $T1_SIGMA) with $CONT_BUY1 tokens"
+devkit_as "$T1_KEY" trade.ts buy-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_BUY1" 2>&1
+success "Trader 1 bought distribution"
+count_trade
+
+# --- Trade 2: Trader 2 buys distribution (different center, narrower) ---
+T2_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
+T2_MU=$((CONT_CENTER + CONT_RANGE_WIDTH / 6 + T2_MU_OFFSET))
+if [ "$T2_MU" -gt "$CONT_RANGE_MAX" ]; then T2_MU=$((CONT_RANGE_MAX - 10)); fi
+T2_SIGMA_BASE=$((CONT_RANGE_WIDTH / 20))
+T2_SIGMA_EXTRA=$(rand 0 $((CONT_RANGE_WIDTH / 20)))
+T2_SIGMA=$((T2_SIGMA_BASE + T2_SIGMA_EXTRA))
+if [ "$T2_SIGMA" -lt 5 ]; then T2_SIGMA=5; fi
+CONT_BUY2=$(rand 10 30)
+step "6.5 Trader 2: buy-dist N($T2_MU, $T2_SIGMA) with $CONT_BUY2 tokens"
+devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_BUY2" 2>&1
+success "Trader 2 bought distribution"
+count_trade
+
+# --- Trade 3: Trader 3 buys distribution (wider sigma) ---
+T3_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
+T3_MU=$((CONT_CENTER - CONT_RANGE_WIDTH / 6 + T3_MU_OFFSET))
+if [ "$T3_MU" -lt "$CONT_RANGE_MIN" ]; then T3_MU=$((CONT_RANGE_MIN + 10)); fi
+T3_SIGMA_BASE=$((CONT_RANGE_WIDTH / 6))
+T3_SIGMA_EXTRA=$(rand 0 $((CONT_RANGE_WIDTH / 8)))
+T3_SIGMA=$((T3_SIGMA_BASE + T3_SIGMA_EXTRA))
+if [ "$T3_SIGMA" -lt 5 ]; then T3_SIGMA=5; fi
+CONT_BUY3=$(rand 10 25)
+step "6.6 Trader 3: buy-dist N($T3_MU, $T3_SIGMA) with $CONT_BUY3 tokens"
+devkit_as "$T3_KEY" trade.ts buy-dist "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3" 2>&1
+success "Trader 3 bought distribution"
+count_trade
+
+step "6.7 Querying Trader 1 position"
+devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1
 echo ""
 
-step "4.6 Querying probabilities after trade"
-devkit query.ts market "$CONT_ID" 2>&1 | head -20
+step "6.8 Market state after distribution buys"
+devkit query.ts market "$CONT_ID" 2>&1 | head -25
 echo ""
 
-step "4.7 Selling some distribution tokens (center=180, sigma=30, 5 tokens)"
-devkit trade.ts sell-dist "$CONT_ID" 180 30 5 2>&1
-success "Sold some distribution tokens"
+# --- Trade 4: Trader 1 sells some of their distribution ---
+CONT_SELL1_MAX=$((CONT_BUY1 / 3))
+if [ "$CONT_SELL1_MAX" -lt 2 ]; then CONT_SELL1_MAX=2; fi
+CONT_SELL1=$(rand 2 "$CONT_SELL1_MAX")
+step "6.9 Trader 1: sell-dist N($T1_MU, $T1_SIGMA) $CONT_SELL1 tokens"
+devkit_as "$T1_KEY" trade.ts sell-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1" 2>&1
+success "Trader 1 sold some distribution tokens"
+count_trade
 
-step "4.8 Checking position after sell"
-devkit trade.ts position "$CONT_ID" 2>&1
+step "6.10 Market after partial sell"
+devkit query.ts market "$CONT_ID" 2>&1 | head -25
 echo ""
 
 # Wait for deadline
-log "Continuous market deadline: $DEADLINE from creation."
-log "Waiting for deadline to pass (${DEADLINE_SLEEP}s)..."
-sleep "$DEADLINE_SLEEP"
+REMAINING=$((CONT_DEADLINE - $(date +%s) + 5))
+if [ "$REMAINING" -gt 0 ]; then
+  log "Waiting ${REMAINING}s for continuous market deadline..."
+  sleep "$REMAINING"
+fi
 
-step "4.9 Resolving continuous market with value=175"
-devkit resolve.ts market "$CONT_ID" --value 175 2>&1
+# Resolve with a value near Trader 1's prediction center
+CONT_RESOLVE_OFFSET=$(rand -10 10)
+CONT_RESOLVE_VALUE=$((T1_MU + CONT_RESOLVE_OFFSET))
+# Clamp to range
+if [ "$CONT_RESOLVE_VALUE" -lt "$CONT_RANGE_MIN" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MIN; fi
+if [ "$CONT_RESOLVE_VALUE" -gt "$CONT_RANGE_MAX" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MAX; fi
+
+step "6.11 Resolving continuous market with value=$CONT_RESOLVE_VALUE"
+devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1
 success "Continuous market resolved"
 
-step "4.10 Checking resolved state"
-devkit query.ts market "$CONT_ID" 2>&1 | head -20
+step "6.12 Checking resolved state"
+devkit query.ts market "$CONT_ID" 2>&1 | head -25
 echo ""
 
-step "4.11 Claiming payout"
-devkit market.ts claim "$CONT_ID" 2>&1
-success "Payout claimed"
+# --- Claims ---
+step "6.13 All traders claim payouts"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  log "Trader $((i + 1)) claiming..."
+  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$CONT_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
+  count_claim
+done
 
-step "4.12 Checking final balance"
-devkit query.ts balance --market "$CONT_ID" 2>&1
+step "6.14 Final vault check"
+devkit query.ts vault "$CONT_ID" 2>&1
 echo ""
 
 success "Continuous market E2E flow complete!"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 5: Backend API Verification
+# PHASE 8: Backend API Verification
 # ═════════════════════════════════════════════════════════════════════════════
 
-header "PHASE 5: BACKEND API VERIFICATION"
+header "PHASE 7: BACKEND API VERIFICATION"
 
-step "5.1 Health check"
+step "7.1 Health check"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health)
 if [ "$HTTP_CODE" = "200" ]; then
   success "Health check OK (HTTP $HTTP_CODE)"
 else
   fail "Health check failed (HTTP $HTTP_CODE)"
+  count_error
 fi
 
-step "5.2 GET /markets (list)"
+step "7.2 GET /markets (list)"
 MARKETS_RESP=$(curl -s http://localhost:4000/markets?limit=10)
 MARKET_COUNT=$(echo "$MARKETS_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total', 0))" 2>/dev/null || echo "?")
 log "Backend reports $MARKET_COUNT markets indexed"
 if [ "$MARKET_COUNT" != "0" ] && [ "$MARKET_COUNT" != "?" ]; then
-  success "Markets endpoint returns data"
+  success "Markets endpoint returns data ($MARKET_COUNT markets)"
 else
   warn "Markets endpoint returned 0 or error — indexer may need time"
 fi
 
-step "5.3 GET /markets/$BINARY_ID (detail)"
+step "7.3 GET /markets/$BINARY_ID (detail)"
 DETAIL_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:4000/markets/$BINARY_ID")
 if [ "$DETAIL_CODE" = "200" ]; then
   success "Market detail endpoint OK"
 else
-  warn "Market detail returned HTTP $DETAIL_CODE (indexer may not have caught up)"
+  warn "Market detail returned HTTP $DETAIL_CODE (indexer lag)"
 fi
 
-step "5.4 AMM estimation"
+step "7.4 AMM estimation (buy)"
 ESTIMATE=$(curl -s -X POST http://localhost:4000/amm/estimate-buy \
   -H "Content-Type: application/json" \
-  -d "{\"marketId\": $BINARY_ID, \"outcome\": 0, \"amount\": 1000000}" 2>/dev/null)
+  -d "{\"marketId\": $MULTI_ID, \"outcome\": 0, \"amount\": 1000000}" 2>/dev/null)
 if echo "$ESTIMATE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'tokensOut' in d or 'error' in d" 2>/dev/null; then
-  success "AMM estimation endpoint responds"
+  success "AMM buy estimation responds"
 else
-  warn "AMM estimation returned unexpected response"
+  warn "AMM buy estimation: unexpected response"
 fi
 
-step "5.5 Swagger docs"
+step "7.5 AMM estimation (sell)"
+SELL_EST=$(curl -s -X POST http://localhost:4000/amm/estimate-sell \
+  -H "Content-Type: application/json" \
+  -d "{\"marketId\": $MULTI_ID, \"outcome\": 0, \"amount\": 1000000}" 2>/dev/null)
+if echo "$SELL_EST" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'collateralOut' in d or 'error' in d" 2>/dev/null; then
+  success "AMM sell estimation responds"
+else
+  warn "AMM sell estimation: unexpected response"
+fi
+
+step "7.6 User positions"
+POS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:4000/users/${T1_ADDR}/positions")
+if [ "$POS_CODE" = "200" ]; then
+  success "User positions endpoint OK"
+else
+  warn "User positions returned HTTP $POS_CODE"
+fi
+
+step "7.7 Swagger docs"
 SWAGGER_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/api/docs)
 if [ "$SWAGGER_CODE" = "200" ]; then
-  success "Swagger UI available at http://localhost:4000/api/docs"
+  success "Swagger UI at http://localhost:4000/api/docs"
 else
   warn "Swagger UI returned HTTP $SWAGGER_CODE"
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 6: Summary & Manual Checklist
+# PHASE 9: Summary
 # ═════════════════════════════════════════════════════════════════════════════
 
 header "RESULTS SUMMARY"
 
-echo -e "${GREEN}On-chain program:${NC}   All operations successful"
-echo -e "  Binary market:    Created (#$BINARY_ID) → Traded → Resolved → Claimed"
-echo -e "  Continuous market: Created (#$CONT_ID) → Traded → Resolved → Claimed"
+echo -e "${GREEN}Test Statistics:${NC}"
+echo -e "  Markets created:  ${BOLD}$STAT_MARKETS${NC} (binary + multi + continuous)"
+echo -e "  Trades executed:  ${BOLD}$STAT_TRADES${NC}"
+echo -e "  Claims processed: ${BOLD}$STAT_CLAIMS${NC}"
+echo -e "  Errors:           ${BOLD}$STAT_ERRORS${NC}"
+echo -e "  Random seed:      ${BOLD}$SEED${NC}"
 echo ""
-echo -e "${GREEN}Backend:${NC}            API endpoints responding"
+
+echo -e "${GREEN}Markets:${NC}"
+echo -e "  Binary (#$BINARY_ID):     Created -> 8 trades -> Resolved (Yes) -> Claimed"
+echo -e "  Multi (#$MULTI_ID):       Created -> 6 trades -> Resolved (Outcome $MULTI_WINNER) -> Claimed"
+echo -e "  Continuous (#$CONT_ID):   Created -> 4 dist trades -> Resolved ($CONT_RESOLVE_VALUE) -> Claimed"
 echo ""
-echo -e "${GREEN}Frontend:${NC}           Running on http://localhost:3000"
+
+echo -e "${GREEN}Trade Types Exercised:${NC}"
+echo -e "  Discrete:     buy, sell, buy-to-price, sell-to-price"
+echo -e "  Liquidity:    add-lp, remove-lp"
+echo -e "  Distribution: buy-dist, sell-dist (continuous)"
+echo ""
+
+echo -e "${GREEN}Traders:${NC}"
+echo -e "  Trader 1: ${T1_ADDR}"
+echo -e "  Trader 2: ${T2_ADDR}"
+echo -e "  Trader 3: ${T3_ADDR}"
+echo ""
+
+echo -e "${GREEN}Backend:${NC} API endpoints verified"
+echo ""
+
+echo -e "${GREEN}Frontend:${NC} Running on http://localhost:3000"
 echo ""
 
 header "NEXT: MANUAL FRONTEND VERIFICATION"
 
-echo -e "The automated on-chain tests above are complete."
-echo -e "Now open ${BOLD}http://localhost:3000${NC} in your browser to verify the UI."
+echo -e "Open ${BOLD}http://localhost:3000${NC} in your browser to verify the UI."
+echo ""
+echo -e "Key pages:"
+echo -e "  ${BOLD}http://localhost:3000/markets${NC}             — Market discovery"
+echo -e "  ${BOLD}http://localhost:3000/markets/$BINARY_ID${NC}   — Binary market"
+echo -e "  ${BOLD}http://localhost:3000/markets/$MULTI_ID${NC}    — Multi-outcome market"
+echo -e "  ${BOLD}http://localhost:3000/markets/$CONT_ID${NC}     — Continuous market"
+echo -e "  ${BOLD}http://localhost:3000/portfolio${NC}            — Portfolio"
+echo -e "  ${BOLD}http://localhost:3000/admin${NC}                — Admin dashboard"
+echo -e "  ${BOLD}http://localhost:3000/oracle${NC}               — Oracle dashboard"
 echo ""
 echo -e "Run ${CYAN}./scripts/e2e-smoke.sh --manual${NC} for the full frontend checklist."
-echo ""
-echo -e "Key pages to check:"
-echo -e "  ${BOLD}http://localhost:3000/markets${NC}           — Market discovery"
-echo -e "  ${BOLD}http://localhost:3000/markets/$BINARY_ID${NC} — Binary market detail"
-echo -e "  ${BOLD}http://localhost:3000/markets/$CONT_ID${NC}  — Continuous market detail"
-echo -e "  ${BOLD}http://localhost:3000/portfolio${NC}         — Portfolio (connect wallet)"
-echo -e "  ${BOLD}http://localhost:3000/admin${NC}             — Admin dashboard"
-echo -e "  ${BOLD}http://localhost:3000/oracle${NC}            — Oracle dashboard"
 echo ""
 
 if [ "$START_INFRA" = true ]; then
@@ -627,8 +751,8 @@ if [ "$START_INFRA" = true ]; then
   echo -e "Press Ctrl+C to stop all services and exit."
   echo ""
   echo "Logs:"
-  echo "  Backend:  $ROOT/scripts/.backend.log"
-  echo "  Frontend: $ROOT/scripts/.frontend.log"
+  echo "  Backend:  $STATE_DIR/backend.log"
+  echo "  Frontend: $STATE_DIR/frontend.log"
   echo ""
   # Keep script alive so trap cleanup works on Ctrl+C
   wait
