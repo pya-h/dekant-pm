@@ -13,6 +13,7 @@
 #   ./scripts/setup.sh --reset                      # Rebuild, redeploy, reset DB
 #   ./scripts/setup.sh --no-backend                 # Skip backend
 #   ./scripts/setup.sh --no-frontend                # Skip frontend
+#   ./scripts/setup.sh -b                           # Start in background
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -26,6 +27,7 @@ CUSTOM_RPC=""
 DO_RESET=false
 START_BACKEND=true
 START_FRONTEND=true
+BACKGROUND=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -57,6 +59,10 @@ while [ $# -gt 0 ]; do
       START_FRONTEND=false
       shift
       ;;
+    -b|--back|--background)
+      BACKGROUND=true
+      shift
+      ;;
     -h|--help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -69,6 +75,7 @@ while [ $# -gt 0 ]; do
       echo "  --reset           Rebuild program, reset validator + DB, re-init protocol"
       echo "  --no-backend      Don't start backend"
       echo "  --no-frontend     Don't start frontend"
+      echo "  -b, --back        Start services in background and exit"
       echo "  -h, --help        Show this help"
       echo ""
       echo "Examples:"
@@ -76,6 +83,7 @@ while [ $# -gt 0 ]; do
       echo "  $0 --reset                     # Fresh start: rebuild + reset everything"
       echo "  $0 --network devnet            # Connect to Solana devnet"
       echo "  $0 --rpc http://my-rpc:8899    # Use custom RPC"
+      echo "  $0 -b                          # Start in background (use down.sh to stop)"
       exit 0
       ;;
     *)
@@ -251,8 +259,15 @@ if [ "$START_FRONTEND" = true ]; then
   echo "  Frontend:  $STATE_DIR/frontend.log"
 fi
 echo ""
-echo -e "${YELLOW}Press Ctrl+C to stop all services.${NC}"
-echo ""
 
-# Keep alive until Ctrl+C
-wait
+if [ "$BACKGROUND" = true ]; then
+  # Background mode: detach and exit without killing services
+  trap - EXIT INT TERM
+  success "Services started in background mode."
+  log "Use ./scripts/down.sh to stop all services."
+else
+  echo -e "${YELLOW}Press Ctrl+C to stop all services.${NC}"
+  echo ""
+  # Keep alive until Ctrl+C
+  wait
+fi

@@ -205,28 +205,66 @@ keypair_address() {
 
 # ── Service Management ──────────────────────────────────────────────────────
 
-# PID tracking array — shared across all scripts that source lib.sh
+# PID tracking — in-memory array + persistent PID files in .state/
 PIDS=()
 
+# Track a PID and save to a named PID file for cross-script cleanup.
+# Usage: track_pid <pid> [name]
 track_pid() {
-  PIDS+=("$1")
+  local pid=$1
+  local name=${2:-}
+  PIDS+=("$pid")
+  if [ -n "$name" ]; then
+    ensure_state_dir
+    echo "$pid" > "$STATE_DIR/${name}.pid"
+  fi
 }
 
-# Gracefully stop all tracked PIDs, then force-kill survivors.
+# Recursively kill a process and all its descendants.
+kill_tree() {
+  local pid=$1 sig=${2:-TERM}
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null || true)
+  for child in $children; do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null || true
+}
+
+# Stop all tracked processes (PID files + in-memory), with port-based fallback.
 stop_tracked_pids() {
-  if [ ${#PIDS[@]} -eq 0 ]; then return; fi
-  log "Stopping background processes..."
+  log "Stopping services..."
+
+  # Kill from PID files (survives script restarts)
+  for f in "$STATE_DIR"/*.pid; do
+    [ -f "$f" ] || continue
+    local pid
+    pid=$(cat "$f" 2>/dev/null) || continue
+    if kill -0 "$pid" 2>/dev/null; then
+      kill_tree "$pid"
+    fi
+    rm -f "$f"
+  done
+
+  # Kill in-memory tracked PIDs
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
+      kill_tree "$pid"
     fi
   done
+
   sleep 1
-  for pid in "${PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
+
+  # Force-kill survivors by port (catches orphaned child processes)
+  for port in 8899 4000 3000; do
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      echo "$pids" | xargs kill -9 2>/dev/null || true
     fi
   done
+
+  rm -f "$STATE_DIR"/*.pid 2>/dev/null || true
   PIDS=()
   log "All processes stopped."
 }
@@ -259,7 +297,7 @@ start_validator() {
     --reset \
     --quiet \
     &>/dev/null &
-  track_pid $!
+  track_pid $! validator
 
   wait_for_port 8899 "Solana validator" 30
 
@@ -286,7 +324,7 @@ start_backend() {
   local _prev_dir="$PWD"
   cd "$ROOT/backend"
   npm run start:dev &>"$STATE_DIR/backend.log" &
-  track_pid $!
+  track_pid $! backend
   cd "$_prev_dir"
 
   wait_for_port 4000 "Backend" 30
@@ -304,7 +342,7 @@ start_frontend() {
   local _prev_dir="$PWD"
   cd "$ROOT/frontend"
   PATH="$NODE23:$PATH" pnpm dev &>"$STATE_DIR/frontend.log" &
-  track_pid $!
+  track_pid $! frontend
   cd "$_prev_dir"
 
   wait_for_port 3000 "Frontend" 45

@@ -149,6 +149,21 @@ count_market() { STAT_MARKETS=$((STAT_MARKETS + 1)); }
 count_claim()  { STAT_CLAIMS=$((STAT_CLAIMS + 1)); }
 count_error()  { STAT_ERRORS=$((STAT_ERRORS + 1)); }
 
+# ── Timing ───────────────────────────────────────────────────────────────────
+
+STAT_TRADE_TIME=0
+STAT_CLAIM_TIME=0
+STAT_WAIT_TIME=0
+
+format_duration() {
+  local secs=$1
+  if [ "$secs" -ge 60 ]; then
+    printf "%dm %ds" $((secs / 60)) $((secs % 60))
+  else
+    printf "%ds" "$secs"
+  fi
+}
+
 # ── Trade Helpers ─────────────────────────────────────────────────────────────
 
 # Execute a trade command — on failure, warn + count error instead of crashing.
@@ -156,6 +171,7 @@ count_error()  { STAT_ERRORS=$((STAT_ERRORS + 1)); }
 run_trade() {
   local desc=$1
   shift
+  local _t0=$(date +%s)
   if _tout=$("$@" 2>&1); then
     echo "$_tout" | tail -2
     success "$desc"
@@ -163,6 +179,7 @@ run_trade() {
     warn "$desc"
     count_error
   fi
+  STAT_TRADE_TIME=$((STAT_TRADE_TIME + $(date +%s) - _t0))
   count_trade
 }
 
@@ -170,29 +187,37 @@ run_trade() {
 # Usage: run_claim <trader_num> <market_id> <keypair_path>
 run_claim() {
   local n=$1 market_id=$2 keypair=$3
+  local _t0=$(date +%s)
   if _cout=$(devkit_as "$keypair" market.ts claim "$market_id" 2>&1); then
     echo "$_cout" | tail -2
     success "Trader $n claimed"
   else
     warn "Trader $n: nothing to claim (no winning tokens)"
   fi
+  STAT_CLAIM_TIME=$((STAT_CLAIM_TIME + $(date +%s) - _t0))
   count_claim
 }
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 
+CLEANUP_DONE=false
 cleanup_and_exit() {
+  if [ "$CLEANUP_DONE" = true ]; then return; fi
+  CLEANUP_DONE=true
   echo ""
   stop_tracked_pids
   log "Smoke test cleanup done."
 }
 
-trap cleanup_and_exit EXIT
+trap cleanup_and_exit EXIT INT TERM
+
+TIME_START=$(date +%s)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 1: Preflight
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_PREFLIGHT_START=$(date +%s)
 header "PREFLIGHT CHECKS"
 
 preflight_check_program
@@ -203,11 +228,13 @@ if [ -z "$WALLET_ADDR" ]; then exit 1; fi
 
 preflight_check_postgres
 ensure_deps
+PHASE_PREFLIGHT_TIME=$(($(date +%s) - PHASE_PREFLIGHT_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Infrastructure
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_INFRA_START=$(date +%s)
 if [ "$START_INFRA" = true ]; then
   header "PHASE 1: STARTING INFRASTRUCTURE"
   start_validator
@@ -220,11 +247,13 @@ else
   check_port 3000 && success "Frontend :3000"  || { fail "Frontend not reachable on :3000"; exit 1; }
   WALLET_ADDR=$(solana address 2>/dev/null)
 fi
+PHASE_INFRA_TIME=$(($(date +%s) - PHASE_INFRA_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 3: Protocol Setup
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_PROTOCOL_START=$(date +%s)
 header "PHASE 2: PROTOCOL SETUP"
 
 step "Initializing protocol"
@@ -238,11 +267,13 @@ success "Oracle role set"
 step "Assigning Creator role to deployer"
 devkit setup.ts assign-role "$WALLET_ADDR" creator 2>&1 | tail -2 || warn "May already be assigned"
 success "Creator role set"
+PHASE_PROTOCOL_TIME=$(($(date +%s) - PHASE_PROTOCOL_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 4: Generate Test Traders
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_TRADERS_START=$(date +%s)
 header "PHASE 3: GENERATING TEST TRADERS"
 
 NUM_TRADERS=3
@@ -265,11 +296,14 @@ T3_KEY="${TRADER_KEYS[2]}"
 T1_ADDR="${TRADER_ADDRS[0]}"
 T2_ADDR="${TRADER_ADDRS[1]}"
 T3_ADDR="${TRADER_ADDRS[2]}"
+PHASE_TRADERS_TIME=$(($(date +%s) - PHASE_TRADERS_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Binary Market Flow
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_BINARY_START=$(date +%s)
+PHASE_BINARY_WAIT=0
 header "PHASE 4: BINARY MARKET"
 
 # Random parameters
@@ -363,6 +397,8 @@ echo ""
 # Wait for deadline
 REMAINING=$((BIN_DEADLINE - $(date +%s) + 5))
 if [ "$REMAINING" -gt 0 ]; then
+  STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
+  PHASE_BINARY_WAIT=$REMAINING
   log "Waiting ${REMAINING}s for binary market deadline..."
   sleep "$REMAINING"
 else
@@ -398,11 +434,14 @@ devkit query.ts vault "$BINARY_ID" 2>&1 || true
 echo ""
 
 success "Binary market E2E flow complete!"
+PHASE_BINARY_TIME=$(($(date +%s) - PHASE_BINARY_START - PHASE_BINARY_WAIT))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 6: Multi-Outcome Market Flow
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_MULTI_START=$(date +%s)
+PHASE_MULTI_WAIT=0
 header "PHASE 5: MULTI-OUTCOME MARKET (4 outcomes)"
 
 MULTI_LIQUIDITY=$(rand 50 200)
@@ -476,6 +515,8 @@ echo ""
 # Wait for deadline
 REMAINING=$((MULTI_DEADLINE - $(date +%s) + 5))
 if [ "$REMAINING" -gt 0 ]; then
+  STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
+  PHASE_MULTI_WAIT=$REMAINING
   log "Waiting ${REMAINING}s for multi-outcome market deadline..."
   sleep "$REMAINING"
 fi
@@ -502,11 +543,14 @@ for i in $(seq 0 $((NUM_TRADERS - 1))); do
 done
 
 success "Multi-outcome market E2E flow complete!"
+PHASE_MULTI_TIME=$(($(date +%s) - PHASE_MULTI_START - PHASE_MULTI_WAIT))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 7: Continuous Market Flow
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_CONT_START=$(date +%s)
+PHASE_CONT_WAIT=0
 header "PHASE 6: CONTINUOUS MARKET (64 bins)"
 
 CONT_RANGE_MIN=$(rand 30 80)
@@ -604,6 +648,8 @@ echo ""
 # Wait for deadline
 REMAINING=$((CONT_DEADLINE - $(date +%s) + 5))
 if [ "$REMAINING" -gt 0 ]; then
+  STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
+  PHASE_CONT_WAIT=$REMAINING
   log "Waiting ${REMAINING}s for continuous market deadline..."
   sleep "$REMAINING"
 fi
@@ -639,11 +685,13 @@ devkit query.ts vault "$CONT_ID" 2>&1 || true
 echo ""
 
 success "Continuous market E2E flow complete!"
+PHASE_CONT_TIME=$(($(date +%s) - PHASE_CONT_START - PHASE_CONT_WAIT))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 8: Backend API Verification
 # ═════════════════════════════════════════════════════════════════════════════
 
+PHASE_API_START=$(date +%s)
 header "PHASE 7: BACKEND API VERIFICATION"
 
 step "7.1 Health check"
@@ -708,10 +756,27 @@ if [ "$SWAGGER_CODE" = "200" ]; then
 else
   warn "Swagger UI returned HTTP $SWAGGER_CODE"
 fi
+PHASE_API_TIME=$(($(date +%s) - PHASE_API_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 9: Summary
 # ═════════════════════════════════════════════════════════════════════════════
+
+TIME_END=$(date +%s)
+TIME_TOTAL=$((TIME_END - TIME_START))
+TIME_ACTIVE=$((TIME_TOTAL - STAT_WAIT_TIME))
+
+# Compute averages (integer division, 0 if no operations)
+if [ "$STAT_TRADES" -gt 0 ]; then
+  AVG_TRADE=$((STAT_TRADE_TIME / STAT_TRADES))
+else
+  AVG_TRADE=0
+fi
+if [ "$STAT_CLAIMS" -gt 0 ]; then
+  AVG_CLAIM=$((STAT_CLAIM_TIME / STAT_CLAIMS))
+else
+  AVG_CLAIM=0
+fi
 
 header "RESULTS SUMMARY"
 
@@ -720,7 +785,32 @@ echo -e "  Markets created:  ${BOLD}$STAT_MARKETS${NC} (binary + multi + continu
 echo -e "  Trades executed:  ${BOLD}$STAT_TRADES${NC}"
 echo -e "  Claims processed: ${BOLD}$STAT_CLAIMS${NC}"
 echo -e "  Errors:           ${BOLD}$STAT_ERRORS${NC}"
+echo -e "  Traders:          ${BOLD}$NUM_TRADERS${NC}"
 echo -e "  Random seed:      ${BOLD}$SEED${NC}"
+echo ""
+
+echo -e "${GREEN}Timing:${NC}"
+echo -e "  Total wall time:    ${BOLD}$(format_duration $TIME_TOTAL)${NC}"
+echo -e "  Active time:        ${BOLD}$(format_duration $TIME_ACTIVE)${NC}"
+echo -e "  Deadline waits:     ${BOLD}$(format_duration $STAT_WAIT_TIME)${NC}"
+echo ""
+
+echo -e "${GREEN}Phase Breakdown:${NC}"
+echo -e "  Preflight:          $(format_duration $PHASE_PREFLIGHT_TIME)"
+echo -e "  Infrastructure:     $(format_duration $PHASE_INFRA_TIME)"
+echo -e "  Protocol setup:     $(format_duration $PHASE_PROTOCOL_TIME)"
+echo -e "  Generate traders:   $(format_duration $PHASE_TRADERS_TIME)"
+echo -e "  Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)"
+echo -e "  Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)"
+echo -e "  Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)"
+echo -e "  Backend API:        $(format_duration $PHASE_API_TIME)"
+echo ""
+
+echo -e "${GREEN}Trade Performance:${NC}"
+echo -e "  Total trade time:   $(format_duration $STAT_TRADE_TIME) ($STAT_TRADES trades)"
+echo -e "  Avg trade time:     ${BOLD}$(format_duration $AVG_TRADE)${NC}"
+echo -e "  Total claim time:   $(format_duration $STAT_CLAIM_TIME) ($STAT_CLAIMS claims)"
+echo -e "  Avg claim time:     ${BOLD}$(format_duration $AVG_CLAIM)${NC}"
 echo ""
 
 echo -e "${GREEN}Markets:${NC}"
@@ -746,6 +836,68 @@ echo ""
 
 echo -e "${GREEN}Frontend:${NC} Running on http://localhost:3000"
 echo ""
+
+# ── Generate Report File ────────────────────────────────────────────────────
+
+REPORT_FILE="$STATE_DIR/report.txt"
+cat > "$REPORT_FILE" <<REPORT
+DekantPM E2E Smoke Test Report
+==============================
+Date:   $(date '+%Y-%m-%d %H:%M:%S')
+Seed:   $SEED
+
+Statistics
+----------
+  Markets created:    $STAT_MARKETS
+  Trades executed:    $STAT_TRADES
+  Claims processed:   $STAT_CLAIMS
+  Errors:             $STAT_ERRORS
+  Traders:            $NUM_TRADERS
+
+Timing
+------
+  Total wall time:    $(format_duration $TIME_TOTAL)
+  Active time:        $(format_duration $TIME_ACTIVE)
+  Deadline waits:     $(format_duration $STAT_WAIT_TIME)
+
+Phase Breakdown
+---------------
+  Preflight:          $(format_duration $PHASE_PREFLIGHT_TIME)
+  Infrastructure:     $(format_duration $PHASE_INFRA_TIME)
+  Protocol setup:     $(format_duration $PHASE_PROTOCOL_TIME)
+  Generate traders:   $(format_duration $PHASE_TRADERS_TIME)
+  Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)
+  Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)
+  Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)
+  Backend API:        $(format_duration $PHASE_API_TIME)
+
+Trade Performance
+-----------------
+  Total trade time:   $(format_duration $STAT_TRADE_TIME) ($STAT_TRADES trades)
+  Avg trade time:     $(format_duration $AVG_TRADE)
+  Total claim time:   $(format_duration $STAT_CLAIM_TIME) ($STAT_CLAIMS claims)
+  Avg claim time:     $(format_duration $AVG_CLAIM)
+
+Markets
+-------
+  Binary (#$BINARY_ID):
+    Liquidity: $BIN_LIQUIDITY | Deadline: ${BIN_DEADLINE_SEC}s | Winner: Yes (outcome $BIN_WINNING_OUTCOME)
+  Multi (#$MULTI_ID):
+    Outcomes: $MULTI_OUTCOMES | Liquidity: $MULTI_LIQUIDITY | Deadline: ${MULTI_DEADLINE_SEC}s | Winner: Outcome $MULTI_WINNER
+  Continuous (#$CONT_ID):
+    Range: $CONT_RANGE_MIN-$CONT_RANGE_MAX | Bins: $CONT_BINS | Liquidity: $CONT_LIQUIDITY | Deadline: ${CONT_DEADLINE_SEC}s | Resolved: $CONT_RESOLVE_VALUE
+
+Traders
+-------
+  Trader 1: $T1_ADDR
+  Trader 2: $T2_ADDR
+  Trader 3: $T3_ADDR
+REPORT
+
+success "Report saved to $REPORT_FILE"
+echo ""
+
+# ── Next Steps ──────────────────────────────────────────────────────────────
 
 header "NEXT: MANUAL FRONTEND VERIFICATION"
 
