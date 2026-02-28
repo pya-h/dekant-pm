@@ -39,19 +39,19 @@ EXTRA_MARKETS=false
 
 for arg in "$@"; do
   case "$arg" in
-    --no-infra)       START_INFRA=false ;;
-    --manual)         MANUAL_ONLY=true ;;
-    --new-markets)  EXTRA_MARKETS=true ;;
+    -n|--no-infra)       START_INFRA=false ;;
+    -m|--manual)         MANUAL_ONLY=true ;;
+    -nm|--new-markets)   EXTRA_MARKETS=true ;;
     -h|--help)
       echo "Usage: $0 [--no-infra] [--new-markets] [--manual]"
       echo ""
       echo "Runs the DekantPM end-to-end smoke test."
       echo ""
       echo "Options:"
-      echo "  --no-infra        Skip starting validator/backend/frontend (already running)"
-      echo "  --new-markets   Create 1-3 additional random markets (populates DB)"
-      echo "  --manual          Print manual frontend verification checklist only"
-      echo "  -h, --help        Show this help"
+      echo "  -n, --no-infra        Skip starting validator/backend/frontend (already running)"
+      echo "  -nm, --new-markets    Create 1-3 additional random markets (populates DB)"
+      echo "  -m, --manual          Print manual frontend verification checklist only"
+      echo "  -h, --help            Show this help"
       echo ""
       echo "Environment:"
       echo "  SEED=<n>     Set random seed for reproducible runs"
