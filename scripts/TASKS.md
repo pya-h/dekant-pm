@@ -101,4 +101,12 @@ Add `scripts/.state/` to project `.gitignore`.
 - `bash -n` syntax validation on all scripts
 - Logic review: amounts don't exceed funded balances
 - Edge cases: sell amounts < buy amounts, reasonable targets
-- verify randomized values produce valid scenarios
+- Verify randomized values produce valid scenarios
+- Fixed `generate_keypair` stdout contamination (`2>/dev/null` → `&>/dev/null`)
+- Fixed `state_get` pipefail crash when key missing (`|| true`)
+- Fixed `| head -N` SIGPIPE/EPIPE crash on informational queries (`|| true`)
+- Graceful error handling for expected failures:
+  - `sell-to-price` may fail with `InsufficientHoldings` (random amounts may exceed holdings)
+  - `claim` may fail with `NothingToClaim` (traders who bet wrong outcome)
+  - `remove-lp` may fail with `insufficient funds` (vault drained after claims — normal LP risk)
+  - All 3 capture output to suppress full Anchor stack traces, show clean warn messages

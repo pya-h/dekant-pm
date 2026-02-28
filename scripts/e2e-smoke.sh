@@ -149,6 +149,36 @@ count_market() { STAT_MARKETS=$((STAT_MARKETS + 1)); }
 count_claim()  { STAT_CLAIMS=$((STAT_CLAIMS + 1)); }
 count_error()  { STAT_ERRORS=$((STAT_ERRORS + 1)); }
 
+# ── Trade Helpers ─────────────────────────────────────────────────────────────
+
+# Execute a trade command — on failure, warn + count error instead of crashing.
+# Usage: run_trade "description" command arg1 arg2 ...
+run_trade() {
+  local desc=$1
+  shift
+  if _tout=$("$@" 2>&1); then
+    echo "$_tout" | tail -2
+    success "$desc"
+  else
+    warn "$desc"
+    count_error
+  fi
+  count_trade
+}
+
+# Execute a claim — warns on NothingToClaim (expected, not counted as error).
+# Usage: run_claim <trader_num> <market_id> <keypair_path>
+run_claim() {
+  local n=$1 market_id=$2 keypair=$3
+  if _cout=$(devkit_as "$keypair" market.ts claim "$market_id" 2>&1); then
+    echo "$_cout" | tail -2
+    success "Trader $n claimed"
+  else
+    warn "Trader $n: nothing to claim (no winning tokens)"
+  fi
+  count_claim
+}
+
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 
 cleanup_and_exit() {
@@ -280,30 +310,22 @@ echo ""
 # --- Trade 1: Trader 1 buys Yes (outcome 0) ---
 BIN_BUY1=$(rand 5 30)
 step "4.4 Trader 1: buy Yes with $BIN_BUY1 tokens"
-devkit_as "$T1_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY1" 2>&1
-success "Trader 1 bought Yes"
-count_trade
+run_trade "Trader 1 bought Yes" devkit_as "$T1_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY1"
 
 # --- Trade 2: Trader 2 buys No (outcome 1) ---
 BIN_BUY2=$(rand 5 30)
 step "4.5 Trader 2: buy No with $BIN_BUY2 tokens"
-devkit_as "$T2_KEY" trade.ts buy "$BINARY_ID" 1 "$BIN_BUY2" 2>&1
-success "Trader 2 bought No"
-count_trade
+run_trade "Trader 2 bought No" devkit_as "$T2_KEY" trade.ts buy "$BINARY_ID" 1 "$BIN_BUY2"
 
 # --- Trade 3: Trader 3 buys Yes ---
 BIN_BUY3=$(rand 5 15)
 step "4.6 Trader 3: buy Yes with $BIN_BUY3 tokens"
-devkit_as "$T3_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY3" 2>&1
-success "Trader 3 bought Yes"
-count_trade
+run_trade "Trader 3 bought Yes" devkit_as "$T3_KEY" trade.ts buy "$BINARY_ID" 0 "$BIN_BUY3"
 
 # --- Trade 4: Trader 1 buys-to-price (push Yes higher) ---
 BIN_BTP_TARGET=$(rand 58 72)
 step "4.7 Trader 1: buy-to-price Yes to ${BIN_BTP_TARGET}% (max collateral 100)"
-devkit_as "$T1_KEY" trade.ts buy-to-price "$BINARY_ID" 0 "$BIN_BTP_TARGET" --max-collateral 100 2>&1
-success "Trader 1 buy-to-price done (target ${BIN_BTP_TARGET}%)"
-count_trade
+run_trade "Trader 1 buy-to-price (target ${BIN_BTP_TARGET}%)" devkit_as "$T1_KEY" trade.ts buy-to-price "$BINARY_ID" 0 "$BIN_BTP_TARGET" --max-collateral 100
 
 # --- Trade 5: Trader 3 sells some Yes tokens ---
 # Sell a safe fraction (at most half of what was bought)
@@ -311,9 +333,7 @@ BIN_SELL3_MAX=$((BIN_BUY3 / 2))
 if [ "$BIN_SELL3_MAX" -lt 1 ]; then BIN_SELL3_MAX=1; fi
 BIN_SELL3=$(rand 1 "$BIN_SELL3_MAX")
 step "4.8 Trader 3: sell $BIN_SELL3 Yes tokens"
-devkit_as "$T3_KEY" trade.ts sell "$BINARY_ID" 0 "$BIN_SELL3" 2>&1
-success "Trader 3 sold some Yes tokens"
-count_trade
+run_trade "Trader 3 sold Yes tokens" devkit_as "$T3_KEY" trade.ts sell "$BINARY_ID" 0 "$BIN_SELL3"
 
 # --- Trade 6: Trader 2 sell-to-price No (push No lower) ---
 # After buy-to-price, Yes ~ BTP_TARGET%, so No ~ (100-BTP_TARGET)%
@@ -322,20 +342,17 @@ BIN_STP_DELTA=$(rand 3 8)
 BIN_STP_TARGET=$((100 - BIN_BTP_TARGET - BIN_STP_DELTA))
 if [ "$BIN_STP_TARGET" -lt 15 ]; then BIN_STP_TARGET=15; fi
 step "4.9 Trader 2: sell-to-price No to ${BIN_STP_TARGET}%"
-devkit_as "$T2_KEY" trade.ts sell-to-price "$BINARY_ID" 1 "$BIN_STP_TARGET" 2>&1 || warn "sell-to-price may have hit holdings limit"
-count_trade
+run_trade "Trader 2 sell-to-price done" devkit_as "$T2_KEY" trade.ts sell-to-price "$BINARY_ID" 1 "$BIN_STP_TARGET"
 
 # --- Trade 7: Deployer adds liquidity ---
 BIN_LP_AMOUNT=$(rand 30 80)
 step "4.10 Deployer: add $BIN_LP_AMOUNT liquidity"
-devkit trade.ts add-lp "$BINARY_ID" "$BIN_LP_AMOUNT" 2>&1
-success "Liquidity added"
-count_trade
+run_trade "Liquidity added" devkit trade.ts add-lp "$BINARY_ID" "$BIN_LP_AMOUNT"
 
 step "4.11 Querying positions after all trades"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
   log "Trader $((i + 1)):"
-  devkit_as "${TRADER_KEYS[$i]}" trade.ts position "$BINARY_ID" 2>&1
+  devkit_as "${TRADER_KEYS[$i]}" trade.ts position "$BINARY_ID" 2>&1 || true
 done
 echo ""
 
@@ -355,8 +372,13 @@ fi
 # --- Resolve ---
 BIN_WINNING_OUTCOME=0
 step "4.13 Resolving binary market — Yes wins (outcome $BIN_WINNING_OUTCOME)"
-devkit resolve.ts market "$BINARY_ID" "$BIN_WINNING_OUTCOME" 2>&1
-success "Binary market resolved"
+if _out=$(devkit resolve.ts market "$BINARY_ID" "$BIN_WINNING_OUTCOME" 2>&1); then
+  echo "$_out" | tail -2
+  success "Binary market resolved"
+else
+  warn "Failed to resolve binary market"
+  count_error
+fi
 
 step "4.14 Checking resolved state"
 devkit query.ts market "$BINARY_ID" 2>&1 | head -15 || true
@@ -365,17 +387,14 @@ echo ""
 # --- Claims ---
 step "4.15 All traders claim payouts"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
-  log "Trader $((i + 1)) claiming..."
-  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$BINARY_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
-  count_claim
+  run_claim "$((i + 1))" "$BINARY_ID" "${TRADER_KEYS[$i]}"
 done
 
 step "4.16 Deployer: remove liquidity"
-devkit trade.ts remove-lp "$BINARY_ID" all 2>&1 || warn "LP removal issue"
-count_trade
+run_trade "Liquidity removed" devkit trade.ts remove-lp "$BINARY_ID" all
 
 step "4.17 Final vault check"
-devkit query.ts vault "$BINARY_ID" 2>&1
+devkit query.ts vault "$BINARY_ID" 2>&1 || true
 echo ""
 
 success "Binary market E2E flow complete!"
@@ -421,46 +440,34 @@ echo ""
 # --- Trade 1: Trader 1 buys Outcome 0 ---
 MULTI_BUY1=$(rand 8 25)
 step "5.4 Trader 1: buy Outcome 0 with $MULTI_BUY1 tokens"
-devkit_as "$T1_KEY" trade.ts buy "$MULTI_ID" 0 "$MULTI_BUY1" 2>&1
-success "Trader 1 bought Outcome 0"
-count_trade
+run_trade "Trader 1 bought Outcome 0" devkit_as "$T1_KEY" trade.ts buy "$MULTI_ID" 0 "$MULTI_BUY1"
 
 # --- Trade 2: Trader 2 buys Outcome 2 ---
 MULTI_BUY2=$(rand 8 25)
 step "5.5 Trader 2: buy Outcome 2 with $MULTI_BUY2 tokens"
-devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2" 2>&1
-success "Trader 2 bought Outcome 2"
-count_trade
+run_trade "Trader 2 bought Outcome 2" devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2"
 
 # --- Trade 3: Trader 3 buys Outcome 1 ---
 MULTI_BUY3=$(rand 8 25)
 step "5.6 Trader 3: buy Outcome 1 with $MULTI_BUY3 tokens"
-devkit_as "$T3_KEY" trade.ts buy "$MULTI_ID" 1 "$MULTI_BUY3" 2>&1
-success "Trader 3 bought Outcome 1"
-count_trade
+run_trade "Trader 3 bought Outcome 1" devkit_as "$T3_KEY" trade.ts buy "$MULTI_ID" 1 "$MULTI_BUY3"
 
 # --- Trade 4: Trader 1 buy-to-price Outcome 0 to ~35-45% (from ~25%) ---
 MULTI_BTP=$(rand 33 45)
 step "5.7 Trader 1: buy-to-price Outcome 0 to ${MULTI_BTP}% (max collateral 100)"
-devkit_as "$T1_KEY" trade.ts buy-to-price "$MULTI_ID" 0 "$MULTI_BTP" --max-collateral 100 2>&1
-success "Trader 1 buy-to-price done"
-count_trade
+run_trade "Trader 1 buy-to-price (target ${MULTI_BTP}%)" devkit_as "$T1_KEY" trade.ts buy-to-price "$MULTI_ID" 0 "$MULTI_BTP" --max-collateral 100
 
 # --- Trade 5: Trader 3 sells some Outcome 1 tokens ---
 MULTI_SELL3_MAX=$((MULTI_BUY3 / 2))
 if [ "$MULTI_SELL3_MAX" -lt 2 ]; then MULTI_SELL3_MAX=2; fi
 MULTI_SELL3=$(rand 2 "$MULTI_SELL3_MAX")
 step "5.8 Trader 3: sell $MULTI_SELL3 Outcome 1 tokens"
-devkit_as "$T3_KEY" trade.ts sell "$MULTI_ID" 1 "$MULTI_SELL3" 2>&1
-success "Trader 3 sold some Outcome 1"
-count_trade
+run_trade "Trader 3 sold Outcome 1" devkit_as "$T3_KEY" trade.ts sell "$MULTI_ID" 1 "$MULTI_SELL3"
 
 # --- Trade 6: Trader 2 buys more Outcome 2 ---
 MULTI_BUY2B=$(rand 5 15)
 step "5.9 Trader 2: buy another $MULTI_BUY2B of Outcome 2"
-devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2B" 2>&1
-success "Trader 2 bought more Outcome 2"
-count_trade
+run_trade "Trader 2 bought more Outcome 2" devkit_as "$T2_KEY" trade.ts buy "$MULTI_ID" 2 "$MULTI_BUY2B"
 
 step "5.10 Querying probabilities"
 devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
@@ -476,8 +483,13 @@ fi
 # Resolve: Outcome 2 wins (so Trader 2 should profit most)
 MULTI_WINNER=2
 step "5.11 Resolving multi-outcome market — Outcome $MULTI_WINNER wins"
-devkit resolve.ts market "$MULTI_ID" "$MULTI_WINNER" 2>&1
-success "Multi-outcome market resolved"
+if _out=$(devkit resolve.ts market "$MULTI_ID" "$MULTI_WINNER" 2>&1); then
+  echo "$_out" | tail -2
+  success "Multi-outcome market resolved"
+else
+  warn "Failed to resolve multi-outcome market"
+  count_error
+fi
 
 step "5.12 Checking resolved state"
 devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
@@ -486,9 +498,7 @@ echo ""
 # --- Claims ---
 step "5.13 All traders claim payouts"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
-  log "Trader $((i + 1)) claiming..."
-  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$MULTI_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
-  count_claim
+  run_claim "$((i + 1))" "$MULTI_ID" "${TRADER_KEYS[$i]}"
 done
 
 success "Multi-outcome market E2E flow complete!"
@@ -546,9 +556,7 @@ T1_SIGMA=$((T1_SIGMA_BASE + T1_SIGMA_EXTRA))
 if [ "$T1_SIGMA" -lt 5 ]; then T1_SIGMA=5; fi
 CONT_BUY1=$(rand 10 30)
 step "6.4 Trader 1: buy-dist N($T1_MU, $T1_SIGMA) with $CONT_BUY1 tokens"
-devkit_as "$T1_KEY" trade.ts buy-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_BUY1" 2>&1
-success "Trader 1 bought distribution"
-count_trade
+run_trade "Trader 1 bought distribution" devkit_as "$T1_KEY" trade.ts buy-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_BUY1"
 
 # --- Trade 2: Trader 2 buys distribution (different center, narrower) ---
 T2_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
@@ -560,9 +568,7 @@ T2_SIGMA=$((T2_SIGMA_BASE + T2_SIGMA_EXTRA))
 if [ "$T2_SIGMA" -lt 5 ]; then T2_SIGMA=5; fi
 CONT_BUY2=$(rand 10 30)
 step "6.5 Trader 2: buy-dist N($T2_MU, $T2_SIGMA) with $CONT_BUY2 tokens"
-devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_BUY2" 2>&1
-success "Trader 2 bought distribution"
-count_trade
+run_trade "Trader 2 bought distribution" devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_BUY2"
 
 # --- Trade 3: Trader 3 buys distribution (wider sigma) ---
 T3_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
@@ -574,12 +580,10 @@ T3_SIGMA=$((T3_SIGMA_BASE + T3_SIGMA_EXTRA))
 if [ "$T3_SIGMA" -lt 5 ]; then T3_SIGMA=5; fi
 CONT_BUY3=$(rand 10 25)
 step "6.6 Trader 3: buy-dist N($T3_MU, $T3_SIGMA) with $CONT_BUY3 tokens"
-devkit_as "$T3_KEY" trade.ts buy-dist "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3" 2>&1
-success "Trader 3 bought distribution"
-count_trade
+run_trade "Trader 3 bought distribution" devkit_as "$T3_KEY" trade.ts buy-dist "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3"
 
 step "6.7 Querying Trader 1 position"
-devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1
+devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1 || true
 echo ""
 
 step "6.8 Market state after distribution buys"
@@ -591,9 +595,7 @@ CONT_SELL1_MAX=$((CONT_BUY1 / 3))
 if [ "$CONT_SELL1_MAX" -lt 2 ]; then CONT_SELL1_MAX=2; fi
 CONT_SELL1=$(rand 2 "$CONT_SELL1_MAX")
 step "6.9 Trader 1: sell-dist N($T1_MU, $T1_SIGMA) $CONT_SELL1 tokens"
-devkit_as "$T1_KEY" trade.ts sell-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1" 2>&1
-success "Trader 1 sold some distribution tokens"
-count_trade
+run_trade "Trader 1 sold distribution tokens" devkit_as "$T1_KEY" trade.ts sell-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1"
 
 step "6.10 Market after partial sell"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
@@ -614,8 +616,13 @@ if [ "$CONT_RESOLVE_VALUE" -lt "$CONT_RANGE_MIN" ]; then CONT_RESOLVE_VALUE=$CON
 if [ "$CONT_RESOLVE_VALUE" -gt "$CONT_RANGE_MAX" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MAX; fi
 
 step "6.11 Resolving continuous market with value=$CONT_RESOLVE_VALUE"
-devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1
-success "Continuous market resolved"
+if _out=$(devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1); then
+  echo "$_out" | tail -2
+  success "Continuous market resolved"
+else
+  warn "Failed to resolve continuous market"
+  count_error
+fi
 
 step "6.12 Checking resolved state"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
@@ -624,13 +631,11 @@ echo ""
 # --- Claims ---
 step "6.13 All traders claim payouts"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
-  log "Trader $((i + 1)) claiming..."
-  devkit_as "${TRADER_KEYS[$i]}" market.ts claim "$CONT_ID" 2>&1 || warn "Trader $((i + 1)): nothing to claim"
-  count_claim
+  run_claim "$((i + 1))" "$CONT_ID" "${TRADER_KEYS[$i]}"
 done
 
 step "6.14 Final vault check"
-devkit query.ts vault "$CONT_ID" 2>&1
+devkit query.ts vault "$CONT_ID" 2>&1 || true
 echo ""
 
 success "Continuous market E2E flow complete!"
