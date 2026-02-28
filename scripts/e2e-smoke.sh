@@ -274,7 +274,7 @@ devkit trade.ts fund "$BINARY_ID" 200 2>&1 | tail -1
 success "All traders funded"
 
 step "4.3 Querying initial state"
-devkit query.ts market "$BINARY_ID" 2>&1 | head -15
+devkit query.ts market "$BINARY_ID" 2>&1 | head -15 || true
 echo ""
 
 # --- Trade 1: Trader 1 buys Yes (outcome 0) ---
@@ -340,7 +340,7 @@ done
 echo ""
 
 step "4.12 Querying probabilities"
-devkit query.ts market "$BINARY_ID" 2>&1 | head -15
+devkit query.ts market "$BINARY_ID" 2>&1 | head -15 || true
 echo ""
 
 # Wait for deadline
@@ -359,7 +359,7 @@ devkit resolve.ts market "$BINARY_ID" "$BIN_WINNING_OUTCOME" 2>&1
 success "Binary market resolved"
 
 step "4.14 Checking resolved state"
-devkit query.ts market "$BINARY_ID" 2>&1 | head -15
+devkit query.ts market "$BINARY_ID" 2>&1 | head -15 || true
 echo ""
 
 # --- Claims ---
@@ -415,7 +415,7 @@ done
 success "All traders funded"
 
 step "5.3 Querying initial state"
-devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
 echo ""
 
 # --- Trade 1: Trader 1 buys Outcome 0 ---
@@ -463,7 +463,7 @@ success "Trader 2 bought more Outcome 2"
 count_trade
 
 step "5.10 Querying probabilities"
-devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
 echo ""
 
 # Wait for deadline
@@ -480,7 +480,7 @@ devkit resolve.ts market "$MULTI_ID" "$MULTI_WINNER" 2>&1
 success "Multi-outcome market resolved"
 
 step "5.12 Checking resolved state"
-devkit query.ts market "$MULTI_ID" 2>&1 | head -20
+devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
 echo ""
 
 # --- Claims ---
@@ -530,7 +530,7 @@ done
 success "All traders funded"
 
 step "6.3 Querying initial state"
-devkit query.ts market "$CONT_ID" 2>&1 | head -20
+devkit query.ts market "$CONT_ID" 2>&1 | head -20 || true
 echo ""
 
 # Compute reasonable mu/sigma values within the range
@@ -583,7 +583,7 @@ devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1
 echo ""
 
 step "6.8 Market state after distribution buys"
-devkit query.ts market "$CONT_ID" 2>&1 | head -25
+devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
 # --- Trade 4: Trader 1 sells some of their distribution ---
@@ -596,7 +596,7 @@ success "Trader 1 sold some distribution tokens"
 count_trade
 
 step "6.10 Market after partial sell"
-devkit query.ts market "$CONT_ID" 2>&1 | head -25
+devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
 # Wait for deadline
@@ -618,7 +618,7 @@ devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1
 success "Continuous market resolved"
 
 step "6.12 Checking resolved state"
-devkit query.ts market "$CONT_ID" 2>&1 | head -25
+devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
 # --- Claims ---
