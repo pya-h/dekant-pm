@@ -20,10 +20,11 @@
 #   - Dependencies installed (devkit, backend, frontend)
 #
 # Usage:
-#   ./scripts/e2e-smoke.sh              # Full test (starts services)
-#   ./scripts/e2e-smoke.sh --no-infra   # Skip infrastructure (already running)
-#   ./scripts/e2e-smoke.sh --manual     # Print manual frontend checklist
-#   SEED=42 ./scripts/e2e-smoke.sh      # Reproducible run
+#   ./scripts/e2e-smoke.sh                   # Full test (starts services)
+#   ./scripts/e2e-smoke.sh --no-infra        # Skip infrastructure (already running)
+#   ./scripts/e2e-smoke.sh --new-markets   # Also create 1-3 extra random markets
+#   ./scripts/e2e-smoke.sh --manual          # Print manual frontend checklist
+#   SEED=42 ./scripts/e2e-smoke.sh           # Reproducible run
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -34,20 +35,23 @@ source "$(dirname "$0")/lib.sh"
 
 START_INFRA=true
 MANUAL_ONLY=false
+EXTRA_MARKETS=false
 
 for arg in "$@"; do
   case "$arg" in
-    --no-infra)  START_INFRA=false ;;
-    --manual)    MANUAL_ONLY=true ;;
+    --no-infra)       START_INFRA=false ;;
+    --manual)         MANUAL_ONLY=true ;;
+    --new-markets)  EXTRA_MARKETS=true ;;
     -h|--help)
-      echo "Usage: $0 [--no-infra] [--manual]"
+      echo "Usage: $0 [--no-infra] [--new-markets] [--manual]"
       echo ""
       echo "Runs the DekantPM end-to-end smoke test."
       echo ""
       echo "Options:"
-      echo "  --no-infra   Skip starting validator/backend/frontend (already running)"
-      echo "  --manual     Print manual frontend verification checklist only"
-      echo "  -h, --help   Show this help"
+      echo "  --no-infra        Skip starting validator/backend/frontend (already running)"
+      echo "  --new-markets   Create 1-3 additional random markets (populates DB)"
+      echo "  --manual          Print manual frontend verification checklist only"
+      echo "  -h, --help        Show this help"
       echo ""
       echo "Environment:"
       echo "  SEED=<n>     Set random seed for reproducible runs"
@@ -297,6 +301,88 @@ T1_ADDR="${TRADER_ADDRS[0]}"
 T2_ADDR="${TRADER_ADDRS[1]}"
 T3_ADDR="${TRADER_ADDRS[2]}"
 PHASE_TRADERS_TIME=$(($(date +%s) - PHASE_TRADERS_START))
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PHASE 4b: Extra Markets (--new-markets)
+# ═════════════════════════════════════════════════════════════════════════════
+
+PHASE_EXTRA_TIME=0
+EXTRA_MARKET_IDS=()
+
+if [ "$EXTRA_MARKETS" = true ]; then
+  PHASE_EXTRA_START=$(date +%s)
+  NUM_EXTRA=$(rand 1 3)
+  header "PHASE 3b: CREATING $NUM_EXTRA EXTRA MARKETS"
+
+  MARKET_TYPES=("binary" "multi" "continuous")
+
+  for ei in $(seq 1 "$NUM_EXTRA"); do
+    ETYPE=$(rand_choice "${MARKET_TYPES[@]}")
+    ELIQ=$(rand 50 200)
+    EDEADLINE_SEC=$(rand 300 900)
+    EDEADLINE=$(($(date +%s) + EDEADLINE_SEC))
+
+    case "$ETYPE" in
+      binary)
+        step "Extra $ei/$NUM_EXTRA: binary market (liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
+        if EOUT=$(devkit market.ts create-binary "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" 2>&1); then
+          EID=$(echo "$EOUT" | grep "Market ID:" | awk '{print $NF}' || true)
+          # Capture mint from first extra market if COLLATERAL_MINT not set yet
+          if [ -z "${COLLATERAL_MINT:-}" ]; then
+            COLLATERAL_MINT=$(echo "$EOUT" | grep "Mint:" | tail -1 | awk '{print $NF}' || true)
+          fi
+        fi
+        ;;
+      multi)
+        EOUTCOMES=$(rand 3 6)
+        step "Extra $ei/$NUM_EXTRA: multi market ($EOUTCOMES outcomes, liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
+        ECMD=(devkit market.ts create-multi "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" "$EOUTCOMES")
+        [ -n "${COLLATERAL_MINT:-}" ] && ECMD+=(--mint "$COLLATERAL_MINT")
+        if EOUT=$("${ECMD[@]}" 2>&1); then
+          EID=$(echo "$EOUT" | grep "Market ID:" | awk '{print $NF}' || true)
+          if [ -z "${COLLATERAL_MINT:-}" ]; then
+            COLLATERAL_MINT=$(echo "$EOUT" | grep "Mint:" | tail -1 | awk '{print $NF}' || true)
+          fi
+        fi
+        ;;
+      continuous)
+        ERMIN=$(rand 30 80)
+        ERMAX=$(rand 300 600)
+        EBINS=$(rand_choice 32 64 128)
+        step "Extra $ei/$NUM_EXTRA: continuous market (range $ERMIN-$ERMAX, $EBINS bins, liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
+        ECMD=(devkit market.ts create-continuous "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" "$ERMIN" "$ERMAX" --bins "$EBINS")
+        [ -n "${COLLATERAL_MINT:-}" ] && ECMD+=(--mint "$COLLATERAL_MINT")
+        if EOUT=$("${ECMD[@]}" 2>&1); then
+          EID=$(echo "$EOUT" | grep "Market ID:" | awk '{print $NF}' || true)
+          if [ -z "${COLLATERAL_MINT:-}" ]; then
+            COLLATERAL_MINT=$(echo "$EOUT" | grep "Mint:" | tail -1 | awk '{print $NF}' || true)
+          fi
+        fi
+        ;;
+    esac
+
+    if [ -n "${EID:-}" ]; then
+      EXTRA_MARKET_IDS+=("$ETYPE:#$EID")
+      success "Created $ETYPE market #$EID"
+      count_market
+
+      # Fund traders so they can interact via frontend
+      EFUND=$(rand 50 150)
+      for ti in $(seq 0 $((NUM_TRADERS - 1))); do
+        devkit trade.ts fund "$EID" "$EFUND" --wallet "${TRADER_ADDRS[$ti]}" 2>&1 | tail -1
+      done
+      devkit trade.ts fund "$EID" 200 2>&1 | tail -1
+      success "Funded traders + deployer for market #$EID"
+    else
+      warn "Extra $ei: failed to create $ETYPE market"
+      count_error
+    fi
+    EID=""
+  done
+
+  PHASE_EXTRA_TIME=$(($(date +%s) - PHASE_EXTRA_START))
+  success "$NUM_EXTRA extra markets created"
+fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Binary Market Flow
@@ -800,6 +886,9 @@ echo -e "  Preflight:          $(format_duration $PHASE_PREFLIGHT_TIME)"
 echo -e "  Infrastructure:     $(format_duration $PHASE_INFRA_TIME)"
 echo -e "  Protocol setup:     $(format_duration $PHASE_PROTOCOL_TIME)"
 echo -e "  Generate traders:   $(format_duration $PHASE_TRADERS_TIME)"
+if [ "$PHASE_EXTRA_TIME" -gt 0 ]; then
+  echo -e "  Extra markets:      $(format_duration $PHASE_EXTRA_TIME)"
+fi
 echo -e "  Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)"
 echo -e "  Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)"
 echo -e "  Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)"
@@ -814,6 +903,11 @@ echo -e "  Avg claim time:     ${BOLD}$(format_duration $AVG_CLAIM)${NC}"
 echo ""
 
 echo -e "${GREEN}Markets:${NC}"
+if [ "${#EXTRA_MARKET_IDS[@]}" -gt 0 ]; then
+  for em in "${EXTRA_MARKET_IDS[@]}"; do
+    echo -e "  Extra (${em}):  Created + funded (no lifecycle)"
+  done
+fi
 echo -e "  Binary (#$BINARY_ID):     Created -> 8 trades -> Resolved (Yes) -> Claimed"
 echo -e "  Multi (#$MULTI_ID):       Created -> 6 trades -> Resolved (Outcome $MULTI_WINNER) -> Claimed"
 echo -e "  Continuous (#$CONT_ID):   Created -> 4 dist trades -> Resolved ($CONT_RESOLVE_VALUE) -> Claimed"
@@ -866,6 +960,7 @@ Phase Breakdown
   Infrastructure:     $(format_duration $PHASE_INFRA_TIME)
   Protocol setup:     $(format_duration $PHASE_PROTOCOL_TIME)
   Generate traders:   $(format_duration $PHASE_TRADERS_TIME)
+  Extra markets:      $(format_duration $PHASE_EXTRA_TIME)
   Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)
   Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)
   Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)
