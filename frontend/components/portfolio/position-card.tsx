@@ -74,7 +74,7 @@ export function PositionCard({ position }: PositionCardProps) {
                 pnl >= 0 ? "text-emerald-400" : "text-rose-400",
               )}
             >
-              {pnl >= 0 ? "+" : ""}
+              {pnl >= 0 ? "+" : "-"}
               {formatUsdc(Math.abs(pnl))}
               <span className="ml-1 text-[10px] text-muted-foreground">
                 ({pnlPct >= 0 ? "+" : ""}

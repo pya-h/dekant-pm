@@ -198,7 +198,7 @@ function PositionPnL({
         pnl >= 0 ? "text-emerald-400" : "text-rose-400"
       }`}
     >
-      {pnl >= 0 ? "+" : ""}${Math.abs(pnlUsdc).toFixed(2)}
+      {pnl >= 0 ? "+" : "-"}${Math.abs(pnlUsdc).toFixed(2)}
     </span>
   );
 }
