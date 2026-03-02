@@ -1,4 +1,4 @@
-# DekantPM Tester — Implementation Tasks
+# DekantPM Operator CLI — Implementation Tasks
 
 ## T-1: Project Scaffolding ✅
 - [x] Directory structure, package.json

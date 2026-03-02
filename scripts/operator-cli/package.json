@@ -2,7 +2,7 @@
   "name": "@dekant-pm/operator-cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Interactive CLI testing app for DekantPM",
+  "description": "Interactive CLI for DekantPM protocol operations and testing",
   "scripts": {
     "start": "node src/main.js"
   },

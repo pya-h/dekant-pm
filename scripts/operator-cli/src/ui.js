@@ -18,7 +18,7 @@ function clear() {
 function banner(state) {
   const line = "\u2500".repeat(42);
   console.log(chalk.cyan(line));
-  console.log(chalk.cyan.bold("  DekantPM Tester CLI"));
+  console.log(chalk.cyan.bold("  DekantPM Operator CLI"));
   console.log(
     chalk.dim(
       `  Superuser: ${state.superuser.pubkey.toBase58().slice(0, 16)}...`
