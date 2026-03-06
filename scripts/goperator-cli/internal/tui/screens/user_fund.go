@@ -38,7 +38,11 @@ func NewFundUserScreen(s *state.SessionState) tea.Model {
 		return &fundUserScreen{state: s, phase: phaseFundDone, err: fmt.Errorf("no markets available. Create a market first")}
 	}
 
-	m := &fundUserScreen{state: s, amount: "100"}
+	amount := "100"
+	if s.RandomMode {
+		amount = s.Rand.FundAmount()
+	}
+	m := &fundUserScreen{state: s, amount: amount}
 	userChoices := buildUserChoices(s, false, true)
 	marketChoices := buildMarketChoices(s)
 

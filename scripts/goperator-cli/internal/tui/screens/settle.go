@@ -136,6 +136,14 @@ func (m *resolveScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *resolveScreen) buildParamsForm() tea.Cmd {
+	if m.state.RandomMode {
+		if m.market.Type == constants.MarketTypeContinuous {
+			m.valueStr = m.state.Rand.ResolveValue(m.market.RangeMin, m.market.RangeMax)
+		} else {
+			m.outcomeStr = m.state.Rand.ResolveOutcome(m.market.NumOutcomes)
+		}
+	}
+
 	if m.market.Type == constants.MarketTypeContinuous {
 		m.form = huh.NewForm(
 			huh.NewGroup(

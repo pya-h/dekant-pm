@@ -42,7 +42,11 @@ func NewAddLPScreen(s *state.SessionState) tea.Model {
 		return &addLPScreen{state: s, phase: phaseAddLPDone, err: fmt.Errorf("no markets available")}
 	}
 
-	m := &addLPScreen{state: s, amount: "50"}
+	amount := "50"
+	if s.RandomMode {
+		amount = s.Rand.Liquidity()
+	}
+	m := &addLPScreen{state: s, amount: amount}
 	marketChoices := buildMarketChoices(s)
 
 	m.form = huh.NewForm(

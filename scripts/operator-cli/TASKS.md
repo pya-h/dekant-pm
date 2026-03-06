@@ -37,3 +37,10 @@
 ## T-10: Verification ✅
 - [x] All 12 modules load cleanly (Node 22)
 - [x] App starts, connects to RPC, verifies protocol
+
+## T-11: Random Input Mode
+- [ ] Add Ctrl+R toggle for random mode in main menu loop
+- [ ] Auto-fill user labels, fund amounts, trade amounts, deadlines, etc. with random values
+- [ ] Still require manual user/market selection
+- [ ] Show "Random: ON/OFF" in status bar
+- [ ] Reference: goperator-cli random.Generator for value ranges and distributions
