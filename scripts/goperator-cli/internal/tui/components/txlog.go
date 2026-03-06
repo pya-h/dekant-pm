@@ -5,16 +5,16 @@ import (
 	"strings"
 
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 // RenderTxLog renders the transaction log panel.
 func RenderTxLog(txLog []state.TxLogEntry, width, height int) string {
-	title := tui.StyleTitle.Render("Transaction Log (Ctrl+L to close)")
+	title := styles.StyleTitle.Render("Transaction Log (Ctrl+L to close)")
 	if len(txLog) == 0 {
-		return title + "\n\n" + tui.StyleDim.Render("  No transactions yet.")
+		return title + "\n\n" + styles.StyleDim.Render("  No transactions yet.")
 	}
 
 	lines := []string{title, ""}
@@ -30,10 +30,10 @@ func RenderTxLog(txLog []state.TxLogEntry, width, height int) string {
 		var statusStyle lipgloss.Style
 		if entry.Success {
 			statusIcon = "✓"
-			statusStyle = tui.StyleSuccess
+			statusStyle = styles.StyleSuccess
 		} else {
 			statusIcon = "✗"
-			statusStyle = tui.StyleError
+			statusStyle = styles.StyleError
 		}
 
 		sigShort := entry.Sig
@@ -42,13 +42,13 @@ func RenderTxLog(txLog []state.TxLogEntry, width, height int) string {
 		}
 
 		line := fmt.Sprintf("  %s %s %-20s %s",
-			tui.StyleDim.Render(timeStr),
+			styles.StyleDim.Render(timeStr),
 			statusStyle.Render(statusIcon),
 			entry.Action,
-			tui.StyleDim.Render(sigShort),
+			styles.StyleDim.Render(sigShort),
 		)
 		if entry.Detail != "" {
-			line += "  " + tui.StyleDim.Render(entry.Detail)
+			line += "  " + styles.StyleDim.Render(entry.Detail)
 		}
 		lines = append(lines, line)
 	}
@@ -57,7 +57,7 @@ func RenderTxLog(txLog []state.TxLogEntry, width, height int) string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(tui.ColorSecondary).
+		BorderForeground(styles.ColorSecondary).
 		Width(width - 4).
 		Height(height - 4).
 		Padding(1, 2).

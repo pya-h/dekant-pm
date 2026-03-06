@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -129,19 +129,19 @@ func (m *addUserScreen) execAddUser() tea.Cmd {
 func (m *addUserScreen) View() string {
 	switch m.phase {
 	case phaseAddUserForm:
-		return tui.StyleTitle.Render("  Add New User\n\n") + m.form.View()
+		return styles.StyleTitle.Render("  Add New User\n\n") + m.form.View()
 	case phaseAddUserExec:
-		return tui.StyleTitle.Render("  Add New User\n\n") +
-			tui.StyleDim.Render("  Generating keypair and airdropping SOL...")
+		return styles.StyleTitle.Render("  Add New User\n\n") +
+			styles.StyleDim.Render("  Generating keypair and airdropping SOL...")
 	case phaseAddUserDone:
 		if m.err != nil {
-			return tui.StyleTitle.Render("  Add New User\n\n") +
-				tui.StyleError.Render("  Error: "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return styles.StyleTitle.Render("  Add New User\n\n") +
+				styles.StyleError.Render("  Error: "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return tui.StyleTitle.Render("  Add New User\n\n") +
-			tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return styles.StyleTitle.Render("  Add New User\n\n") +
+			styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

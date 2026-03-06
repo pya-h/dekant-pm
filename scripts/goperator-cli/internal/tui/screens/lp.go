@@ -7,7 +7,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -172,19 +172,19 @@ func (m *addLPScreen) execAddLP() tea.Cmd {
 }
 
 func (m *addLPScreen) View() string {
-	title := tui.StyleTitle.Render("  Add Liquidity\n\n")
+	title := styles.StyleTitle.Render("  Add Liquidity\n\n")
 	switch m.phase {
 	case phaseAddLPMarket, phaseAddLPParams, phaseAddLPUser:
 		return title + m.form.View()
 	case phaseAddLPExec:
-		return title + tui.StyleDim.Render("  Adding liquidity...")
+		return title + styles.StyleDim.Render("  Adding liquidity...")
 	case phaseAddLPDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }
@@ -379,19 +379,19 @@ func (m *removeLPScreen) execRemoveLP() tea.Cmd {
 }
 
 func (m *removeLPScreen) View() string {
-	title := tui.StyleTitle.Render("  Remove Liquidity\n\n")
+	title := styles.StyleTitle.Render("  Remove Liquidity\n\n")
 	switch m.phase {
 	case phaseRemoveLPMarket, phaseRemoveLPUser, phaseRemoveLPShares:
 		return title + m.form.View()
 	case phaseRemoveLPExec:
-		return title + tui.StyleDim.Render("  Removing liquidity...")
+		return title + styles.StyleDim.Render("  Removing liquidity...")
 	case phaseRemoveLPDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

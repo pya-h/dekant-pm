@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"goperator-cli/internal/state"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/tui/types"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -36,29 +38,29 @@ type MenuItemDelegate struct{}
 func (d MenuItemDelegate) Height() int                             { return 1 }
 func (d MenuItemDelegate) Spacing() int                            { return 0 }
 func (d MenuItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-func (d MenuItemDelegate) Render(w *strings.Builder, m list.Model, index int, item list.Item) {
+func (d MenuItemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	mi, ok := item.(MenuItem)
 	if !ok {
 		return
 	}
 
 	cursor := "  "
-	style := StyleMenuItem
+	style := styles.StyleMenuItem
 	if index == m.Index() {
-		cursor = StyleSelected.Render("▸ ")
-		style = StyleSelected
+		cursor = styles.StyleSelected.Render("▸ ")
+		style = styles.StyleSelected
 	}
 
 	// Section headers (action starts with "---")
 	if strings.HasPrefix(mi.Action, "---") {
-		w.WriteString("\n")
-		w.WriteString(StyleSectionHeader.Render(mi.Title))
+		fmt.Fprint(w, "\n")
+		fmt.Fprint(w, styles.StyleSectionHeader.Render(mi.Title))
 		return
 	}
 
 	// Number shortcut
-	shortcut := StyleDim.Render(fmt.Sprintf("%d ", (index)%10))
-	w.WriteString(cursor + shortcut + style.Render(mi.Title))
+	shortcut := styles.StyleDim.Render(fmt.Sprintf("%d ", (index)%10))
+	fmt.Fprint(w, cursor+shortcut+style.Render(mi.Title))
 }
 
 // ActionMsg is sent when a menu action is selected.
@@ -231,7 +233,7 @@ func (m AppModel) handleMenuSelect() (tea.Model, tea.Cmd) {
 
 func (m AppModel) View() string {
 	if m.quitting {
-		return StyleDim.Render("\n  Goodbye!\n")
+		return styles.StyleDim.Render("\n  Goodbye!\n")
 	}
 
 	var content string
@@ -259,28 +261,28 @@ func renderBanner(s *state.SessionState) string {
 	if len(superkey) > 16 {
 		superkey = superkey[:16] + "..."
 	}
-	title := StyleBanner.Render(
+	title := styles.StyleBanner.Render(
 		"DekantPM Goperator CLI" +
-			StyleDim.Render(fmt.Sprintf("  %s  U:%d  M:%d",
+			styles.StyleDim.Render(fmt.Sprintf("  %s  U:%d  M:%d",
 				superkey, len(s.Users), len(s.Markets))))
 	return title
 }
 
 func renderStatusBar(s *state.SessionState, width int) string {
 	parts := []string{
-		StyleDim.Render("localhost"),
+		styles.StyleDim.Render("localhost"),
 	}
 
 	if s.RandomMode {
-		parts = append(parts, StyleAccent.Render("Random:ON"))
+		parts = append(parts, styles.StyleAccent.Render("Random:ON"))
 	} else {
-		parts = append(parts, StyleDim.Render("Random:OFF"))
+		parts = append(parts, styles.StyleDim.Render("Random:OFF"))
 	}
 
 	parts = append(parts,
-		StyleDim.Render(fmt.Sprintf("U:%d M:%d TX:%d",
+		styles.StyleDim.Render(fmt.Sprintf("U:%d M:%d TX:%d",
 			len(s.Users), len(s.Markets), len(s.TxLog))),
-		StyleDim.Render("^R:Random ^L:Log Esc:Menu"),
+		styles.StyleDim.Render("^R:Random ^L:Log Esc:Menu"),
 	)
 
 	content := " " + strings.Join(parts, " │ ") + " "
@@ -294,11 +296,11 @@ func renderStatusBar(s *state.SessionState, width int) string {
 
 func renderTxLogView(s *state.SessionState, width, height int) string {
 	if len(s.TxLog) == 0 {
-		return StyleDim.Render("\n  No transactions yet. Press Ctrl+L to close.")
+		return styles.StyleDim.Render("\n  No transactions yet. Press Ctrl+L to close.")
 	}
 
 	lines := []string{
-		StyleTitle.Render("  Transaction Log") + StyleDim.Render("  (Ctrl+L to close)"),
+		styles.StyleTitle.Render("  Transaction Log") + styles.StyleDim.Render("  (Ctrl+L to close)"),
 		"",
 	}
 
@@ -314,18 +316,18 @@ func renderTxLogView(s *state.SessionState, width, height int) string {
 	for i := start; i < len(s.TxLog); i++ {
 		e := s.TxLog[i]
 		timeStr := e.Time.Format("15:04:05")
-		icon := StyleSuccess.Render("✓")
+		icon := styles.StyleSuccess.Render("✓")
 		if !e.Success {
-			icon = StyleError.Render("✗")
+			icon = styles.StyleError.Render("✗")
 		}
 		sig := e.Sig
 		if len(sig) > 20 {
 			sig = sig[:20] + "..."
 		}
 		line := fmt.Sprintf("  %s %s %-22s %s",
-			StyleDim.Render(timeStr), icon, e.Action, StyleDim.Render(sig))
+			styles.StyleDim.Render(timeStr), icon, e.Action, styles.StyleDim.Render(sig))
 		if e.Detail != "" {
-			line += "  " + StyleDim.Render(e.Detail)
+			line += "  " + styles.StyleDim.Render(e.Detail)
 		}
 		lines = append(lines, line)
 	}

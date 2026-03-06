@@ -6,7 +6,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -181,19 +181,19 @@ func (m *pauseUnpauseScreen) execPause() tea.Cmd {
 }
 
 func (m *pauseUnpauseScreen) View() string {
-	title := tui.StyleTitle.Render("  Pause / Unpause Market\n\n")
+	title := styles.StyleTitle.Render("  Pause / Unpause Market\n\n")
 	switch m.phase {
 	case phasePauseMarketForm, phasePauseUserForm:
 		return title + m.form.View()
 	case phasePauseExec:
-		return title + tui.StyleDim.Render("  Sending transaction...")
+		return title + styles.StyleDim.Render("  Sending transaction...")
 	case phasePauseDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

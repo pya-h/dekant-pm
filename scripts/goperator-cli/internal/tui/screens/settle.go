@@ -9,7 +9,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -205,19 +205,19 @@ func (m *resolveScreen) execResolve() tea.Cmd {
 }
 
 func (m *resolveScreen) View() string {
-	title := tui.StyleTitle.Render("  Resolve Market\n\n")
+	title := styles.StyleTitle.Render("  Resolve Market\n\n")
 	switch m.phase {
 	case phaseResolveMarket, phaseResolveParams, phaseResolveUser:
 		return title + m.form.View()
 	case phaseResolveExec:
-		return title + tui.StyleDim.Render("  Resolving market...")
+		return title + styles.StyleDim.Render("  Resolving market...")
 	case phaseResolveDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }
@@ -378,19 +378,19 @@ func (m *claimScreen) execClaim() tea.Cmd {
 }
 
 func (m *claimScreen) View() string {
-	title := tui.StyleTitle.Render("  Claim Payout\n\n")
+	title := styles.StyleTitle.Render("  Claim Payout\n\n")
 	switch m.phase {
 	case phaseClaimMarket, phaseClaimUser:
 		return title + m.form.View()
 	case phaseClaimExec:
-		return title + tui.StyleDim.Render("  Claiming payout...")
+		return title + styles.StyleDim.Render("  Claiming payout...")
 	case phaseClaimDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }
@@ -527,19 +527,19 @@ func (m *collectFeesScreen) execCollectFees() tea.Cmd {
 }
 
 func (m *collectFeesScreen) View() string {
-	title := tui.StyleTitle.Render("  Collect Fees\n\n")
+	title := styles.StyleTitle.Render("  Collect Fees\n\n")
 	switch m.phase {
 	case phaseFeesMarket:
 		return title + m.form.View()
 	case phaseFeesExec:
-		return title + tui.StyleDim.Render("  Collecting fees (superuser)...")
+		return title + styles.StyleDim.Render("  Collecting fees (superuser)...")
 	case phaseFeesDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

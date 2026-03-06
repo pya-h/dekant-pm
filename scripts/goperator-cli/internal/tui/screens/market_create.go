@@ -8,7 +8,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -367,20 +367,20 @@ func (m *createMarketScreen) execCreateMarket() tea.Cmd {
 }
 
 func (m *createMarketScreen) View() string {
-	title := tui.StyleTitle.Render("  Create Market\n\n")
+	title := styles.StyleTitle.Render("  Create Market\n\n")
 
 	switch m.phase {
 	case phaseMarketTypeForm, phaseMarketParamsForm, phaseMarketOracleForm, phaseMarketCreatorForm:
 		return title + m.form.View()
 	case phaseMarketExec:
-		return title + tui.StyleDim.Render("  Creating market (mint → fund → create)...")
+		return title + styles.StyleDim.Render("  Creating market (mint → fund → create)...")
 	case phaseMarketDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

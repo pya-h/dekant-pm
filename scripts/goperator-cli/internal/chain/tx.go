@@ -15,14 +15,14 @@ import (
 
 // Instruction holds the data for a custom program instruction.
 type Instruction struct {
-	ProgramID solana.PublicKey
-	Accounts  solana.AccountMetaSlice
-	Data      []byte
+	programID solana.PublicKey
+	accounts  solana.AccountMetaSlice
+	data      []byte
 }
 
-func (i *Instruction) ProgramID_() solana.PublicKey     { return i.ProgramID }
-func (i *Instruction) Accounts_() []*solana.AccountMeta { return i.Accounts }
-func (i *Instruction) Data_() ([]byte, error)           { return i.Data, nil }
+func (i *Instruction) ProgramID() solana.PublicKey     { return i.programID }
+func (i *Instruction) Accounts() []*solana.AccountMeta { return i.accounts }
+func (i *Instruction) Data() ([]byte, error)           { return i.data, nil }
 
 // BuildInstruction creates a program instruction with discriminator and serialized args.
 func BuildInstruction(programID solana.PublicKey, disc [8]byte, args []byte, accounts solana.AccountMetaSlice) *Instruction {
@@ -30,9 +30,9 @@ func BuildInstruction(programID solana.PublicKey, disc [8]byte, args []byte, acc
 	data = append(data, disc[:]...)
 	data = append(data, args...)
 	return &Instruction{
-		ProgramID: programID,
-		Accounts:  accounts,
-		Data:      data,
+		programID: programID,
+		accounts:  accounts,
+		data:      data,
 	}
 }
 
@@ -43,9 +43,9 @@ func ComputeBudgetInstruction(units uint32) *Instruction {
 	data[0] = 2 // SetComputeUnitLimit variant
 	binary.LittleEndian.PutUint32(data[1:5], units)
 	return &Instruction{
-		ProgramID: computeBudgetProgramID,
-		Accounts:  nil,
-		Data:      data,
+		programID: computeBudgetProgramID,
+		accounts:  nil,
+		data:      data,
 	}
 }
 
