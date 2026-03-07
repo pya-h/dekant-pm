@@ -8,7 +8,7 @@ const { outcomeLabel, MARKET_TYPE_CONTINUOUS } = require("../common");
  * @param {number} numOutcomes
  * @param {number} [rangeMin]
  * @param {number} [rangeMax]
- * @returns {Promise<{kind:"fixed",outcome:number,amount:string}|{kind:"toPrice",outcome:number,targetProbPct:number,limitAmount:string}|{kind:"distribution",mu:string,sigma:string,amount:string}>}
+ * @returns {Promise<{kind:"fixed"|"fixedByShares"|"fixedByCollateral",outcome:number,amount:string}|{kind:"toPrice",outcome:number,targetProbPct:number,limitAmount:string}|{kind:"distribution",mu:string,sigma:string,amount:string}>}
  */
 async function collectTradeParams(
   state,
@@ -48,10 +48,12 @@ async function collectTradeParams(
 
   // Discrete markets: choose trade type
   const actionLabel = action === "buy" ? "Buy" : "Sell";
+  const inverseLabel = action === "buy" ? "by shares" : "by USDC";
   const subtype = await select({
     message: "Trade type:",
     choices: [
       { name: `${actionLabel} (fixed amount)`, value: "fixed" },
+      { name: `${actionLabel} (${inverseLabel})`, value: "inverse" },
       { name: `${actionLabel} to Price (target probability)`, value: "toPrice" },
     ],
     ...(rm && { default: "fixed" }),
@@ -68,7 +70,16 @@ async function collectTradeParams(
     ...(rm && { default: rand.outcome(numOutcomes) }),
   });
 
-  if (subtype === "fixed") {
+  if (subtype === "inverse") {
+    const amountLabel =
+      action === "buy" ? "Number of shares to buy" : "USDC to receive";
+    const amount = await input({
+      message: `${amountLabel}:`,
+      ...(rm && { default: rand.tradeAmount() }),
+    });
+    const kind = action === "buy" ? "fixedByShares" : "fixedByCollateral";
+    return { kind, outcome, amount };
+  } else if (subtype === "fixed") {
     const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
     const amount = await input({
       message: `${amountLabel}:`,
