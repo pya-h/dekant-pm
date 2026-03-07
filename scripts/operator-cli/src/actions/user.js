@@ -23,7 +23,9 @@ const {
 // ─── Add New User ────────────────────────────────────────────────────────────
 
 async function addUser(state) {
-  const defaultLabel = state.nextUserLabel();
+  const defaultLabel = state.randomMode
+    ? state.rand.userLabel(state.users.length)
+    : state.nextUserLabel();
   const label = await input({
     message: "User label:",
     default: defaultLabel,
@@ -80,6 +82,7 @@ async function assignRole(state) {
       { name: "Creator", value: ROLE_CREATOR },
       { name: "Admin", value: ROLE_ADMIN },
     ],
+    ...(state.randomMode && { default: state.rand.role() }),
   });
 
   const roleName = ROLE_NAMES[role];
@@ -149,7 +152,7 @@ async function fundUser(state) {
 
   const amountStr = await input({
     message: "Amount (USDC):",
-    default: "100",
+    default: state.randomMode ? state.rand.fundAmount() : "100",
   });
 
   console.log(

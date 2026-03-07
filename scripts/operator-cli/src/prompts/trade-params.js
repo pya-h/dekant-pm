@@ -2,6 +2,7 @@ const { select, input } = require("@inquirer/prompts");
 const { outcomeLabel, MARKET_TYPE_CONTINUOUS } = require("../common");
 
 /**
+ * @param {import("../state").SessionState} state
  * @param {number} marketType
  * @param {"buy"|"sell"} action
  * @param {number} numOutcomes
@@ -10,12 +11,16 @@ const { outcomeLabel, MARKET_TYPE_CONTINUOUS } = require("../common");
  * @returns {Promise<{kind:"fixed",outcome:number,amount:string}|{kind:"toPrice",outcome:number,targetProbPct:number,limitAmount:string}|{kind:"distribution",mu:string,sigma:string,amount:string}>}
  */
 async function collectTradeParams(
+  state,
   marketType,
   action,
   numOutcomes,
   rangeMin,
   rangeMax
 ) {
+  const rm = state.randomMode;
+  const rand = state.rand;
+
   // Continuous markets: distribution trades
   if (marketType === MARKET_TYPE_CONTINUOUS) {
     const rangeStr =
@@ -23,10 +28,21 @@ async function collectTradeParams(
         ? ` (range: ${rangeMin}\u2013${rangeMax})`
         : "";
 
-    const mu = await input({ message: `Mu (center value${rangeStr}):` });
-    const sigma = await input({ message: "Sigma (spread/std-dev):" });
+    const rMin = rangeMin || 0;
+    const rMax = rangeMax || 1000;
+    const mu = await input({
+      message: `Mu (center value${rangeStr}):`,
+      ...(rm && { default: rand.mu(rMin, rMax) }),
+    });
+    const sigma = await input({
+      message: "Sigma (spread/std-dev):",
+      ...(rm && { default: rand.sigma(rMin, rMax) }),
+    });
     const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
-    const amount = await input({ message: `${amountLabel}:` });
+    const amount = await input({
+      message: `${amountLabel}:`,
+      ...(rm && { default: rand.tradeAmount() }),
+    });
     return { kind: "distribution", mu, sigma, amount };
   }
 
@@ -38,6 +54,7 @@ async function collectTradeParams(
       { name: `${actionLabel} (fixed amount)`, value: "fixed" },
       { name: `${actionLabel} to Price (target probability)`, value: "toPrice" },
     ],
+    ...(rm && { default: "fixed" }),
   });
 
   // Select outcome
@@ -48,14 +65,21 @@ async function collectTradeParams(
   const outcome = await select({
     message: "Select outcome:",
     choices: outcomeChoices,
+    ...(rm && { default: rand.outcome(numOutcomes) }),
   });
 
   if (subtype === "fixed") {
     const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
-    const amount = await input({ message: `${amountLabel}:` });
+    const amount = await input({
+      message: `${amountLabel}:`,
+      ...(rm && { default: rand.tradeAmount() }),
+    });
     return { kind: "fixed", outcome, amount };
   } else {
-    const targetStr = await input({ message: "Target probability (%):" });
+    const targetStr = await input({
+      message: "Target probability (%):",
+      ...(rm && { default: rand.targetProbability() }),
+    });
     const targetProbPct = parseFloat(targetStr);
     const limitAmount = await input({
       message:

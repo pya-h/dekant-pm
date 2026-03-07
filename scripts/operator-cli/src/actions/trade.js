@@ -62,6 +62,7 @@ async function executeTrade(state, action) {
 
   // Step 3: params
   const params = await collectTradeParams(
+    state,
     sm.type,
     action,
     sm.numOutcomes,

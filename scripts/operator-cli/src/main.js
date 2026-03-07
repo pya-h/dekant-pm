@@ -1,3 +1,4 @@
+const readline = require("readline");
 const { select, Separator } = require("@inquirer/prompts");
 const chalk = require("chalk");
 const { SessionState } = require("./state");
@@ -33,6 +34,15 @@ async function main() {
     chalk.dim(`  Superuser: ${state.superuser.pubkey.toBase58()}`)
   );
   console.log();
+
+  // Ctrl+R toggle for random mode
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.on("keypress", (_str, key) => {
+    if (key && key.ctrl && key.name === "r") {
+      state.randomMode = !state.randomMode;
+    }
+  });
+
   await pressKey("Press Enter to start...");
 
   // Main menu loop

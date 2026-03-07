@@ -71,7 +71,7 @@ Go (Bubble Tea) port of operator-cli with Random Mode for fast protocol testing.
 - [x] trade.go: random amount, outcome, target prob, mu, sigma
 - [x] lp.go: random liquidity amount
 - [x] settle.go: random resolve outcome/value
-- [ ] Status bar indicator for random mode (already shows ON/OFF)
+- [x] Status bar indicator for random mode (already shows ON/OFF)
 
 ## T-13: Bug Fixes
 - [x] Import cycle resolution (styles -> separate package)
