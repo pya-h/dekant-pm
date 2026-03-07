@@ -37,7 +37,7 @@ async function resolveMarket(state) {
     const valueStr = await input({
       message: `Resolved value (range: ${sm.rangeMin}\u2013${sm.rangeMax}):`,
     });
-    value = new BN(valueStr).mul(SCALE);
+    value = new BN(Math.round(parseFloat(valueStr) * 1e9).toString());
     outcome = 0;
     console.log(chalk.dim(`\n  Resolving with value: ${valueStr}`));
   } else {
