@@ -50,7 +50,12 @@ func NewPauseUnpauseScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *pauseUnpauseScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *pauseUnpauseScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *pauseUnpauseScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

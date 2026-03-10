@@ -80,7 +80,12 @@ func (m *tradeScreen) actionLabel() string {
 	return "Sell"
 }
 
-func (m *tradeScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *tradeScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *tradeScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

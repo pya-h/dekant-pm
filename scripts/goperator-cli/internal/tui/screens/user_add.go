@@ -40,6 +40,7 @@ func NewAddUserScreen(s *state.SessionState) tea.Model {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("User label").
+				Key("label").
 				Value(&label).
 				Placeholder(defaultLabel),
 		),
@@ -97,7 +98,7 @@ func (m *addUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.form.State == huh.StateCompleted {
 			// Get form values
-			m.label = m.form.GetString("User label")
+			m.label = m.form.GetString("label")
 			if m.label == "" {
 				m.label = m.state.NextUserLabel()
 			}

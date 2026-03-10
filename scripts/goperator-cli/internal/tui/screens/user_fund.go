@@ -68,6 +68,9 @@ func NewFundUserScreen(s *state.SessionState) tea.Model {
 }
 
 func (m *fundUserScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
 	return m.form.Init()
 }
 
