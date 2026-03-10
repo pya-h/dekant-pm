@@ -42,12 +42,22 @@ func LoadKeypair(path string) (solana.PrivateKey, error) {
 func (c *Client) GetAccountInfo(ctx context.Context, addr solana.PublicKey) ([]byte, error) {
 	resp, err := c.RPC.GetAccountInfo(ctx, addr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rpc: %w", err)
 	}
 	if resp == nil || resp.Value == nil {
 		return nil, fmt.Errorf("account not found: %s", addr)
 	}
 	return resp.Value.Data.GetBinary(), nil
+}
+
+// AccountExists checks whether an on-chain account exists.
+// Returns (true, nil) if found, (false, nil) if absent, (false, err) on RPC failure.
+func (c *Client) AccountExists(ctx context.Context, addr solana.PublicKey) (bool, error) {
+	resp, err := c.RPC.GetAccountInfo(ctx, addr)
+	if err != nil {
+		return false, err
+	}
+	return resp != nil && resp.Value != nil, nil
 }
 
 // GetBalance returns the SOL balance of a pubkey in lamports.

@@ -37,9 +37,21 @@ class SessionState {
     const [protocolConfig] = findProtocolConfig(this.programId);
     try {
       await this._superProgram.account.protocolConfig.fetch(protocolConfig);
-    } catch {
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      // Anchor throws "Account does not exist or has no data" when the PDA is absent.
+      // Any other message is a connection/RPC problem — show it verbatim so it's diagnosable.
+      if (
+        msg.includes("Account does not exist") ||
+        msg.includes("could not find account") ||
+        msg.includes("has no data")
+      ) {
+        throw new Error(
+          "Protocol not initialized. Run: cd devkit && npx ts-node src/setup.ts init"
+        );
+      }
       throw new Error(
-        "Protocol not initialized. Run: cd devkit && npx ts-node src/setup.ts init"
+        `RPC connection error (check that the validator is running and RPC_URL is correct): ${msg}`
       );
     }
   }

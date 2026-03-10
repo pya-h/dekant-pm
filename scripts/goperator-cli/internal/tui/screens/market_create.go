@@ -289,7 +289,32 @@ func (m *createMarketScreen) execCreateMarket() tea.Cmd {
 		vaultAuthority, _ := chain.FindVaultAuthority(marketPda, m.state.ProgramID)
 		protocolConfig, _ := chain.FindProtocolConfig(m.state.ProgramID)
 		oracleRolePda, _ := chain.FindUserRole(oracle.Pubkey, constants.RoleOracle, m.state.ProgramID)
-		creatorRolePda, _ := chain.FindUserRole(creator.Pubkey, constants.RoleCreator, m.state.ProgramID)
+
+		// Derive creator role PDA: use Creator role by default.
+		// If the user has Admin role but not Creator role, use Admin role PDA instead.
+		// For superuser, send program ID as null placeholder (role check is bypassed).
+		var creatorRolePda solana.PublicKey
+		if creator.Pubkey == m.state.Superuser.Pubkey {
+			creatorRolePda = m.state.ProgramID
+		} else {
+			roleType := constants.RoleCreator
+			hasCreator := false
+			for _, r := range creator.Roles {
+				if r == "Creator" {
+					hasCreator = true
+					break
+				}
+			}
+			if !hasCreator {
+				for _, r := range creator.Roles {
+					if r == "Admin" {
+						roleType = constants.RoleAdmin
+						break
+					}
+				}
+			}
+			creatorRolePda, _ = chain.FindUserRole(creator.Pubkey, roleType, m.state.ProgramID)
+		}
 		creatorLpPos, _ := chain.FindLpPosition(marketPda, creator.Pubkey, m.state.ProgramID)
 
 		// Create collateral mint (superuser as authority)

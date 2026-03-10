@@ -154,8 +154,11 @@ func NewSessionState(rpcURL string, programID solana.PublicKey, keypairPath stri
 func (s *SessionState) VerifyProtocol() error {
 	protocolConfig, _ := chain.FindProtocolConfig(s.ProgramID)
 	ctx := context.Background()
-	_, err := s.Client.GetAccountInfo(ctx, protocolConfig)
+	exists, err := s.Client.AccountExists(ctx, protocolConfig)
 	if err != nil {
+		return fmt.Errorf("RPC connection error (check that the validator is running and RPC_URL is correct): %w", err)
+	}
+	if !exists {
 		return fmt.Errorf("protocol not initialized. Run: cd devkit && npx ts-node src/setup.ts init")
 	}
 	return nil
