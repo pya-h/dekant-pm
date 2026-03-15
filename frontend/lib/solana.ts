@@ -37,10 +37,15 @@ export function deriveProtocolConfig(): [PublicKey, number] {
 }
 
 export function deriveMarket(marketId: number | bigint): [PublicKey, number] {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(marketId));
+  // Write a little-endian u64 without Buffer.writeBigUInt64LE (unavailable in browser polyfill)
+  const buf = new Uint8Array(8);
+  let n = BigInt(marketId);
+  for (let i = 0; i < 8; i++) {
+    buf[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("market"), buf],
+    [Buffer.from("market"), Buffer.from(buf)],
     PROGRAM_ID,
   );
 }

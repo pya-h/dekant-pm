@@ -73,6 +73,7 @@ export function CostPreview({
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const requestIdRef = useRef(0);
 
+  const numericMarketId = Number(marketId);
   const isDistribution = mu !== undefined && sigma !== undefined;
   const unit = inputUnit ?? (side === "buy" ? "collateral" : "shares");
   const isBuyByShares = side === "buy" && unit === "shares" && !isDistribution;
@@ -102,7 +103,7 @@ export function CostPreview({
           res = await api.post<BuyBySharesEstimate>(
             "/amm/estimate-buy-by-shares",
             {
-              marketId,
+              marketId: numericMarketId,
               outcome: outcome ?? 0,
               desiredTokens: rawAmount,
             },
@@ -114,13 +115,13 @@ export function CostPreview({
             "/amm/estimate-sell-by-collateral",
             isDistribution
               ? {
-                  marketId,
+                  marketId: numericMarketId,
                   mu: mu! * SCALE,
                   sigma: sigma! * SCALE,
                   desiredCollateral: rawAmount,
                 }
               : {
-                  marketId,
+                  marketId: numericMarketId,
                   outcome: outcome ?? 0,
                   desiredCollateral: rawAmount,
                 },
@@ -131,7 +132,7 @@ export function CostPreview({
             res = await api.post<DistributionBuyEstimate>(
               "/amm/estimate-buy",
               {
-                marketId,
+                marketId: numericMarketId,
                 mu: mu * SCALE,
                 sigma: sigma * SCALE,
                 amount: rawAmount,
@@ -140,7 +141,7 @@ export function CostPreview({
             currentMode = "distributionBuy";
           } else {
             res = await api.post<BuyEstimate>("/amm/estimate-buy", {
-              marketId,
+              marketId: numericMarketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });
@@ -149,7 +150,7 @@ export function CostPreview({
         } else {
           if (isDistribution) {
             res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId,
+              marketId: numericMarketId,
               mu: mu! * SCALE,
               sigma: sigma! * SCALE,
               amount: rawAmount,
@@ -157,7 +158,7 @@ export function CostPreview({
             currentMode = "distributionSell";
           } else {
             res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId,
+              marketId: numericMarketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });

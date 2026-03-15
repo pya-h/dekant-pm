@@ -27,10 +27,10 @@ export default function AdminPage() {
 
   // Auto-authenticate once role is confirmed
   useEffect(() => {
-    if (isAuthorized && !isAuthenticated && !isAuthenticating) {
+    if (isAuthorized && !isAuthenticated && !isAuthenticating && !authError) {
       authenticate().catch(() => {});
     }
-  }, [isAuthorized, isAuthenticated, isAuthenticating, authenticate]);
+  }, [isAuthorized, isAuthenticated, isAuthenticating, authenticate, authError]);
 
   // Not connected
   if (!connected) {

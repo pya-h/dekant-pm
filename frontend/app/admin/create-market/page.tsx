@@ -32,10 +32,10 @@ export default function CreateMarketPage() {
 
   // Auto-authenticate once role is confirmed
   useEffect(() => {
-    if (canCreate && !isAuthenticated && !isAuthenticating) {
+    if (canCreate && !isAuthenticated && !isAuthenticating && !authError) {
       authenticate().catch(() => {});
     }
-  }, [canCreate, isAuthenticated, isAuthenticating, authenticate]);
+  }, [canCreate, isAuthenticated, isAuthenticating, authenticate, authError]);
 
   // Not connected
   if (!connected) {
