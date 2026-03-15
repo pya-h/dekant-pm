@@ -38,11 +38,14 @@ export function deriveProtocolConfig(): [PublicKey, number] {
 
 export function deriveMarket(marketId: number | bigint): [PublicKey, number] {
   // Write a little-endian u64 without Buffer.writeBigUInt64LE (unavailable in browser polyfill)
+  // Avoid BigInt literal syntax (0xffn) for compat with TS targets below ES2020
+  const mask = BigInt(0xff);
+  const shift = BigInt(8);
   const buf = new Uint8Array(8);
   let n = BigInt(marketId);
   for (let i = 0; i < 8; i++) {
-    buf[i] = Number(n & 0xffn);
-    n >>= 8n;
+    buf[i] = Number(n & mask);
+    n >>= shift;
   }
   return PublicKey.findProgramAddressSync(
     [Buffer.from("market"), Buffer.from(buf)],
