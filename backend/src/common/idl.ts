@@ -9,6 +9,8 @@ const idlPath = fs.existsSync(bundledPath) ? bundledPath : monoRepoPath;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 export const IDL = JSON.parse(fs.readFileSync(idlPath, 'utf-8'));
 
-export const PROGRAM_ID = new PublicKey(
-  process.env.PROGRAM_ID || 'F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL',
-);
+const programIdStr = process.env.PROGRAM_ID;
+if (!programIdStr) {
+  throw new Error('PROGRAM_ID environment variable is not set. Set it in .env or export it directly.');
+}
+export const PROGRAM_ID = new PublicKey(programIdStr);
