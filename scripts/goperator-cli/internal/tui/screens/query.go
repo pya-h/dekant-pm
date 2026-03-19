@@ -343,40 +343,54 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		pos, _, err := m.state.FetchUserPosition(marketPda, user.Pubkey)
-		if err != nil {
+		pos, _, posErr := m.state.FetchUserPosition(marketPda, user.Pubkey)
+		lp, _, lpErr := m.state.FetchLpPosition(marketPda, user.Pubkey)
+
+		if posErr != nil && lpErr != nil {
 			return dataMsg{data: styles.StyleWarning.Render("  No position found for this user.") +
 				"\n\n" + styles.StyleDim.Render("  Press Esc to return")}
 		}
 
 		var lines []string
 		lines = append(lines, styles.StyleTitle.Render(fmt.Sprintf("  %s's position in Market #%d", user.Label, m.market.ID)))
-		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
-		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
-		claimed := "No"
-		if pos.Claimed {
-			claimed = "Yes"
-		}
-		lines = append(lines, fmt.Sprintf("  %-20s  %s", styles.StyleKey.Render("Claimed"), claimed))
 
-		lines = append(lines, "")
-		lines = append(lines, styles.StyleDim.Render("  Holdings:"))
-		hasHoldings := false
-		for i, h := range pos.Holdings {
-			if h > 0 {
-				hasHoldings = true
-				label := util.OutcomeLabel(md.MarketType, i)
-				isWinner := md.State == constants.MarketStateResolved && i == int(md.ResolvedOutcome)
-				winnerMark := ""
-				if isWinner {
-					winnerMark = styles.StyleSuccess.Render(" (winner)")
+		// Trading position
+		if posErr == nil {
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
+			lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
+			claimed := "No"
+			if pos.Claimed {
+				claimed = "Yes"
+			}
+			lines = append(lines, fmt.Sprintf("  %-20s  %s", styles.StyleKey.Render("Claimed"), claimed))
+
+			lines = append(lines, "")
+			lines = append(lines, styles.StyleDim.Render("  Holdings:"))
+			hasHoldings := false
+			for i, h := range pos.Holdings {
+				if h > 0 {
+					hasHoldings = true
+					label := util.OutcomeLabel(md.MarketType, i)
+					isWinner := md.State == constants.MarketStateResolved && i == int(md.ResolvedOutcome)
+					winnerMark := ""
+					if isWinner {
+						winnerMark = styles.StyleSuccess.Render(" (winner)")
+					}
+					lines = append(lines, fmt.Sprintf("    %-12s %s%s", label, util.FormatTokenAmount(h), winnerMark))
 				}
-				lines = append(lines, fmt.Sprintf("    %-12s %d%s", label, h, winnerMark))
+			}
+			if !hasHoldings {
+				lines = append(lines, styles.StyleDim.Render("    (no holdings)"))
 			}
 		}
-		if !hasHoldings {
-			lines = append(lines, styles.StyleDim.Render("    (no holdings)"))
+
+		// LP position
+		if lpErr == nil {
+			lines = append(lines, "")
+			lines = append(lines, styles.StyleDim.Render("  LP Position:"))
+			lines = append(lines, fmt.Sprintf("    %-20s  %s", styles.StyleKey.Render("Shares"), lp.Shares.String()))
+			lines = append(lines, fmt.Sprintf("    %-20s  %s USDC", styles.StyleKey.Render("Deposited"), util.FormatTokenAmount(lp.DepositedCollateral)))
 		}
 
 		lines = append(lines, "")
