@@ -31,8 +31,8 @@ pm-cont/
 │       └── api.ts          # REST/WS API contract definitions
 ├── tests/                  # Integration tests (ts-mocha)
 │   └── lifecycle.ts        # 58 integration tests across 9 suites
-├── backend/                # NestJS backend (planned)
-├── frontend/               # Next.js frontend (planned)
+├── backend/                # NestJS backend (API, indexer, AMM estimation)
+├── frontend/               # Next.js frontend (trading UI, admin, portfolio)
 ├── PRD.md                  # Product requirements document
 ├── TDD.md                  # Technical design document
 └── TASKS.md                # Implementation task breakdown
@@ -156,7 +156,7 @@ solana airdrop 5 --url devnet
 anchor deploy --provider.cluster devnet
 ```
 
-The program ID is `Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf` (declared in `lib.rs` and `Anchor.toml`). To deploy under a different keypair, update `declare_id!` and regenerate the program keypair.
+The program ID is `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` (declared in `lib.rs` and `Anchor.toml`). To deploy under a different keypair, update `declare_id!` and regenerate the program keypair.
 
 ### Run Integration Tests
 

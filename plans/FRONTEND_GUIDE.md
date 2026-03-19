@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** 2026-02-24
-**Status:** Pre-frontend (F-1 through F-13 not started)
+**Status:** Frontend feature-complete (F-1 through F-14, F-16 done; F-15, F-17, F-18 remaining)
 **Audience:** Frontend developer(s) building the Next.js web application
 
 ---
@@ -134,7 +134,7 @@ The on-chain transaction creates the market with its AMM state. The backend POST
 ### Program ID
 
 ```
-Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf
+F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL
 ```
 
 ### IDL Location
@@ -687,7 +687,7 @@ import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import idl from "../target/idl/dekant_pm.json";
 import { DekantPm } from "../target/types/dekant_pm";
 
-const PROGRAM_ID = new PublicKey("Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf");
+const PROGRAM_ID = new PublicKey("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
 
 // In a React component/hook:
 const wallet = useAnchorWallet();
@@ -872,7 +872,7 @@ All PDA derivation uses `PublicKey.findProgramAddressSync()`:
 ```typescript
 import { PublicKey } from "@solana/web3.js";
 
-const PROGRAM_ID = new PublicKey("Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf");
+const PROGRAM_ID = new PublicKey("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
 
 // Protocol Config (singleton)
 const [protocolConfig] = PublicKey.findProgramAddressSync(
