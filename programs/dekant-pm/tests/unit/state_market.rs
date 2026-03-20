@@ -587,7 +587,7 @@ fn test_recompute_k_squared() {
 
     // recompute_k_squared now computes total_minted².
     m.total_minted = 2_000_000;
-    m.recompute_k_squared();
+    m.recompute_k_squared().unwrap();
     assert_eq!(m.k_squared, (2_000_000u128).pow(2));
 }
 
@@ -807,7 +807,7 @@ fn test_implied_probability_skewed() {
     // Use Pythagorean triple: tm=500K, h=[200K, 100K], x=[300K, 400K]
     m.total_minted = 500_000;
     m.reserves = vec![200_000, 100_000];
-    m.recompute_k_squared();
+    m.recompute_k_squared().unwrap();
     let p0 = m.implied_probability(0).unwrap();
     let p1 = m.implied_probability(1).unwrap();
     // p0 = 300K²/500K² * SCALE = 360M, p1 = 400K²/500K² * SCALE = 640M
