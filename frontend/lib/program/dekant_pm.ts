@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/dekant_pm.json`.
  */
 export type DekantPm = {
-  "address": "Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf",
+  "address": "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
   "metadata": {
     "name": "dekantPm",
     "version": "0.1.0",
