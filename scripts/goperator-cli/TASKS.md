@@ -10,9 +10,8 @@ Go (Bubble Tea) port of operator-cli with Random Mode for fast protocol testing.
 ## T-2: Chain Layer
 - [x] internal/chain/client.go: RPC client, SendAndConfirm with polling
 - [x] internal/chain/pda.go: 6 PDA derivations (ProtocolConfig, UserRole, Market, VaultAuthority, UserPosition, LpPosition)
-- [x] internal/chain/tx.go: Instruction builder implementing solana.Instruction interface
+- [x] internal/chain/tx.go: Instruction builder implementing solana.Instruction interface + Borsh encode/decode helpers (u8, u16, u32, u64, i64, u128, pubkey, bool, vec)
 - [x] internal/chain/token.go: ATA creation, MintTo, GetTokenBalance, CreateMint
-- [x] internal/chain/encoding.go: Borsh encode/decode helpers (u8, u16, u32, u64, i64, u128, pubkey, bool, vec)
 
 ## T-3: Constants + State + Utilities
 - [x] internal/constants: SCALE, roles, market types/states, instruction discriminators, PDA seeds, program IDs

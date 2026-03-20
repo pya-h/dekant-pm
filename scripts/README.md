@@ -10,7 +10,8 @@ Shell scripts and tools for orchestrating, testing, and operating the DekantPM p
 | `setup.sh`        | Service orchestrator — starts localnet, backend, frontend|
 | `e2e-smoke.sh`    | Automated E2E smoke test across all market types         |
 | `down.sh`         | Stops all running DekantPM services                      |
-| `operator-cli/`   | Interactive CLI for manual protocol testing              |
+| `operator-cli/`   | Interactive Node.js CLI for manual protocol testing      |
+| `goperator-cli/`  | Interactive Go (Bubble Tea) CLI for manual protocol testing |
 
 ## Quick Reference
 
@@ -30,9 +31,13 @@ bash scripts/e2e-smoke.sh --no-infra
 # Stop all services
 bash scripts/down.sh
 
-# Interactive manual testing
+# Interactive manual testing (Node.js)
 cd scripts/operator-cli
 PATH="/usr/local/n/versions/node/22.17.0/bin:$PATH" node src/main.js
+
+# Interactive manual testing (Go TUI)
+cd scripts/goperator-cli
+go run .
 ```
 
 ---
@@ -162,49 +167,45 @@ bash scripts/down.sh
 
 **How it works:**
 1. Reads PID files from `.state/` and kills each process tree
-2. Falls back to port-based detection (`lsof`) for orphaned processes on known ports (8899, 3001, 3000)
+2. Falls back to port-based detection (`lsof`) for orphaned processes on known ports (8899, 4000, 3000)
 3. Cleans up stale PID files
 
 ---
 
-## `operator-cli/` — Interactive Operator CLI
+## `operator-cli/` — Interactive Operator CLI (Node.js)
 
-A menu-driven Node.js CLI for manual protocol testing. Unlike `e2e-smoke.sh` which runs automated tests, the operator CLI lets you interactively:
-
-- Create and manage test users (generate keypairs, assign roles, fund tokens)
-- Create any market type (binary, multi-outcome, continuous) with custom parameters
-- Execute all trade types (fixed, to-price, distribution) as any user
-- Resolve markets, claim payouts, collect fees
-- Query market state with live probability displays and ASCII charts
-
-The operator CLI is ideal for:
-- **Exploratory testing**: Try unexpected parameter combinations
-- **Permission testing**: Verify which roles can perform which actions
-- **Demo walkthroughs**: Step through the full market lifecycle interactively
-- **Debugging**: Inspect market state and positions after specific operations
+A menu-driven Node.js CLI for manual protocol testing. Uses `inquirer` prompts for a readline-based interactive experience. Supports all protocol instructions: user management, market creation, all trade types, resolution, claims, LP, and querying. Includes a **Random Mode** (Ctrl+R toggle) for rapid automated input.
 
 See [`operator-cli/README.md`](operator-cli/README.md) for full documentation, setup instructions, and usage guide.
+
+---
+
+## `goperator-cli/` — Interactive Operator CLI (Go)
+
+A full-featured Go port of operator-cli built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for a rich TUI experience. Same feature set as the Node.js version — all 14 protocol actions, random mode, ASCII probability charts — with a compiled binary and no Node.js dependency.
+
+See [`goperator-cli/README.md`](goperator-cli/README.md) for full documentation, setup instructions, and usage guide.
 
 ---
 
 ## Dependencies Between Scripts
 
 ```
-lib.sh ─────────────────────┐
-  (sourced by)               │
-  ├── setup.sh               │
-  ├── e2e-smoke.sh           │   operator-cli/
-  └── down.sh                │   (independent Node.js app)
-                             │     └── reads devkit/.env
-e2e-smoke.sh                 │     └── reads target/idl/dekant_pm.json
-  └── calls lib.sh functions │
-      (start_validator, etc) │
-                             │
-setup.sh                     │
-  └── called by e2e-smoke.sh │
-      (via lib.sh functions) │
+lib.sh ──────────────────────────┐
+  (sourced by)                    │
+  ├── setup.sh                    │   operator-cli/      (Node.js, independent)
+  ├── e2e-smoke.sh                │     └── reads devkit/.env
+  └── down.sh                     │     └── reads target/idl/dekant_pm.json
+                                  │
+e2e-smoke.sh                      │   goperator-cli/     (Go binary, independent)
+  └── calls lib.sh functions      │     └── reads devkit/.env
+      (start_validator, etc)      │
+                                  │
+setup.sh                          │
+  └── called by e2e-smoke.sh      │
+      (via lib.sh functions)      │
 ```
 
 The bash scripts (`lib.sh`, `setup.sh`, `e2e-smoke.sh`, `down.sh`) share state through `.state/` and source `lib.sh` for common functions.
 
-The `operator-cli/` is a standalone Node.js application that reads configuration from `devkit/.env` and the program IDL — it does not depend on or interact with the bash scripts.
+Both `operator-cli/` and `goperator-cli/` are standalone applications that read configuration from `devkit/.env` — they do not depend on or interact with the bash scripts. Choose whichever you prefer: the Node.js version uses readline prompts, the Go version uses a Bubble Tea TUI.

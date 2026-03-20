@@ -18,7 +18,7 @@ const {
   createMint,
   getAccount,
 } = require("@solana/spl-token");
-const { readFileSync } = require("fs");
+const { readFileSync, existsSync } = require("fs");
 const { resolve } = require("path");
 const { config } = require("dotenv");
 
@@ -26,7 +26,16 @@ const { config } = require("dotenv");
 config({ path: resolve(__dirname, "../../../devkit/.env") });
 
 // ─── IDL ─────────────────────────────────────────────────────────────────────
-const IDL_PATH = resolve(__dirname, "../../../target/idl/dekant_pm.json");
+const IDL_CANDIDATES = [
+  resolve(__dirname, "../../../target/idl/dekant_pm.json"),
+  resolve(__dirname, "../../../backend/idl/dekant_pm.json"),
+];
+const IDL_PATH = IDL_CANDIDATES.find((p) => existsSync(p));
+if (!IDL_PATH) {
+  throw new Error(
+    `IDL not found. Looked in:\n  ${IDL_CANDIDATES.join("\n  ")}\nRun 'anchor build' first.`
+  );
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const SCALE = new BN("1000000000"); // 10^9
