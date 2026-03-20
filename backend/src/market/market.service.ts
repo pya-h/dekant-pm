@@ -160,7 +160,6 @@ export class MarketService {
   async incrementVolume(
     id: number,
     amount: string,
-    traderAddress: string,
   ): Promise<void> {
     await this.marketRepo
       .createQueryBuilder()

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsIn, MaxLength, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -27,11 +27,12 @@ export class MarketFilterDto {
 
   @ApiPropertyOptional({ description: 'Text search on title' })
   @IsString()
+  @MaxLength(200)
   @IsOptional()
   search?: string;
 
   @ApiPropertyOptional({ description: 'Sort by: newest, deadline, volume', default: 'newest' })
-  @IsString()
+  @IsIn(['newest', 'deadline', 'volume'])
   @IsOptional()
   sortBy?: 'newest' | 'deadline' | 'volume';
 

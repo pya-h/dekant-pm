@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { IndexerService } from './indexer.service';
 import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { IndexerStateEntity } from './entity/indexer-state.entity';
 import { MarketEntity } from '../market/entity/market.entity';
@@ -8,6 +7,29 @@ import { TradeEntity } from '../market/entity/trade.entity';
 import { UserPositionEntity } from '../user/entity/user-position.entity';
 import { LpPositionEntity } from '../user/entity/lp-position.entity';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
+import { PublicKey } from '@solana/web3.js';
+
+// Mock the heavy IDL + BorshCoder to avoid OOM in tests.
+// The real IDL loads @coral-xyz/anchor's BorshCoder which causes unbounded
+// memory growth under Jest's module system.
+jest.mock('../common/idl', () => ({
+  IDL: {},
+  PROGRAM_ID: new PublicKey('F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL'),
+}));
+
+jest.mock('@coral-xyz/anchor', () => ({
+  BorshCoder: jest.fn().mockImplementation(() => ({
+    accounts: {
+      decode: jest.fn().mockReturnValue({}),
+    },
+  })),
+  EventParser: jest.fn().mockImplementation(() => ({
+    parseLogs: jest.fn().mockReturnValue([]),
+  })),
+}));
+
+// Must import IndexerService AFTER the mocks are set up
+import { IndexerService } from './indexer.service';
 
 describe('IndexerService', () => {
   let service: IndexerService;
@@ -21,6 +43,8 @@ describe('IndexerService', () => {
 
   beforeEach(async () => {
     connection = {
+      getAccountInfo: jest.fn().mockResolvedValue(null),
+      getProgramAccounts: jest.fn().mockResolvedValue([]),
       getSignaturesForAddress: jest.fn().mockResolvedValue([]),
       getTransaction: jest.fn(),
       onLogs: jest.fn().mockReturnValue(42),
@@ -43,7 +67,11 @@ describe('IndexerService', () => {
     };
 
     marketRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
+      create: jest.fn((dto: any) => dto),
+      save: jest.fn((entity: any) => Promise.resolve(entity)),
       createQueryBuilder: jest.fn().mockReturnValue(qbMock),
     };
 
@@ -55,10 +83,12 @@ describe('IndexerService', () => {
 
     userPositionRepo = {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
+      upsert: jest.fn().mockResolvedValue(undefined),
     };
 
     lpPositionRepo = {
       upsert: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
 
     userRoleRepo = {
@@ -107,9 +137,9 @@ describe('IndexerService', () => {
 
   describe('handleEvent (via backfill)', () => {
     function setupBackfillWithEvent(logMessages: string[]) {
-      connection.getSignaturesForAddress.mockResolvedValue([
-        { signature: 'txSig123', slot: 10 },
-      ]);
+      connection.getSignaturesForAddress
+        .mockResolvedValueOnce([{ signature: 'txSig123', slot: 10 }])
+        .mockResolvedValue([]);
       indexerStateRepo.findOne.mockResolvedValue(null); // lastSlot = 0
       connection.getTransaction.mockResolvedValue({
         meta: { logMessages },
@@ -117,9 +147,9 @@ describe('IndexerService', () => {
     }
 
     it('should update last processed slot after processing a transaction', async () => {
-      connection.getSignaturesForAddress.mockResolvedValue([
-        { signature: 'tx1', slot: 5 },
-      ]);
+      connection.getSignaturesForAddress
+        .mockResolvedValueOnce([{ signature: 'tx1', slot: 5 }])
+        .mockResolvedValue([]);
       indexerStateRepo.findOne.mockResolvedValue({ id: 1, lastProcessedSlot: '0' });
       connection.getTransaction.mockResolvedValue({
         meta: { logMessages: [] },
@@ -134,10 +164,12 @@ describe('IndexerService', () => {
     });
 
     it('should skip already-processed slots during backfill', async () => {
-      connection.getSignaturesForAddress.mockResolvedValue([
-        { signature: 'old-tx', slot: 3 },
-        { signature: 'new-tx', slot: 10 },
-      ]);
+      connection.getSignaturesForAddress
+        .mockResolvedValueOnce([
+          { signature: 'old-tx', slot: 3 },
+          { signature: 'new-tx', slot: 10 },
+        ])
+        .mockResolvedValue([]);
       indexerStateRepo.findOne.mockResolvedValue({
         id: 1,
         lastProcessedSlot: '5',
@@ -154,9 +186,9 @@ describe('IndexerService', () => {
     });
 
     it('should handle transaction fetch failure gracefully', async () => {
-      connection.getSignaturesForAddress.mockResolvedValue([
-        { signature: 'bad-tx', slot: 10 },
-      ]);
+      connection.getSignaturesForAddress
+        .mockResolvedValueOnce([{ signature: 'bad-tx', slot: 10 }])
+        .mockResolvedValue([]);
       indexerStateRepo.findOne.mockResolvedValue(null);
       connection.getTransaction.mockRejectedValue(new Error('RPC error'));
 

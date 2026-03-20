@@ -13,6 +13,7 @@ import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { IDL, PROGRAM_ID } from '../common/idl';
 import {
   deriveMarket,
+  deriveLpPosition,
   deriveProtocolConfig,
   deriveUserPosition,
 } from '../common/pda';
@@ -58,6 +59,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Starting indexer...');
     await this.syncAllMarkets();
     await this.syncAllPositions();
+    await this.syncAllLpPositions();
     await this.backfill();
     this.subscribeToLogs();
     this.startHealthCheck();
@@ -538,6 +540,99 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Fetch an lp_position account from chain and upsert into the DB.
+   * If the account no longer exists (all shares removed), delete the DB row.
+   */
+  private async fetchAndSyncLpPosition(
+    marketId: number,
+    user: PublicKey,
+  ): Promise<void> {
+    try {
+      const [marketPda] = deriveMarket(PROGRAM_ID, marketId);
+      const [lpPda] = deriveLpPosition(PROGRAM_ID, marketPda, user);
+
+      const accountInfo = await this.connection.getAccountInfo(lpPda);
+      if (!accountInfo) {
+        // Account closed (all shares removed) — remove from DB
+        await this.lpPositionRepo.delete({
+          marketId: String(marketId),
+          userAddress: user.toBase58(),
+        });
+        return;
+      }
+
+      const d = this.coder.accounts.decode(
+        'LpPosition',
+        accountInfo.data,
+      ) as Record<string, any>;
+
+      await this.lpPositionRepo.upsert(
+        {
+          marketId: String(marketId),
+          userAddress: user.toBase58(),
+          shares: String(d.shares),
+          depositedCollateral: String(d.deposited_collateral),
+        },
+        ['marketId', 'userAddress'],
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to sync LP position for market ${marketId}, user ${user.toBase58()}: ${err}`,
+      );
+    }
+  }
+
+  /**
+   * Sync all on-chain LP positions into the DB via getProgramAccounts.
+   * Called on startup to catch LP changes while the backend was down.
+   */
+  private async syncAllLpPositions(): Promise<void> {
+    this.logger.log('Syncing all LP positions from on-chain...');
+    try {
+      // LpPosition account discriminator (base58): sha256("account:LpPosition")[0..8]
+      const accounts = await this.connection.getProgramAccounts(PROGRAM_ID, {
+        filters: [
+          { memcmp: { offset: 0, bytes: 'Jimf5pVB9RT' } },
+        ],
+        commitment: 'confirmed',
+      });
+
+      let count = 0;
+      for (const { account } of accounts) {
+        try {
+          const d = this.coder.accounts.decode(
+            'LpPosition',
+            account.data,
+          ) as Record<string, any>;
+
+          const marketPubkey = d.market.toString();
+          const marketEntity = await this.marketRepo.findOne({
+            where: { pubkey: marketPubkey },
+          });
+          if (!marketEntity) continue;
+
+          await this.lpPositionRepo.upsert(
+            {
+              marketId: marketEntity.id,
+              userAddress: d.user.toString(),
+              shares: String(d.shares),
+              depositedCollateral: String(d.deposited_collateral),
+            },
+            ['marketId', 'userAddress'],
+          );
+          count++;
+        } catch {
+          // Skip malformed accounts
+        }
+      }
+
+      this.logger.log(`LP position sync complete (${count} positions)`);
+    } catch (err) {
+      this.logger.warn(`LP position sync failed: ${err}`);
+    }
+  }
+
   private async handleMarketResolved(
     data: Record<string, any>,
   ): Promise<void> {
@@ -572,23 +667,14 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handleLiquidityChanged(
     data: Record<string, any>,
   ): Promise<void> {
-    const marketId = String(data.market_id);
-    const provider = data.provider.toString();
-
-    if (data.is_add) {
-      await this.lpPositionRepo.upsert(
-        {
-          marketId,
-          userAddress: provider,
-          shares: String(data.shares_changed),
-          depositedCollateral: String(data.collateral_amount),
-        },
-        ['marketId', 'userAddress'],
-      );
-    }
-
-    // Refresh on-chain state
+    // Refresh on-chain market state
     await this.fetchAndSyncMarket(Number(data.market_id));
+
+    // Sync LP position from on-chain (source of truth for cumulative shares)
+    await this.fetchAndSyncLpPosition(
+      Number(data.market_id),
+      new PublicKey(data.provider.toString()),
+    );
   }
 
   private async handleRoleAssigned(
