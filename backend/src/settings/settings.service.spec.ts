@@ -118,6 +118,40 @@ describe('SettingsService', () => {
     });
   });
 
+  describe('getById', () => {
+    it('should return a row when it exists', async () => {
+      repo.findOne.mockResolvedValueOnce({ id: 2, name: 'staging', isActive: false });
+      const result = await service.getById(2);
+      expect(result).toEqual({ id: 2, name: 'staging', isActive: false });
+      expect(repo.findOne).toHaveBeenCalledWith({ where: { id: 2 } });
+    });
+
+    it('should return null when row does not exist', async () => {
+      repo.findOne.mockResolvedValueOnce(null);
+      const result = await service.getById(999);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('listAll', () => {
+    it('should return all rows ordered by id ASC', async () => {
+      const rows = [
+        { id: 1, name: 'default', isActive: true },
+        { id: 2, name: 'staging', isActive: false },
+      ];
+      repo.find.mockResolvedValueOnce(rows);
+      const result = await service.listAll();
+      expect(result).toEqual(rows);
+      expect(repo.find).toHaveBeenCalledWith({ order: { id: 'ASC' } });
+    });
+
+    it('should return empty array when no rows exist', async () => {
+      repo.find.mockResolvedValueOnce([]);
+      const result = await service.listAll();
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('remove', () => {
     it('should delete inactive row', async () => {
       await service.remove(3);

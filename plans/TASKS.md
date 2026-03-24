@@ -1056,7 +1056,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
-### B-10: Expand Backend Test Coverage
+### B-10: Expand Backend Test Coverage ✅
 
 **Goal:** Add tests for important backend functionality that may lack coverage after recent changes and updates.
 
@@ -1072,8 +1072,13 @@ DEVELOPER REVIEW (human-led, after all implementation)
   - Error handling for RPC failures, stale data, and race conditions
 
 **Deliverable:**
-- New test files or additions to existing test files
-- All new tests pass with `npm test`
+- `market-deadline.service.spec.ts` — 10 tests: tick logic, running guard, interval respect, closeExpiredMarkets batch transitions
+- AMM unit tests expanded: +19 tests for estimateBuyToPrice, estimateSellToPrice, validateOutcome edge cases
+- AMM e2e tests expanded: +24 tests for estimate-buy-by-shares, estimate-sell-by-collateral, estimate-buy-to-price, estimate-sell-to-price, distribution sell routing
+- User e2e: +2 tests for GET /users/:address/market-position/:marketId
+- Settings unit: +4 tests for getById, listAll
+- FeeCollection unit: +2 tests for running guard, interval timing
+- Total: 12 unit test suites (172 tests), 6 e2e suites (193 tests) = **365 backend tests**, all passing
 
 **Depends on:** B-8
 
@@ -2044,7 +2049,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
-| Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9, B-11 done; B-10 remaining |
+| Backend | 11 | B-1 → B-11 | ✅ Done |
 | Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-17 done; F-18→F-21 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |

@@ -111,6 +111,39 @@ describe('Users & Admin (e2e)', () => {
     });
   });
 
+  describe('GET /users/:address/market-position/:marketId', () => {
+    it('should return null for unknown wallet/market combo', () => {
+      testApp.positionRepo.findOne = testApp.positionRepo.findOne ?? jest.fn();
+      (testApp.positionRepo as any).findOne = jest.fn().mockResolvedValueOnce(null);
+      return request(app.getHttpServer())
+        .get(`/users/${randomWallet()}/market-position/1`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toEqual({});
+        });
+    });
+
+    it('should return position when it exists', () => {
+      (testApp.positionRepo as any).findOne = jest.fn().mockResolvedValueOnce({
+        id: '1',
+        marketId: '1',
+        userAddress: 'Wallet1',
+        holdings: ['300', '200'],
+        totalDeposited: '600',
+        totalWithdrawn: '100',
+        claimed: false,
+        updatedAt: new Date(),
+      });
+      return request(app.getHttpServer())
+        .get('/users/Wallet1/market-position/1')
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('holdings');
+          expect(res.body).toHaveProperty('marketId', '1');
+        });
+    });
+  });
+
   describe('GET /users/:address/lp-positions', () => {
     it('should return empty array for unknown wallet', () => {
       testApp.lpPositionRepo.find.mockResolvedValueOnce([]);
