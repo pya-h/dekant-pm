@@ -234,3 +234,59 @@ npx ts-node src/trade.ts buy-dist \
 - `programs/dekant-pm/tests/unit/engine_amm.rs` — unit tests for AMM engine
 
 ---
+
+## BUG-002: Oracle Unavailability / Compromise — Paused Market Deadlock
+
+- **Status:** Open — needs team discussion & group decision
+- **Severity:** High (design-level)
+- **Affects:** All market types
+- **Discovered:** 2026-03-25
+- **Category:** Protocol design gap, not a code bug
+
+### Summary
+
+Two related issues around oracle trust and availability that can permanently lock trader funds.
+
+### Issue A: Admin/Superadmin inheriting Oracle resolve permission
+
+The roles hierarchy currently allows Superadmin (and potentially Admin) to implicitly satisfy any role check. If this extends to resolution, it breaks the trust model: Admins/Superadmins must NOT be able to resolve markets, because resolution is a trust-critical operation that should only be performed by the specifically assigned oracle.
+
+Additionally, no oracle other than the one assigned at market creation should be able to resolve that market — the on-chain `resolve_market` instruction enforces `market.oracle == oracle.key()`.
+
+Future consideration: support for decentralized oracles (e.g., UMA, Pyth, Switchboard).
+
+### Issue B: Oracle becomes unavailable or compromised
+
+**Scenario 1 — Compromised oracle:**
+An admin can pause the market to prevent malicious resolution. However, once paused, only the same oracle can resolve it after an admin unpauses. The `oracle` field is immutable after creation (by design). Result: the market stays paused forever, locking all trader and LP funds.
+
+**Scenario 2 — Unavailable oracle (lost keys, disappeared):**
+The market passes its deadline and transitions to PendingResolution, but no one can call `resolve_market` because only the assigned oracle wallet can sign. The market remains in PendingResolution indefinitely with all funds locked.
+
+**Scenario 3 — LP vs trader impact:**
+LP providers can still withdraw liquidity from Active/PendingResolution/Resolved markets, but traders with open positions have no recourse.
+
+### What IS protected (by design)
+
+- Market oracle, question, outcomes, range, and type are all immutable after creation. No instruction exists to modify these fields. Correct for trust/integrity.
+- Only the specific oracle assigned at creation can resolve; no admin or superadmin can override.
+- `resolve_market` validates `market.oracle == oracle.key()` — no bypass exists.
+
+### What is NOT covered
+
+- No emergency resolution path (multi-sig override, governance vote, timelock refund).
+- No way to reassign the oracle for a specific market.
+- No automatic refund mechanism if a market goes unresolved past a grace period.
+
+### Potential solutions for team discussion
+
+1. **Governance / multi-sig emergency resolution** — for markets stuck past a configurable grace period.
+2. **Time-locked automatic refund** — if a market stays in PendingResolution for X days, allow traders to reclaim collateral proportionally (void the market).
+3. **Decentralized oracle integration** — UMA, Pyth, Switchboard — removes single-oracle dependency.
+4. **Dispute mechanism** — stakeholders can flag an unresolved market for admin review.
+
+### Priority
+
+Not urgent for current stage. Must be addressed before production launch. Requires team discussion to decide which approach(es) to implement.
+
+---
