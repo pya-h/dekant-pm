@@ -1162,7 +1162,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
-### B-13: Role-Based Authorization — Unit & E2E Test Suite
+### B-13: Role-Based Authorization — Unit & E2E Test Suite ✅
 
 **Goal:** Comprehensive test coverage for the entire RBAC layer introduced in B-12. Ensures every protected endpoint rejects unauthorized callers and accepts authorized ones, covering all role permutations, edge cases, and regression scenarios.
 
@@ -2153,7 +2153,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
-| Backend | 13 | B-1 → B-13 | ⬅️ B-1→B-12 done; B-13 remaining |
+| Backend | 13 | B-1 → B-13 | ✅ All done |
 | Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-17 done; F-18→F-21 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
