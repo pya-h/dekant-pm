@@ -137,8 +137,8 @@ export function CreateMarketForm({
               ? data.outcomeLabels?.filter((l) => l.trim())
               : undefined,
         ...(data.marketType === MarketType.Continuous && {
-          rangeMin: data.rangeMin,
-          rangeMax: data.rangeMax,
+          rangeMin: Math.round((data.rangeMin ?? 0) * SCALE),
+          rangeMax: Math.round((data.rangeMax ?? 0) * SCALE),
         }),
       };
 

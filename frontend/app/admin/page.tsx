@@ -7,6 +7,7 @@ import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAuth } from "@/hooks/use-auth";
 import { RoleManager } from "@/components/admin/role-manager";
 import { FeeConfig } from "@/components/admin/fee-config";
+import { FeeCollector } from "@/components/admin/fee-collector";
 import { PauseControls } from "@/components/admin/pause-controls";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -146,6 +147,7 @@ export default function AdminPage() {
         <TabsList>
           <TabsTrigger value="roles">Roles</TabsTrigger>
           {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
+          {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
           <TabsTrigger value="controls">Market Controls</TabsTrigger>
         </TabsList>
 
@@ -156,6 +158,12 @@ export default function AdminPage() {
         {isSuperadmin && (
           <TabsContent value="fees" className="mt-4">
             <FeeConfig isSuperadmin={isSuperadmin} />
+          </TabsContent>
+        )}
+
+        {isSuperadmin && (
+          <TabsContent value="collect" className="mt-4">
+            <FeeCollector />
           </TabsContent>
         )}
 
