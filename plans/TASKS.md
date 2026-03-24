@@ -1076,7 +1076,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
-### B-11: Automated Fee Collection Cron Job
+### B-11: Automated Fee Collection Cron Job ✅
 
 **Goal:** Implement an optional scheduled task in the backend that automatically calls `collectFees` on all resolved (or fee-bearing) markets at a configurable interval.
 
@@ -1549,7 +1549,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
-### F-17: Liquidity Provision UI
+### F-17: Liquidity Provision UI ✅
 
 **Goal:** Add frontend support for adding and removing liquidity from markets, including transaction builders, UI components, and portfolio integration.
 
@@ -2001,8 +2001,8 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
-| Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9 done; B-10, B-11 remaining |
-| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-16 done; F-17→F-20 remaining |
+| Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9, B-11 done; B-10 remaining |
+| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-17 done; F-18→F-20 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
 | **Total** | **65** | | |

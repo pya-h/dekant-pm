@@ -8,12 +8,15 @@ import { MarketModule } from './market/market.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { AmmModule } from './amm/amm.module';
 import { UserModule } from './user/user.module';
+import { SettingsModule } from './settings/settings.module';
+import { FeeCollectionModule } from './fee-collection/fee-collection.module';
 import { MarketEntity } from './market/entity/market.entity';
 import { TradeEntity } from './market/entity/trade.entity';
 import { UserPositionEntity } from './user/entity/user-position.entity';
 import { LpPositionEntity } from './user/entity/lp-position.entity';
 import { UserRoleEntity } from './user/entity/user-role.entity';
 import { IndexerStateEntity } from './indexer/entity/indexer-state.entity';
+import { SettingEntity } from './settings/setting.entity';
 
 @Module({
   imports: [
@@ -37,6 +40,7 @@ import { IndexerStateEntity } from './indexer/entity/indexer-state.entity';
           LpPositionEntity,
           UserRoleEntity,
           IndexerStateEntity,
+          SettingEntity,
         ],
         synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: config.get<string>('NODE_ENV') !== 'production',
@@ -49,6 +53,8 @@ import { IndexerStateEntity } from './indexer/entity/indexer-state.entity';
     IndexerModule,
     AmmModule,
     UserModule,
+    SettingsModule,
+    FeeCollectionModule,
   ],
 })
 export class AppModule {}

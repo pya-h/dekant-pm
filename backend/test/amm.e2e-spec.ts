@@ -58,17 +58,11 @@ describe('AMM (e2e)', () => {
         });
     });
 
-    it('should return zero fee for zero amount', () => {
-      testApp.marketRepo.findOne.mockResolvedValueOnce(mockMarket());
+    it('should reject zero amount (below minimum)', () => {
       return request(app.getHttpServer())
         .post('/amm/estimate-buy')
         .send({ marketId: 1, outcome: 0, amount: 0 })
-        .expect(201)
-        .expect((res: any) => {
-          expect(res.body.fee).toBe(0);
-          expect(res.body).toHaveProperty('tokensOut');
-          expect(res.body).toHaveProperty('newProbabilities');
-        });
+        .expect(400);
     });
 
     it('should default to outcome 0 when not specified', () => {
@@ -294,17 +288,11 @@ describe('AMM (e2e)', () => {
         });
     });
 
-    it('should return result for zero amount', () => {
-      testApp.marketRepo.findOne.mockResolvedValueOnce(mockMarket());
+    it('should reject zero amount (below minimum)', () => {
       return request(app.getHttpServer())
         .post('/amm/estimate-sell')
         .send({ marketId: 1, outcome: 0, amount: 0 })
-        .expect(201)
-        .expect((res: any) => {
-          expect(res.body).toHaveProperty('collateralOut');
-          expect(res.body).toHaveProperty('fee');
-          expect(res.body).toHaveProperty('newProbabilities');
-        });
+        .expect(400);
     });
 
     it('should default to outcome 0 when not specified', () => {
