@@ -10,6 +10,7 @@ import {
 import { MarketStatus } from "@/components/market/market-status";
 import { MarketTypeBadge } from "@/components/market/market-type-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   MarketState,
   USDC_DECIMALS,
@@ -68,11 +69,15 @@ export function LpPositionCard({ position }: LpPositionCardProps) {
         <span className="tabular-nums">
           {hasShares ? "Active" : "Withdrawn"}
         </span>
-        {market.state === MarketState.Active && (
+        {hasShares ? (
+          <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" asChild>
+            <Link href={`/markets/${market.id}`}>Manage</Link>
+          </Button>
+        ) : market.state === MarketState.Active ? (
           <span className="tabular-nums">
             Vol {formatUsdc(market.totalVolume)}
           </span>
-        )}
+        ) : null}
       </CardFooter>
     </Card>
   );

@@ -17,6 +17,7 @@ import {
   timeUntil,
 } from "@/lib/types";
 import { TradingPanel } from "@/components/trading/trading-panel";
+import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 import { UserPositionDisplay } from "@/components/trading/user-position-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -236,6 +237,17 @@ export default function MarketDetailPage({
         {/* Right column: Trading panel + stats */}
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
           <TradingPanel market={market} />
+
+          {/* Liquidity provision */}
+          <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/10 px-4 py-3">
+            <div>
+              <div className="text-xs font-medium">Liquidity Provision</div>
+              <div className="text-[11px] text-muted-foreground">
+                Earn fees by providing liquidity
+              </div>
+            </div>
+            <LiquidityPanel market={market} />
+          </div>
 
           {/* Quick stats */}
           <Card>

@@ -54,6 +54,9 @@ export interface MarketSummary {
   rangeMax: string | null;
   resolvedOutcome: number | null;
   resolvedValue: string | null;
+  lpSharesTotal: string;
+  lpFeeAccumulated: string;
+  protocolFeeAccumulated: string;
 }
 
 // Same as MarketSummary -- the backend returns the full entity for both list and detail.

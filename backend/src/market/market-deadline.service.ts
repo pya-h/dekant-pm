@@ -19,7 +19,7 @@ export class MarketDeadlineService {
   ) {}
 
   /**
-   * Runs every 30 seconds.
+   * Runs every minute.
    * Finds Active markets whose deadline has passed and transitions them
    * to PendingResolution (state=2) in the DB.
    *
