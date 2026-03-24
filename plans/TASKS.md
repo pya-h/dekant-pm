@@ -1726,7 +1726,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
-### F-19: Admin Protocol Settings UI
+### F-19: Admin Protocol Settings UI ✅
 
 **Goal:** Add an admin settings section where superadmins can view and update protocol-level configuration — fee collection interval, market deadline check interval, and manage settings presets.
 
@@ -1755,7 +1755,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
-### F-20: Responsive Design Review & Refactor
+### F-20: Responsive Design Review & Refactor ✅
 
 **Goal:** Full review and refactor of the frontend to ensure the platform is fully responsive across desktop, tablet, and mobile screen sizes.
 
@@ -1787,7 +1787,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
-### F-21: Frontend Unit & Integration Tests
+### F-21: Frontend Unit & Integration Tests ✅
 
 **Goal:** Add unit and integration tests for the frontend to verify that its sections, tools, and services work correctly.
 
@@ -2154,7 +2154,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
 | Backend | 13 | B-1 → B-13 | ✅ All done |
-| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-17 done; F-18→F-21 remaining |
+| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-21 done (except F-18) |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
 | **Total** | **68** | | |

@@ -145,13 +145,15 @@ export default function AdminPage() {
 
       {/* Tabbed sections */}
       <Tabs defaultValue="roles">
-        <TabsList>
-          <TabsTrigger value="roles">Roles</TabsTrigger>
-          {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
-          {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
-          {isSuperadmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
-          <TabsTrigger value="controls">Market Controls</TabsTrigger>
-        </TabsList>
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-visible sm:px-0">
+          <TabsList>
+            <TabsTrigger value="roles">Roles</TabsTrigger>
+            {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
+            {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
+            {isSuperadmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
+            <TabsTrigger value="controls">Market Controls</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="roles" className="mt-4">
           <RoleManager token={token} isSuperadmin={isSuperadmin} />
