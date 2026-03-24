@@ -13,15 +13,18 @@ import { BinaryInput } from "./binary-input";
 import { MultiOutcomeInput } from "./multi-outcome-input";
 import { DistributionInput } from "./distribution-input";
 import { CostPreview } from "./cost-preview";
-import { MarketType, MarketState, USDC_DECIMALS, type MarketDetail } from "@/lib/types";
+import { MarketType, MarketState, USDC_DECIMALS, SCALE, type MarketDetail } from "@/lib/types";
 import { useProgram } from "@/lib/solana";
 import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { useTokenBalance } from "@/hooks/use-token-balance";
+import { BN } from "@coral-xyz/anchor";
 import {
   executeBuy,
   executeSell,
   executeBuyDistribution,
   executeSellDistribution,
+  executeBuyToPrice,
+  executeSellToPrice,
 } from "@/lib/transactions";
 import {
   showTradeSuccess,
@@ -30,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type TradeParams =
-  | { outcome: number; amount: string; inputUnit: "collateral" | "shares" }
+  | { outcome: number; amount: string; inputUnit: "collateral" | "shares" | "target" }
   | { mu: number; sigma: number; amount: string; inputUnit: "collateral" | "shares" };
 
 interface TradingPanelProps {
@@ -71,7 +74,12 @@ export function TradingPanel({ market }: TradingPanelProps) {
 
   const isDisabled = market.state !== MarketState.Active;
   const isContinuous = market.marketType === MarketType.Continuous;
-  const hasValidParams = params !== null && Number(params.amount) > 0;
+  const isTargetPrice = params?.inputUnit === "target";
+  const hasValidParams = params !== null && (
+    isTargetPrice
+      ? Number(params.amount) > 0 && Number(params.amount) < 100
+      : Number(params.amount) > 0
+  );
 
   const inputUnit = params?.inputUnit ?? (side === "buy" ? "collateral" : "shares");
   const isReverseUnit =
@@ -92,6 +100,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
     connected &&
     side === "sell" &&
     hasValidParams &&
+    !isTargetPrice &&
     position != null &&
     "outcome" in params! &&
     (inputUnit === "shares"
@@ -107,8 +116,8 @@ export function TradingPanel({ market }: TradingPanelProps) {
       ? "Insufficient holdings"
       : null;
 
-  // For reverse trades, button needs estimate before submitting
-  const needsEstimate = isReverseUnit && computedAmount == null && hasValidParams;
+  // For reverse and target-price trades, button needs estimate before submitting
+  const needsEstimate = (isReverseUnit || isTargetPrice) && computedAmount == null && hasValidParams;
 
   const handleSubmit = useCallback(async () => {
     if (!connected || !publicKey || !program) {
@@ -122,60 +131,91 @@ export function TradingPanel({ market }: TradingPanelProps) {
       const marketPubkey = new PublicKey(market.pubkey);
       let signature: string;
 
-      // For reverse trades, derive the actual amount from the estimate with 0.5% slippage buffer
       const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
-      const isReverse =
-        (side === "buy" && unit === "shares") ||
-        (side === "sell" && unit === "collateral");
 
-      let effectiveAmount = params.amount;
-      if (isReverse && computedAmount != null) {
-        // Add 0.5% buffer for slippage, convert back to human-readable
-        const buffered = Math.ceil(computedAmount * 1.005);
-        effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
-      }
-
-      if (side === "buy") {
-        if (isContinuous && "mu" in params) {
-          signature = await executeBuyDistribution(
-            program,
-            marketPubkey,
-            publicKey,
-            params.mu,
-            params.sigma,
-            effectiveAmount,
-          );
-        } else if ("outcome" in params) {
-          signature = await executeBuy(
+      // Target-price mode: call buyToPrice / sellToPrice directly
+      if (unit === "target" && "outcome" in params && computedAmount != null) {
+        const targetProbScaled = new BN(
+          Math.round((Number(params.amount) / 100) * SCALE),
+        );
+        if (side === "buy") {
+          // computedAmount = collateralNeeded (base units); add 0.5% slippage
+          const maxCollateral = new BN(Math.ceil(computedAmount * 1.005));
+          signature = await executeBuyToPrice(
             program,
             marketPubkey,
             publicKey,
             params.outcome,
-            effectiveAmount,
+            targetProbScaled,
+            maxCollateral,
           );
         } else {
-          return;
+          // computedAmount = collateralOut (base units); subtract 0.5% slippage
+          const minCollateralOut = new BN(Math.floor(computedAmount * 0.995));
+          signature = await executeSellToPrice(
+            program,
+            marketPubkey,
+            publicKey,
+            params.outcome,
+            targetProbScaled,
+            minCollateralOut,
+          );
         }
       } else {
-        if (isContinuous && "mu" in params) {
-          signature = await executeSellDistribution(
-            program,
-            marketPubkey,
-            publicKey,
-            params.mu,
-            params.sigma,
-            effectiveAmount,
-          );
-        } else if ("outcome" in params) {
-          signature = await executeSell(
-            program,
-            marketPubkey,
-            publicKey,
-            params.outcome,
-            effectiveAmount,
-          );
+        // For reverse trades, derive the actual amount from the estimate with 0.5% slippage buffer
+        const isReverse =
+          (side === "buy" && unit === "shares") ||
+          (side === "sell" && unit === "collateral");
+
+        let effectiveAmount = params.amount;
+        if (isReverse && computedAmount != null) {
+          // Add 0.5% buffer for slippage, convert back to human-readable
+          const buffered = Math.ceil(computedAmount * 1.005);
+          effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
+        }
+
+        if (side === "buy") {
+          if (isContinuous && "mu" in params) {
+            signature = await executeBuyDistribution(
+              program,
+              marketPubkey,
+              publicKey,
+              params.mu,
+              params.sigma,
+              effectiveAmount,
+            );
+          } else if ("outcome" in params) {
+            signature = await executeBuy(
+              program,
+              marketPubkey,
+              publicKey,
+              params.outcome,
+              effectiveAmount,
+            );
+          } else {
+            return;
+          }
         } else {
-          return;
+          if (isContinuous && "mu" in params) {
+            signature = await executeSellDistribution(
+              program,
+              marketPubkey,
+              publicKey,
+              params.mu,
+              params.sigma,
+              effectiveAmount,
+            );
+          } else if ("outcome" in params) {
+            signature = await executeSell(
+              program,
+              marketPubkey,
+              publicKey,
+              params.outcome,
+              effectiveAmount,
+            );
+          } else {
+            return;
+          }
         }
       }
 

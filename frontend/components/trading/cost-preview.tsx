@@ -7,15 +7,15 @@ import { USDC_DECIMALS, SCALE } from "@/lib/types";
 interface CostPreviewProps {
   marketId: string;
   side: "buy" | "sell";
-  /** Human-readable amount (e.g. "10" for $10 USDC or 10 shares) */
+  /** Human-readable amount (e.g. "10" for $10 USDC, 10 shares, or "70" for 70% in target mode) */
   amount: string;
-  inputUnit?: "collateral" | "shares";
+  inputUnit?: "collateral" | "shares" | "target";
   outcome?: number;
   /** Distribution center (human-readable, for continuous markets) */
   mu?: number;
   /** Distribution width (human-readable, for continuous markets) */
   sigma?: number;
-  /** Reports the computed amount (base units) for reverse trades, null for standard */
+  /** Reports the computed amount (base units) for reverse/target trades, null for standard */
   onEstimate?: (computedAmount: number | null) => void;
 }
 
@@ -49,12 +49,28 @@ interface SellByCollateralEstimate {
   newProbabilities: number[];
 }
 
+interface BuyToPriceEstimate {
+  collateralNeeded: number;
+  tokensOut: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
+interface SellToPriceEstimate {
+  tokensToSell: number;
+  collateralOut: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
 type Estimate =
   | BuyEstimate
   | DistributionBuyEstimate
   | SellEstimate
   | BuyBySharesEstimate
-  | SellByCollateralEstimate;
+  | SellByCollateralEstimate
+  | BuyToPriceEstimate
+  | SellToPriceEstimate;
 
 export function CostPreview({
   marketId,
@@ -76,17 +92,28 @@ export function CostPreview({
   const numericMarketId = Number(marketId);
   const isDistribution = mu !== undefined && sigma !== undefined;
   const unit = inputUnit ?? (side === "buy" ? "collateral" : "shares");
+  const isTargetPrice = unit === "target";
   const isBuyByShares = side === "buy" && unit === "shares" && !isDistribution;
   const isSellByCollateral = side === "sell" && unit === "collateral";
 
   useEffect(() => {
     setError(null);
 
-    const rawAmount = Math.floor(Number(amount) * 10 ** USDC_DECIMALS);
-    if (!rawAmount || rawAmount <= 0) {
-      setEstimate(null);
-      onEstimate?.(null);
-      return;
+    // Validate input based on mode
+    if (isTargetPrice) {
+      const targetPct = Number(amount);
+      if (isNaN(targetPct) || targetPct <= 0 || targetPct >= 100) {
+        setEstimate(null);
+        onEstimate?.(null);
+        return;
+      }
+    } else {
+      const rawAmount = Math.floor(Number(amount) * 10 ** USDC_DECIMALS);
+      if (!rawAmount || rawAmount <= 0) {
+        setEstimate(null);
+        onEstimate?.(null);
+        return;
+      }
     }
 
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -98,71 +125,98 @@ export function CostPreview({
         let res: Estimate;
         let currentMode: string;
 
-        if (isBuyByShares) {
-          // Buy-by-shares: amount is in shares (tokens)
-          res = await api.post<BuyBySharesEstimate>(
-            "/amm/estimate-buy-by-shares",
-            {
-              marketId: numericMarketId,
-              outcome: outcome ?? 0,
-              desiredTokens: rawAmount,
-            },
+        if (isTargetPrice) {
+          const targetProbability = Math.round(
+            (Number(amount) / 100) * SCALE,
           );
-          currentMode = "buyByShares";
-        } else if (isSellByCollateral) {
-          // Sell-by-collateral: amount is in USDC
-          res = await api.post<SellByCollateralEstimate>(
-            "/amm/estimate-sell-by-collateral",
-            isDistribution
-              ? {
-                  marketId: numericMarketId,
-                  mu: mu! * SCALE,
-                  sigma: sigma! * SCALE,
-                  desiredCollateral: rawAmount,
-                }
-              : {
-                  marketId: numericMarketId,
-                  outcome: outcome ?? 0,
-                  desiredCollateral: rawAmount,
-                },
-          );
-          currentMode = "sellByCollateral";
-        } else if (side === "buy") {
-          if (isDistribution) {
-            res = await api.post<DistributionBuyEstimate>(
-              "/amm/estimate-buy",
+          if (side === "buy") {
+            res = await api.post<BuyToPriceEstimate>(
+              "/amm/estimate-buy-to-price",
               {
                 marketId: numericMarketId,
-                mu: mu * SCALE,
-                sigma: sigma * SCALE,
-                amount: rawAmount,
+                outcome: outcome ?? 0,
+                targetProbability,
               },
             );
-            currentMode = "distributionBuy";
+            currentMode = "buyToPrice";
           } else {
-            res = await api.post<BuyEstimate>("/amm/estimate-buy", {
-              marketId: numericMarketId,
-              outcome: outcome ?? 0,
-              amount: rawAmount,
-            });
-            currentMode = "buy";
+            res = await api.post<SellToPriceEstimate>(
+              "/amm/estimate-sell-to-price",
+              {
+                marketId: numericMarketId,
+                outcome: outcome ?? 0,
+                targetProbability,
+              },
+            );
+            currentMode = "sellToPrice";
           }
         } else {
-          if (isDistribution) {
-            res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId: numericMarketId,
-              mu: mu! * SCALE,
-              sigma: sigma! * SCALE,
-              amount: rawAmount,
-            });
-            currentMode = "distributionSell";
+          const rawAmount = Math.floor(Number(amount) * 10 ** USDC_DECIMALS);
+
+          if (isBuyByShares) {
+            res = await api.post<BuyBySharesEstimate>(
+              "/amm/estimate-buy-by-shares",
+              {
+                marketId: numericMarketId,
+                outcome: outcome ?? 0,
+                desiredTokens: rawAmount,
+              },
+            );
+            currentMode = "buyByShares";
+          } else if (isSellByCollateral) {
+            res = await api.post<SellByCollateralEstimate>(
+              "/amm/estimate-sell-by-collateral",
+              isDistribution
+                ? {
+                    marketId: numericMarketId,
+                    mu: mu! * SCALE,
+                    sigma: sigma! * SCALE,
+                    desiredCollateral: rawAmount,
+                  }
+                : {
+                    marketId: numericMarketId,
+                    outcome: outcome ?? 0,
+                    desiredCollateral: rawAmount,
+                  },
+            );
+            currentMode = "sellByCollateral";
+          } else if (side === "buy") {
+            if (isDistribution) {
+              res = await api.post<DistributionBuyEstimate>(
+                "/amm/estimate-buy",
+                {
+                  marketId: numericMarketId,
+                  mu: mu * SCALE,
+                  sigma: sigma * SCALE,
+                  amount: rawAmount,
+                },
+              );
+              currentMode = "distributionBuy";
+            } else {
+              res = await api.post<BuyEstimate>("/amm/estimate-buy", {
+                marketId: numericMarketId,
+                outcome: outcome ?? 0,
+                amount: rawAmount,
+              });
+              currentMode = "buy";
+            }
           } else {
-            res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId: numericMarketId,
-              outcome: outcome ?? 0,
-              amount: rawAmount,
-            });
-            currentMode = "sell";
+            if (isDistribution) {
+              res = await api.post<SellEstimate>("/amm/estimate-sell", {
+                marketId: numericMarketId,
+                mu: mu! * SCALE,
+                sigma: sigma! * SCALE,
+                amount: rawAmount,
+              });
+              currentMode = "distributionSell";
+            } else {
+              res = await api.post<SellEstimate>("/amm/estimate-sell", {
+                marketId: numericMarketId,
+                outcome: outcome ?? 0,
+                amount: rawAmount,
+              });
+              currentMode = "sell";
+            }
           }
         }
 
@@ -171,8 +225,12 @@ export function CostPreview({
           setMode(currentMode);
           setError(null);
 
-          // Report computed amount for reverse trades
-          if (currentMode === "buyByShares") {
+          // Report computed amount for reverse/target trades
+          if (currentMode === "buyToPrice") {
+            onEstimate?.((res as BuyToPriceEstimate).collateralNeeded);
+          } else if (currentMode === "sellToPrice") {
+            onEstimate?.((res as SellToPriceEstimate).collateralOut);
+          } else if (currentMode === "buyByShares") {
             onEstimate?.((res as BuyBySharesEstimate).collateralNeeded);
           } else if (currentMode === "sellByCollateral") {
             onEstimate?.((res as SellByCollateralEstimate).tokensNeeded);
@@ -197,7 +255,7 @@ export function CostPreview({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marketId, side, outcome, amount, mu, sigma, isDistribution, isBuyByShares, isSellByCollateral]);
+  }, [marketId, side, outcome, amount, mu, sigma, isDistribution, isTargetPrice, isBuyByShares, isSellByCollateral]);
 
   if (!estimate && !isLoading && !error) return null;
 
@@ -212,7 +270,47 @@ export function CostPreview({
         <p className="text-xs text-destructive">{error}</p>
       ) : estimate ? (
         <dl className="space-y-1.5">
-          {mode === "buyByShares" && "collateralNeeded" in estimate ? (
+          {mode === "buyToPrice" && "collateralNeeded" in estimate ? (
+            <>
+              <PreviewRow
+                label="Estimated cost"
+                value={formatUsdcRaw(
+                  (estimate as BuyToPriceEstimate).collateralNeeded,
+                )}
+                highlight
+              />
+              <PreviewRow
+                label="Shares received"
+                value={formatTokens(
+                  (estimate as BuyToPriceEstimate).tokensOut,
+                )}
+              />
+              <PreviewRow
+                label="Trade fee"
+                value={formatUsdcRaw(estimate.fee)}
+              />
+            </>
+          ) : mode === "sellToPrice" && "tokensToSell" in estimate ? (
+            <>
+              <PreviewRow
+                label="USDC received"
+                value={formatUsdcRaw(
+                  (estimate as SellToPriceEstimate).collateralOut,
+                )}
+                highlight
+              />
+              <PreviewRow
+                label="Shares to sell"
+                value={formatTokens(
+                  (estimate as SellToPriceEstimate).tokensToSell,
+                )}
+              />
+              <PreviewRow
+                label="Trade fee"
+                value={formatUsdcRaw(estimate.fee)}
+              />
+            </>
+          ) : mode === "buyByShares" && "collateralNeeded" in estimate ? (
             <>
               <PreviewRow
                 label="Cost"

@@ -63,6 +63,8 @@ const OUTCOME_COLORS = [
   },
 ];
 
+type InputUnit = "collateral" | "shares" | "target";
+
 interface MultiOutcomeInputProps {
   market: MarketDetail;
   side: "buy" | "sell";
@@ -70,7 +72,7 @@ interface MultiOutcomeInputProps {
     params: {
       outcome: number;
       amount: string;
-      inputUnit: "collateral" | "shares";
+      inputUnit: InputUnit;
     } | null,
   ) => void;
   collateralBalance?: number;
@@ -86,7 +88,7 @@ export function MultiOutcomeInput({
 }: MultiOutcomeInputProps) {
   const [selectedOutcome, setSelectedOutcome] = useState(0);
   const [amount, setAmount] = useState("");
-  const [inputUnit, setInputUnit] = useState<"collateral" | "shares">(
+  const [inputUnit, setInputUnit] = useState<InputUnit>(
     side === "buy" ? "collateral" : "shares",
   );
 
@@ -101,7 +103,14 @@ export function MultiOutcomeInput({
   }, [side]);
 
   useEffect(() => {
-    if (amount && Number(amount) > 0) {
+    if (inputUnit === "target") {
+      const pct = Number(amount);
+      if (amount && pct > 0 && pct < 100) {
+        onParamsChange({ outcome: selectedOutcome, amount, inputUnit: "target" });
+      } else {
+        onParamsChange(null);
+      }
+    } else if (amount && Number(amount) > 0) {
       onParamsChange({ outcome: selectedOutcome, amount, inputUnit });
     } else {
       onParamsChange(null);
@@ -110,15 +119,18 @@ export function MultiOutcomeInput({
 
   // Amount labels based on inputUnit
   const amountLabel =
-    side === "buy"
-      ? inputUnit === "collateral"
-        ? "Amount (USDC)"
-        : "Shares to buy"
-      : inputUnit === "shares"
-        ? "Shares to sell"
-        : "USDC to receive";
+    inputUnit === "target"
+      ? "Target probability"
+      : side === "buy"
+        ? inputUnit === "collateral"
+          ? "Amount (USDC)"
+          : "Shares to buy"
+        : inputUnit === "shares"
+          ? "Shares to sell"
+          : "USDC to receive";
 
-  const amountSuffix = inputUnit === "collateral" ? "USDC" : "shares";
+  const amountSuffix =
+    inputUnit === "target" ? "%" : inputUnit === "collateral" ? "USDC" : "shares";
 
   // For Max button and balance display
   const showBalance =
@@ -129,8 +141,9 @@ export function MultiOutcomeInput({
     ? Number(position.holdings[selectedOutcome] ?? "0")
     : 0;
 
-  // Validation coloring (only for default-unit amounts)
+  // Validation coloring (only for default-unit amounts, not target mode)
   const exceedsLimit =
+    inputUnit !== "target" &&
     amount &&
     ((side === "buy" &&
       inputUnit === "collateral" &&
@@ -213,10 +226,12 @@ export function MultiOutcomeInput({
                 ? [
                     { value: "collateral", label: "USDC" },
                     { value: "shares", label: "Shares" },
+                    { value: "target", label: "Target" },
                   ]
                 : [
                     { value: "shares", label: "Shares" },
                     { value: "collateral", label: "USDC" },
+                    { value: "target", label: "Target" },
                   ]
             }
             value={inputUnit}
@@ -229,9 +244,10 @@ export function MultiOutcomeInput({
         <div className="relative">
           <Input
             type="number"
-            placeholder="0.00"
-            min="0"
-            step="0.01"
+            placeholder={inputUnit === "target" ? "e.g. 70" : "0.00"}
+            min={inputUnit === "target" ? "0.1" : "0"}
+            max={inputUnit === "target" ? "99.9" : undefined}
+            step={inputUnit === "target" ? "0.1" : "0.01"}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className={cn("pr-14", exceedsLimit && "text-rose-400")}
@@ -241,7 +257,11 @@ export function MultiOutcomeInput({
           </span>
         </div>
         <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-          {showBalance ? (
+          {inputUnit === "target" ? (
+            <span>
+              Current: {formatProbability(probabilities[selectedOutcome])}
+            </span>
+          ) : showBalance ? (
             <span>Balance: {formatUsdc(collateralBalance!)}</span>
           ) : showAvailable ? (
             <span>
@@ -251,26 +271,27 @@ export function MultiOutcomeInput({
           ) : (
             <span />
           )}
-          {((showBalance && collateralBalance! > 0) ||
-            (showAvailable && availableShares > 0)) && (
-            <button
-              type="button"
-              onClick={() => {
-                if (showBalance) {
-                  setAmount(
-                    (collateralBalance! / 10 ** USDC_DECIMALS).toString(),
-                  );
-                } else if (showAvailable) {
-                  setAmount(
-                    (availableShares / 10 ** USDC_DECIMALS).toString(),
-                  );
-                }
-              }}
-              className="text-[11px] font-medium text-primary hover:text-primary/80"
-            >
-              Max
-            </button>
-          )}
+          {inputUnit !== "target" &&
+            ((showBalance && collateralBalance! > 0) ||
+              (showAvailable && availableShares > 0)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (showBalance) {
+                    setAmount(
+                      (collateralBalance! / 10 ** USDC_DECIMALS).toString(),
+                    );
+                  } else if (showAvailable) {
+                    setAmount(
+                      (availableShares / 10 ** USDC_DECIMALS).toString(),
+                    );
+                  }
+                }}
+                className="text-[11px] font-medium text-primary hover:text-primary/80"
+              >
+                Max
+              </button>
+            )}
         </div>
       </div>
     </div>
@@ -282,9 +303,9 @@ function UnitToggle({
   value,
   onChange,
 }: {
-  options: { value: "collateral" | "shares"; label: string }[];
-  value: "collateral" | "shares";
-  onChange: (v: "collateral" | "shares") => void;
+  options: { value: InputUnit; label: string }[];
+  value: InputUnit;
+  onChange: (v: InputUnit) => void;
 }) {
   return (
     <div className="flex rounded-md border border-border/60 bg-muted/20 text-[10px]">

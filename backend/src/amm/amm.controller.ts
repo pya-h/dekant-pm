@@ -6,6 +6,8 @@ import {
   EstimateBuyBySharesDto,
   EstimateSellDto,
   EstimateSellByCollateralDto,
+  EstimateBuyToPriceDto,
+  EstimateSellToPriceDto,
 } from './dto/amm.dto';
 
 @ApiTags('amm')
@@ -78,6 +80,28 @@ export class AmmController {
       dto.marketId,
       dto.outcome ?? 0,
       dto.desiredCollateral,
+    );
+  }
+
+  @Post('estimate-buy-to-price')
+  @ApiOperation({ summary: 'Estimate cost to buy to target probability' })
+  @ApiResponse({ status: 200, description: 'Buy-to-price estimate' })
+  estimateBuyToPrice(@Body() dto: EstimateBuyToPriceDto) {
+    return this.ammService.estimateBuyToPrice(
+      dto.marketId,
+      dto.outcome,
+      dto.targetProbability,
+    );
+  }
+
+  @Post('estimate-sell-to-price')
+  @ApiOperation({ summary: 'Estimate return from selling to target probability' })
+  @ApiResponse({ status: 200, description: 'Sell-to-price estimate' })
+  estimateSellToPrice(@Body() dto: EstimateSellToPriceDto) {
+    return this.ammService.estimateSellToPrice(
+      dto.marketId,
+      dto.outcome,
+      dto.targetProbability,
     );
   }
 }

@@ -1465,7 +1465,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
-### F-15: Buy-to-Price & Sell-to-Price Trading UI
+### F-15: Buy-to-Price & Sell-to-Price Trading UI ✅
 
 **Goal:** Add target-price trading to the frontend, allowing traders to buy/sell until a specific outcome probability is reached.
 
@@ -2002,7 +2002,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
 | Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9 done; B-10, B-11 remaining |
-| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-14, F-16 done; F-15, F-17→F-20 remaining |
+| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-16 done; F-17→F-20 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
 | **Total** | **65** | | |
