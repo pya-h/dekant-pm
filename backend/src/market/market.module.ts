@@ -6,9 +6,14 @@ import { MarketService } from './market.service';
 import { MarketDeadlineService } from './market-deadline.service';
 import { MarketController } from './market.controller';
 import { AuthModule } from '../auth/auth.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MarketEntity, TradeEntity]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([MarketEntity, TradeEntity]),
+    AuthModule,
+    SettingsModule,
+  ],
   controllers: [MarketController],
   providers: [MarketService, MarketDeadlineService],
   exports: [MarketService],
