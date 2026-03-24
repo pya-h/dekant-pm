@@ -385,6 +385,9 @@ describe('Auth (e2e)', () => {
       const kp = Keypair.generate();
       const wallet = kp.publicKey.toBase58();
 
+      // Seed an Admin role so RolesGuard allows POST /markets
+      testApp.roleRepo.find.mockResolvedValueOnce([{ role: 1 }]);
+
       const challengeRes = await request(app.getHttpServer())
         .post('/auth/challenge')
         .send({ walletAddress: wallet })

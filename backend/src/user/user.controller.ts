@@ -13,6 +13,8 @@ import {
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { AuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/decorator/roles.decorator';
 
 @ApiTags('users')
 @Controller('users')
@@ -60,13 +62,14 @@ export class UserController {
 }
 
 @ApiTags('admin')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('admin')
 @Controller('admin')
 export class AdminController {
   constructor(private readonly userService: UserService) {}
 
   @Get('roles')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'List all role assignments' })
   @ApiResponse({ status: 200, description: 'Role list' })
   getRoles() {
@@ -74,8 +77,6 @@ export class AdminController {
   }
 
   @Get('markets/stale')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Markets pending resolution > 7 days' })
   @ApiResponse({ status: 200, description: 'Stale market list' })
   getStaleMarkets(@Query('days') days?: number) {

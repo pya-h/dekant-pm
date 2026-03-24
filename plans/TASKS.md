@@ -93,6 +93,7 @@ CROSS-CUTTING
   P-19 ──► P-20 (math & logic review)
   P-19 ──► P-21 (expand program tests)
   B-8 ──► B-10 (expand backend tests)
+  B-4 + B-8 ──► B-12 (role-based authorization guards) ──► B-13 (RBAC test suite)
 
 DEVELOPER REVIEW (human-led, after all implementation)
   D-1 (math & logic audit)
@@ -1116,6 +1117,109 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ---
 
+### B-12: Role-Based Authorization Guards ✅
+
+**Goal:** Add role-based access control (RBAC) to all protected backend endpoints. Currently, `AuthGuard` only verifies JWT authenticity — it does not check the caller's on-chain or DB-stored role. Any authenticated wallet can access admin/superadmin endpoints.
+
+**Context — current state:**
+- `AuthGuard` exists: verifies JWT, attaches `walletAddress` to `request` — but performs zero role checks
+- `user_roles` table exists with `userAddress` + `role` columns, populated by the indexer from on-chain `AssignRole` events
+- Role values: `0` = Admin, `1` = Superadmin (matches on-chain enum)
+- No `RolesGuard`, no `@Roles()` decorator, no role-checking middleware exists anywhere
+- **Health** (`GET /health`), **market reads** (`GET /markets/*`), **user reads** (`GET /users/*`), **AMM estimates** (`GET /amm/*`), and **auth** (`POST /auth/*`) are correctly public
+
+**Security gaps to fix:**
+
+| Endpoint(s) | Current | Required |
+|---|---|---|
+| `GET/POST/PATCH/DELETE /settings/*` (all 6) | AuthGuard only | **Superadmin** |
+| `GET /admin/roles` | AuthGuard only | **Admin+** (Admin or Superadmin) |
+| `GET /admin/markets/stale` | AuthGuard only | **Admin+** |
+| `POST /markets` (create market metadata) | AuthGuard only | **Admin+** |
+
+**Deliverables:**
+
+1. **`@Roles()` decorator** — custom `SetMetadata`-based decorator accepting one or more role values (e.g. `@Roles('admin')`, `@Roles('superadmin')`)
+2. **`RolesGuard`** — `CanActivate` guard that:
+   - Reads the required roles from `@Roles()` metadata on the handler
+   - Extracts `walletAddress` from `request` (set by `AuthGuard`)
+   - Queries `user_roles` table for that wallet's role(s)
+   - Returns `true` if any of the wallet's roles satisfies the requirement (Superadmin implicitly satisfies Admin)
+   - Throws `ForbiddenException` with clear message if denied
+   - Must run **after** `AuthGuard` (use `@UseGuards(AuthGuard, RolesGuard)`)
+3. **Apply guards to endpoints:**
+   - `SettingsController` — all endpoints: `@UseGuards(AuthGuard, RolesGuard)` + `@Roles('superadmin')`
+   - `AdminController` — all endpoints: `@UseGuards(AuthGuard, RolesGuard)` + `@Roles('admin')` (Superadmin passes too)
+   - `MarketController.create` — `@UseGuards(AuthGuard, RolesGuard)` + `@Roles('admin')`
+4. **Audit pass** — scan all controllers for any other endpoints that expose private data or mutate state without proper guards. Document findings even if no additional changes needed.
+
+**Tests:**
+- Unit tests for `RolesGuard`: mock `user_roles` repo, verify allowed/denied for each role combination
+- E2e tests: verify `403 Forbidden` when calling protected endpoints with a valid JWT but wrong/missing role
+- E2e tests: verify existing authorized flows still work (Superadmin can access settings, Admin can access admin endpoints, etc.)
+
+**Depends on:** B-4, B-8
+
+---
+
+### B-13: Role-Based Authorization — Unit & E2E Test Suite
+
+**Goal:** Comprehensive test coverage for the entire RBAC layer introduced in B-12. Ensures every protected endpoint rejects unauthorized callers and accepts authorized ones, covering all role permutations, edge cases, and regression scenarios.
+
+**Deliverable — Unit tests** (`src/auth/guard/roles.guard.spec.ts`):
+- **Guard instantiation:** RolesGuard resolves dependencies (Reflector, UserRole repo)
+- **No `@Roles()` metadata:** guard allows request (no restriction on unannotated handlers)
+- **Role: Superadmin required:**
+  - Wallet with Superadmin role → allowed
+  - Wallet with Admin role only → `ForbiddenException`
+  - Wallet with no roles in DB → `ForbiddenException`
+- **Role: Admin required:**
+  - Wallet with Admin role → allowed
+  - Wallet with Superadmin role → allowed (implicit escalation)
+  - Wallet with no roles → `ForbiddenException`
+- **Multiple roles on decorator** (e.g. `@Roles('admin', 'superadmin')`) → either satisfies
+- **Missing `walletAddress` on request** (AuthGuard didn't run / was bypassed) → throws `UnauthorizedException` or `ForbiddenException`
+- **DB query failure** → throws (does not silently allow)
+
+**Deliverable — E2E tests** (`test/roles.e2e-spec.ts`):
+
+Test matrix — for each endpoint group, hit with 4 caller types:
+
+| Caller | Expected |
+|---|---|
+| No token (unauthenticated) | `401 Unauthorized` |
+| Valid JWT, no role in DB (regular user) | `403 Forbidden` |
+| Valid JWT, Admin role | Per-endpoint (allowed or `403`) |
+| Valid JWT, Superadmin role | Allowed everywhere |
+
+Endpoint groups to cover:
+
+1. **Settings endpoints** (Superadmin only):
+   - `GET /settings` — Superadmin ✅, Admin ✗, no-role ✗, no-token ✗
+   - `GET /settings/all` — same
+   - `POST /settings` — same
+   - `PATCH /settings` — same
+   - `POST /settings/:id/activate` — same
+   - `DELETE /settings/:id` — same
+
+2. **Admin endpoints** (Admin+):
+   - `GET /admin/roles` — Superadmin ✅, Admin ✅, no-role ✗, no-token ✗
+   - `GET /admin/markets/stale` — same
+
+3. **Market creation** (Admin+):
+   - `POST /markets` — Superadmin ✅, Admin ✅, no-role ✗, no-token ✗
+
+4. **Public endpoints remain public** (regression):
+   - `GET /markets`, `GET /markets/:id`, `GET /health`, `GET /users/:addr/positions`, `GET /amm/estimate-*` — all return `200` with no token
+
+**Deliverable — Regression on existing e2e suites:**
+- Run existing `settings.e2e-spec.ts`, `market.e2e-spec.ts`, `user.e2e-spec.ts` suites and fix any tests that break because they now need a role-bearing JWT instead of a plain JWT
+- Update `test/helpers/test-app.ts` (or equivalent) to provide helper functions for generating JWTs with specific roles seeded in the test DB
+
+**Depends on:** B-12
+
+---
+
 ## Frontend Tasks
 
 ### F-1: Next.js Project Scaffolding ✅
@@ -2049,11 +2153,11 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
-| Backend | 11 | B-1 → B-11 | ✅ Done |
+| Backend | 13 | B-1 → B-13 | ⬅️ B-1→B-12 done; B-13 remaining |
 | Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-17 done; F-18→F-21 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
-| **Total** | **66** | | |
+| **Total** | **68** | | |
 
 ### Critical Path (longest dependency chain):
 
