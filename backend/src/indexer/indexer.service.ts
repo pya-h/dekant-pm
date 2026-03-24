@@ -104,14 +104,21 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         reserves.push(String(d.reserves[i]));
       }
 
+      // If on-chain state is Active but deadline has passed, the market should
+      // be PendingResolution. The on-chain program enforces this lazily (on next
+      // trade), but we proactively reflect it in the DB so the frontend sees it.
+      const deadline = new Date(Number(d.deadline) * 1000);
+      const effectiveState =
+        state === 0 && deadline.getTime() <= Date.now() ? 2 : state;
+
       const onChainFields = {
         pubkey: marketPda.toBase58(),
         marketType: Number(d.market_type),
-        state,
+        state: effectiveState,
         creator: d.creator.toString(),
         oracle: d.oracle.toString(),
         collateralMint: d.collateral_mint.toString(),
-        deadline: new Date(Number(d.deadline) * 1000),
+        deadline,
         numOutcomes,
         reserves,
         kSquared: String(d.k_squared),
@@ -121,9 +128,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         lpSharesTotal: String(d.lp_shares_total),
         rangeMin: String(d.range_min),
         rangeMax: String(d.range_max),
-        resolvedOutcome: state === 3 ? Number(d.resolved_outcome) : null,
-        resolvedValue: state === 3 ? String(d.resolved_value) : null,
-        resolvedAt: state === 3 ? new Date(Number(d.resolved_at) * 1000) : null,
+        resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
+        resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
+        resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,
       };
 
       const existing = await this.marketRepo.findOne({
