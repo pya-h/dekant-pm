@@ -6,10 +6,11 @@ Tracking file for known bugs, their analysis, and fix status.
 
 ## BUG-001: `compute_distribution_buy` overflows u128 at moderate liquidity
 
-- **Status:** Open
+- **Status:** Open — validated 2026-03-27
 - **Severity:** High
 - **Affects:** Continuous markets only (distribution buy trades)
 - **Discovered:** 2026-03-20
+- **Last validated:** 2026-03-27 — all code references verified against current `amm.rs` (unchanged since d8875a1)
 - **Reported by:** User report ("market with initial liquidity >10M fails")
 
 ### Summary
@@ -106,23 +107,29 @@ This explains why the user report says "10M" — the threshold is state-dependen
 
 ### Secondary overflow: `w2 * excess` (line 219)
 
-Also checked, also can overflow at similar magnitudes:
+Also checked, also can overflow — and for large trades on small-bin markets, can overflow **before** `xw^2`:
 
 ```
-w2 ~ SCALE^2 / n  (for uniform weights, ~3.9 * 10^15 for n=256)
+w2 ~ SCALE^2 / n  (for uniform weights)
 excess = k_new^2 - k_old^2 ~ 2 * T * C  (for small trade C on market T)
-
-w2 * excess ~ 3.9 * 10^15 * 2 * T * C
+For doubling trade (C = T): excess ~ 3 * T^2
 ```
 
-For a $1 trade (C = 10^6) on market T: overflows when `T > 4.35 * 10^16` (~$43B) — not the binding constraint.
-For a large trade (C = T, doubling liquidity): overflows when `T > ~1.7 * 10^11` (~$170K) — similar to xw^2.
+| Scenario (uniform weights)         | n=2        | n=256      |
+|-------------------------------------|------------|------------|
+| $1 trade (C = 10^6)                | ~$340M     | ~$43B      |
+| 10% trade (C = 0.1T)               | ~$57K      | ~$646K     |
+| Doubling trade (C = T)             | **~$15K**  | ~$170K     |
 
-In practice, `xw^2` overflows first in most scenarios.
+**Key finding:** For n=2 with a doubling trade, `w2 * excess` overflows at **~$15K** — lower than the `xw^2` threshold ($26K). The report's original "xw^2 overflows first" claim only holds for **typical trade sizes (C << T)**. For very large trades on small-bin markets, `w2 * excess` is the binding constraint.
 
 ### Root Cause
 
 The quadratic formula requires squaring `xw`, which already contains a `SCALE` (10^9) factor from the weight normalization. So `xw^2` has a `SCALE^2 = 10^18` factor that eats 18 of the ~38 decimal digits available in u128, leaving only ~10^20 of headroom for `total_minted^2`. Since USDC uses 6 decimals, this limits markets to ~$300K-level liquidity.
+
+### Safety note: overflow-checks = true
+
+The workspace `Cargo.toml` has `overflow-checks = true` in `[profile.release]`. This means **all** arithmetic (including the "unchecked" `+=` and `*` in the accumulation loop at lines 193–194) will **panic** on overflow rather than silently wrapping. The checked_mul at line 215 returns a clean `MathOverflow` error; if it weren't there, the unchecked xw accumulation would panic at a much higher threshold (~$10^20). Bottom line: **no silent corruption is possible** — the transaction always fails cleanly.
 
 ### Proposed Fixes
 
@@ -134,20 +141,24 @@ Divide `xw` by a scaling factor before squaring, then compensate inside the squa
 // Instead of:
 //   disc = xw^2 + w2 * excess
 // Compute:
-//   disc_scaled = (xw / S)^2 + w2 * excess / S^2
+//   disc_scaled = (xw / S)^2 + (w2 / S) * (excess / S)
 //   sqrt_disc = isqrt(disc_scaled) * S
 // Where S is a chosen scale-down factor (e.g., SCALE or sqrt(SCALE))
 
 let S: u128 = 1_000_000; // or isqrt(SCALE)
 let xw_down = xw / S;
-let w2_excess_down = w2.checked_mul(excess)? / (S * S);
+// ⚠ Must split the division: w2.checked_mul(excess) overflows too!
+// Use (w2 / S) * (excess / S) instead.
+let w2_excess_down = (w2 / S)
+    .checked_mul(excess / S)
+    .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 let disc_down = xw_down.checked_mul(xw_down)? + w2_excess_down;
 let sqrt_disc = isqrt(disc_down) * S;
 let numerator = sqrt_disc.saturating_sub(xw);
 ```
 
 **Pros:** Minimal code change, no new dependencies.
-**Cons:** Loses ~6 digits of precision in the discriminant. Could cause rounding errors on small trades. Need to verify precision empirically.
+**Cons:** Loses ~6 digits of precision in the discriminant from two floor divisions. Could cause rounding errors on small trades. Need to verify precision empirically. The two separate divisions (w2/S and excess/S) can lose up to S² ≈ 10^12 total, negligible relative to the discriminant magnitude.
 **Estimated threshold improvement:** ~10^6x (from ~$300K to ~$300B), far beyond practical needs.
 
 #### Approach B: u256 arithmetic for the discriminant
@@ -168,8 +179,8 @@ let numerator = numerator.as_u128();
 ```
 
 **Pros:** Exact arithmetic, no precision loss. Clean separation.
-**Cons:** Adds a dependency or requires implementing u256 multiply + isqrt. Higher compute cost (Solana CU budget concern — need to benchmark).
-**Crate options:** `ethnum` (lightweight, no_std), `uint` (more features), or hand-rolled u256 multiply using 4 u64 limbs.
+**Cons:** Adds a dependency or requires implementing u256 multiply + isqrt. Higher compute cost (Solana CU budget concern — need to benchmark). Solana programs are size-constrained (BPF loader limits); verify that adding a crate doesn't push the program over the limit. Default CU limit per instruction is 200K — with 256 bins the function already uses significant CUs, so u256 multiply overhead needs profiling.
+**Crate options:** `ethnum` (lightweight, no_std, ~2KB code size impact), `uint` (more features, heavier), or hand-rolled u256 multiply using 4 u64 limbs (zero dependency, most control).
 
 #### Approach C: Newton's method iteration (avoid closed-form quadratic)
 
@@ -224,14 +235,23 @@ npx ts-node src/trade.ts buy-dist \
   --amount 1000000  # 1 USDC — should fail with MathOverflow
 ```
 
+### Test Gap
+
+No existing unit test exercises the overflow threshold or verifies behavior near the boundary. The current test suite uses `L = 1_000_000` (1 USDC) — far below overflow levels. **Any fix must include:**
+- A threshold test: create reserves at ~$25K (n=2) and ~$295K (n=256), verify `compute_distribution_buy` returns `MathOverflow`
+- A near-threshold test: verify the fix works at values slightly above the old threshold
+- A regression test: compare fix results against the current implementation at small values where both work (e.g. L = 1M)
+
 ### Key Files for Implementation
 
 - `programs/dekant-pm/src/engine/amm.rs` — lines 178-246 (`compute_distribution_buy`)
+- `programs/dekant-pm/src/instructions/trading/buy_distribution.rs` — instruction handler that calls the AMM function
 - `programs/dekant-pm/src/engine/sqrt.rs` — `isqrt` (may need u256 variant)
 - `programs/dekant-pm/src/constants.rs` — `SCALE`, `MAX_BINS`
 - `programs/dekant-pm/src/engine/mod.rs` — module declarations (if adding u256 module)
 - `programs/dekant-pm/Cargo.toml` — if adding `ethnum` or similar dependency
 - `programs/dekant-pm/tests/unit/engine_amm.rs` — unit tests for AMM engine
+- `Cargo.toml` — workspace-level (`overflow-checks = true` in release profile)
 
 ---
 
