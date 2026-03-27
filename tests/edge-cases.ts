@@ -9,13 +9,23 @@ import { ctx } from "./helpers/context";
 import { ensureSetup } from "./helpers/setup";
 import { findUserPosition, findUserRole, findLpPosition } from "./helpers/pda";
 import { getOrCreateAta, mintTokens, airdropSol } from "./helpers/accounts";
-import { createBinaryMarket, createContinuousMarket } from "./helpers/market-helper";
+import { createBinaryMarket, createMultiMarket, createContinuousMarket } from "./helpers/market-helper";
 import {
   ROLE_ORACLE,
   ROLE_ADMIN,
   MARKET_TYPE_BINARY,
   SCALE,
 } from "./helpers/constants";
+
+function computeProbabilities(reserves: string[], totalMinted: string): number[] {
+  const tm = Number(totalMinted);
+  if (tm === 0) return reserves.map(() => 1 / reserves.length);
+  const kSq = tm * tm;
+  return reserves.map((r) => {
+    const x = tm - Number(r);
+    return (x * x) / kSq;
+  });
+}
 
 describe("Edge Cases", () => {
   let marketPda: PublicKey;
@@ -434,6 +444,219 @@ describe("Edge Cases", () => {
     } catch (err: any) {
       expect(err.toString()).to.include("WrongMarketType");
     }
+  });
+});
+
+describe("Large Trades (trade >> pool)", () => {
+  it("binary: buy with 2x pool liquidity succeeds", async () => {
+    const mkt = await createBinaryMarket({ liquidity: new BN(10_000_000) });
+    const [posA] = findUserPosition(mkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(100_000_000));
+
+    // Buy with 20M on a 10M pool (2x)
+    await ctx.program.methods
+      .buy({ outcome: 0, collateralAmount: new BN(20_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    const market = await ctx.program.account.market.fetch(mkt.marketPda);
+    const position = await ctx.program.account.userPosition.fetch(posA);
+
+    // Trader received tokens
+    expect(position.holdings[0].toNumber()).to.be.greaterThan(0);
+
+    // Probabilities sum to ~1 and outcome 0 dominates
+    const reserves = market.reserves.map((r: any) => r.toString());
+    const totalMinted = market.totalMinted.toString();
+    const probs = computeProbabilities(reserves, totalMinted);
+    const sum = probs.reduce((a, b) => a + b, 0);
+    expect(sum).to.be.closeTo(1.0, 0.001);
+    expect(probs[0]).to.be.greaterThan(0.8);
+  });
+
+  it("binary: buy with 10x pool liquidity succeeds", async () => {
+    const mkt = await createBinaryMarket({ liquidity: new BN(10_000_000) });
+    const [posA] = findUserPosition(mkt.marketPda, ctx.traderB.publicKey, ctx.program.programId);
+    const traderBAta = await getOrCreateAta(ctx.collateralMint, ctx.traderB.publicKey, ctx.traderB);
+    await mintTokens(ctx.collateralMint, traderBAta, (ctx.superadmin as any).payer, BigInt(200_000_000));
+
+    // Buy with 100M on a 10M pool (10x)
+    await ctx.program.methods
+      .buy({ outcome: 1, collateralAmount: new BN(100_000_000) })
+      .accountsPartial({
+        trader: ctx.traderB.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderBAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderB])
+      .rpc();
+
+    const market = await ctx.program.account.market.fetch(mkt.marketPda);
+    const reserves = market.reserves.map((r: any) => r.toString());
+    const totalMinted = market.totalMinted.toString();
+    const probs = computeProbabilities(reserves, totalMinted);
+    const sum = probs.reduce((a, b) => a + b, 0);
+    expect(sum).to.be.closeTo(1.0, 0.001);
+    expect(probs[1]).to.be.greaterThan(0.95);
+  });
+
+  it("multi-outcome: buy with 20x pool liquidity succeeds", async () => {
+    const mkt = await createMultiMarket({ numOutcomes: 5, liquidity: new BN(10_000_000) });
+    const [posA] = findUserPosition(mkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(300_000_000));
+
+    // Buy outcome 3 with 200M on a 10M pool (20x)
+    await ctx.program.methods
+      .buy({ outcome: 3, collateralAmount: new BN(200_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    const market = await ctx.program.account.market.fetch(mkt.marketPda);
+    const reserves = market.reserves.map((r: any) => r.toString());
+    const totalMinted = market.totalMinted.toString();
+    const probs = computeProbabilities(reserves, totalMinted);
+    const sum = probs.reduce((a, b) => a + b, 0);
+    expect(sum).to.be.closeTo(1.0, 0.01);
+    expect(probs[3]).to.be.greaterThan(0.9);
+
+    // Other outcomes should be small
+    for (let i = 0; i < 5; i++) {
+      if (i !== 3) expect(probs[i]).to.be.lessThan(0.05);
+    }
+  });
+
+  it("binary: buy 20x then sell all back recovers collateral", async () => {
+    const mkt = await createBinaryMarket({ liquidity: new BN(10_000_000) });
+    const [posA] = findUserPosition(mkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(300_000_000));
+
+    const { value: balBefore } = await ctx.provider.connection.getTokenAccountBalance(traderAAta);
+
+    // Buy with 200M
+    await ctx.program.methods
+      .buy({ outcome: 0, collateralAmount: new BN(200_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    // Check holdings and sell them all back
+    const position = await ctx.program.account.userPosition.fetch(posA);
+    const holdings = position.holdings[0].toNumber();
+    expect(holdings).to.be.greaterThan(0);
+
+    await ctx.program.methods
+      .sell({ outcome: 0, tokenAmount: new BN(holdings) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    // Market should be back near 50/50
+    const market = await ctx.program.account.market.fetch(mkt.marketPda);
+    const reserves = market.reserves.map((r: any) => r.toString());
+    const totalMinted = market.totalMinted.toString();
+    const probs = computeProbabilities(reserves, totalMinted);
+    expect(probs[0]).to.be.closeTo(0.5, 0.02);
+
+    // Should have recovered most collateral (minus fees on buy + sell)
+    const { value: balAfter } = await ctx.provider.connection.getTokenAccountBalance(traderAAta);
+    const spent = Number(balBefore.amount) - Number(balAfter.amount);
+    // Lost amount should be roughly the fees (0.3% buy + 0.3% sell ≈ 0.6%)
+    expect(spent).to.be.lessThan(200_000_000 * 0.02); // less than 2% total loss
+  });
+
+  it("continuous: distribution buy with 20x pool succeeds", async () => {
+    const mkt = await createContinuousMarket({
+      numBins: 32,
+      rangeMin: new BN(0).mul(SCALE),
+      rangeMax: new BN(100).mul(SCALE),
+      liquidity: new BN(10_000_000),
+    });
+    const [posA] = findUserPosition(mkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(300_000_000));
+
+    // Distribution buy with 200M on a 10M pool (20x), mu=50, sigma=5
+    await ctx.program.methods
+      .buyDistribution({
+        mu: new BN(50).mul(SCALE),
+        sigma: new BN(5).mul(SCALE),
+        collateralAmount: new BN(200_000_000),
+      })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: mkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: mkt.vaultAuthority,
+        vault: mkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    const market = await ctx.program.account.market.fetch(mkt.marketPda);
+    const reserves = market.reserves.map((r: any) => r.toString());
+    const totalMinted = market.totalMinted.toString();
+    const probs = computeProbabilities(reserves, totalMinted);
+    const sum = probs.reduce((a, b) => a + b, 0);
+    expect(sum).to.be.closeTo(1.0, 0.01);
+
+    // Center bins (around bin 16 for mu=50 in [0,100] with 32 bins) should be
+    // higher than far edge bins (bin 0 covers [0, 3.125], far from mu=50)
+    const centerBin = 16;
+    expect(probs[centerBin]).to.be.greaterThan(probs[0]);
   });
 });
 
