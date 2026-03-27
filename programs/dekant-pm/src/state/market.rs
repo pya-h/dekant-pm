@@ -605,6 +605,21 @@ impl Market {
         mul_div(self.lp_fee_accumulated, shares, self.lp_shares_total)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))
     }
+
+    /// Compute LP collateral payout from a **resolved** market.
+    ///
+    /// After resolution with 1:1 trader payouts, the LP's claim is the
+    /// residual winning-outcome reserves: `reserves[resolved_outcome]`.
+    /// Each LP gets a proportional share: `residual * shares / lp_shares_total`.
+    pub fn compute_lp_resolved_payout(&self, shares: u128) -> Result<u128> {
+        require!(
+            shares <= self.lp_shares_total,
+            DekantPmError::InsufficientShares
+        );
+        let residual = self.reserves[self.resolved_outcome as usize] as u128;
+        mul_div(residual, shares, self.lp_shares_total)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))
+    }
 }
 
 // ── Enums ────────────────────────────────────────────────────────────────
