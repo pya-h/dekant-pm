@@ -310,3 +310,208 @@ LP providers can still withdraw liquidity from Active/PendingResolution/Resolved
 Not urgent for current stage. Must be addressed before production launch. Requires team discussion to decide which approach(es) to implement.
 
 ---
+
+## BUG-003: Vault Insolvency — `claim_payout` does not decrement `total_minted`
+
+- **Status:** Open — validated 2026-03-27
+- **Severity:** Critical (fund loss / protocol insolvency)
+- **Affects:** All market types, post-resolution
+- **Discovered:** 2026-03-27
+- **Category:** Accounting logic bug in on-chain program
+
+### Summary
+
+`claim_payout` transfers collateral from the vault but **never decrements `market.total_minted`**. Meanwhile, `remove_liquidity` computes LP payouts as `total_minted × shares / lp_shares_total`. Because `total_minted` is stale after claims, the protocol becomes insolvent: either LPs cannot withdraw (vault insufficient) or LPs steal trader collateral (if they withdraw first).
+
+This is a **fund-loss bug** — depending on the order of operations, either traders or LPs lose their collateral.
+
+### Location
+
+**Primary file:** `programs/dekant-pm/src/instructions/trading/claim_payout.rs`
+
+```rust
+// Line 85-92: the comment explains the intent but creates the bug
+// The payout pool is total_minted: the aggregate collateral backing all
+// complete sets.  We must NOT derive this from vault_balance because the
+// vault balance shrinks with every prior claim, creating a first-claimer
+// advantage ...
+let payout_pool = market.total_minted;    // reads total_minted
+// ... computes and transfers gross_payout ...
+// ⚠ total_minted is NEVER decremented
+```
+
+**Secondary file:** `programs/dekant-pm/src/instructions/trading/remove_liquidity.rs`
+
+```rust
+// Line 89: LP withdrawal based on un-decremented total_minted
+let collateral_out = market.compute_collateral_for_withdrawal(args.shares_to_burn)?;
+// → returns total_minted * shares / lp_shares_total  (stale total_minted!)
+```
+
+### The two failure modes
+
+#### Scenario A: Traders claim first → LP withdrawal fails
+
+1. Market resolves. Vault holds `total_minted + lp_fee + protocol_fee`.
+2. Winning traders call `claim_payout` → collateral transferred from vault. `total_minted` unchanged.
+3. LP calls `remove_liquidity` → computes `collateral_out = total_minted × shares / lp_shares_total` (the original, un-decremented value).
+4. **SPL Token transfer fails** — vault doesn't have enough tokens.
+
+#### Scenario B: LP removes first → Traders get nothing
+
+1. Market resolves. LP calls `remove_liquidity` first.
+2. `collateral_out = total_minted × shares / lp_shares_total` — LP takes **all** collateral (including trader-owed portion).
+3. `total_minted` is decremented to 0 (or near-0).
+4. Trader calls `claim_payout` → `payout_pool = total_minted = 0` → payout = 0.
+5. **Trader receives nothing.**
+
+### Numerical proof
+
+```
+Binary market, outcome 0 (YES) wins.
+Initial liquidity (net) = 1000 USDC.
+After trading: total_minted = 1100, reserves = [258, 393]
+
+x_YES = 1100 - 258 = 842 (total winning position)
+Trader holds 135 YES tokens (pool implicit position = 707)
+Vault = 1100 + 35 (fees) = 1135
+
+Trader claims first:
+  gross_payout = 135 × 1100 / 842 = 176 USDC
+  vault: 1135 → 959,  total_minted: still 1100
+
+LP removes 100% shares:
+  collateral_out = 1100,  fee_share = 30,  total = 1130
+  vault has 959 → TX FAILS (shortfall = 171)
+
+LP removes first instead:
+  collateral_out = 1100,  fee_share = 30,  total = 1130
+  vault: 1135 → 5,  total_minted: 1100 → 0
+
+Trader claims:
+  payout_pool = 0 → payout = 0
+  TRADER GETS NOTHING
+```
+
+### Root cause
+
+The L2-norm AMM has an **implicit pool position** in every outcome — tokens that are "outstanding" (`x[i] = total_minted - reserves[i]`) but not held by any trader. These implicit positions belong to LPs. At resolution:
+
+```
+x[winning] = trader_holdings + pool_implicit_position
+```
+
+- Traders should receive: `trader_holdings × total_minted / x[winning]`
+- LPs should receive the remainder: `total_minted × pool_implicit / x[winning]`
+
+But the code gives LPs `total_minted × shares / lp_shares_total` (the **full** pool, not just the residual), because `total_minted` was never adjusted.
+
+### Why the existing test passes
+
+The [binary-market.ts](tests/binary-market.ts) integration test (line 269→327) does claim-then-LP-remove but passes by coincidence:
+- Only the **external LP** (small fraction of shares) withdraws — the **creator's LP** stays
+- The trader's claim is small relative to vault balance
+- No test exists where ALL LP shares are withdrawn from a resolved market after claims
+- The creator never attempts to withdraw their LP position
+
+### What the lp-analysis.md gets wrong
+
+`plans/lp-analysis.md` lines 73–76 and 157 state:
+> "total_minted is reduced by the collateral portion of each claim"
+
+This is **false**. `claim_payout` never modifies `total_minted`. The entire section 7 analysis of "LPs get less after claims" is based on this incorrect premise.
+
+### Proposed fixes
+
+#### Approach A: Snapshot payout pool at resolution (recommended)
+
+At resolution time, compute and store the total trader payout obligation:
+
+```rust
+// In resolve_market handler, after setting resolved_outcome:
+let winning = market.resolved_outcome as usize;
+let winning_tokens_total = market.total_minted - market.reserves[winning] as u128;
+// Store the pool amount that belongs to traders
+market.trader_payout_pool = market.total_minted;  // snapshot
+market.winning_tokens_total = winning_tokens_total; // snapshot
+// Compute LP residual: collateral not owed to traders
+// trader_total_claim = Σ holdings[winning] × total_minted / winning_tokens_total
+// Since Σ holdings = winning_tokens_total (by invariant... see note below),
+// this equals total_minted. But pool implicit position means Σ trader holdings < winning_tokens_total.
+// So we need to track actual trader holdings sum or derive LP residual differently.
+```
+
+**Note:** The comment at `market.rs:74` claims `total_minted = reserves[i] + Σ_users(holdings[i])`, but this invariant is **not maintained** — at creation, no user holds anything yet `x[i] > 0`. The implicit pool position breaks this stated invariant. This needs investigation as part of the fix.
+
+#### Approach B: Decrement total_minted in claim_payout
+
+```rust
+// After computing gross_payout in claim_payout:
+let market = &mut ctx.accounts.market;
+market.total_minted = market.total_minted
+    .checked_sub(gross_payout as u128)
+    .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+```
+
+**Problem:** This changes `payout_pool` for subsequent claimers — BUT since `winning_tokens_total` (which depends on `total_minted - reserves[winning]`) would also need updating, the payout formula becomes order-dependent. The comment at line 85 of claim_payout.rs was trying to prevent exactly this. Would need to also decrement `reserves[winning]` by the tokens claimed to keep the ratio consistent.
+
+#### Approach C: Separate LP and trader pools at resolution
+
+At resolution, split `total_minted` into two pools:
+
+```rust
+// In resolve_market:
+let trader_pool = /* computed from actual trader holdings of winning outcome */;
+let lp_residual = total_minted - trader_pool;
+market.trader_payout_pool = trader_pool;
+market.lp_residual_pool = lp_residual;
+```
+
+- `claim_payout` draws from `trader_payout_pool` and decrements it
+- `remove_liquidity` (when resolved) draws from `lp_residual_pool` instead of `total_minted`
+
+**Problem:** Computing `trader_pool` requires summing all user positions on-chain, which is not feasible in a single transaction. Would need to iterate all UserPosition accounts.
+
+#### Approach D: Decrement both total_minted and reserves in claim_payout
+
+```rust
+// After transferring payout:
+market.total_minted = market.total_minted.checked_sub(gross_payout as u128)?;
+// Also reduce the winning reserve by the tokens consumed:
+market.reserves[winning] = market.reserves[winning]
+    .checked_sub(winning_tokens as u64)?;
+```
+
+This keeps the ratio `total_minted / (total_minted - reserves[winning])` constant across claims, preserving order-independence while correctly tracking how much collateral remains in the pool.
+
+**Verification:** After decrementing both:
+- New payout_pool = total_minted - gross_payout
+- New winning_tokens_total = (total_minted - gross_payout) - (reserves[winning] - winning_tokens)
+- Ratio = (total_minted - gross_payout) / ((total_minted - reserves[winning]) - winning_tokens + gross_payout)
+
+Needs algebraic verification that the ratio stays consistent for all claim orderings.
+
+### Recommendation
+
+**Approach D** is the most promising — it keeps claims order-independent while correctly tracking the pool. Needs formal algebraic verification that the payout ratio is preserved.
+
+**Approach A** (snapshot) is simpler but requires knowing the total trader claim at resolution time, which isn't straightforward without iterating all positions.
+
+### Key files for implementation
+
+- `programs/dekant-pm/src/instructions/trading/claim_payout.rs` — must decrement `total_minted` (and possibly `reserves`)
+- `programs/dekant-pm/src/instructions/trading/remove_liquidity.rs` — may need resolved-market-specific logic
+- `programs/dekant-pm/src/instructions/market/resolve_market.rs` — if snapshotting at resolution
+- `programs/dekant-pm/src/state/market.rs` — may need new fields (`trader_payout_pool`, `lp_residual_pool`)
+- `tests/binary-market.ts` — existing test passes by coincidence; needs adversarial test
+- `plans/lp-analysis.md` — Section 4 and Section 7 need correction
+
+### Required tests
+
+- **Claim-then-LP-remove (100% shares):** trader claims, then LP (sole LP) removes all shares → must succeed
+- **LP-remove-then-claim:** LP removes first, then trader claims → trader must still get correct payout
+- **Multiple claims then LP remove:** several traders claim sequentially, then LP removes → LP gets residual
+- **Interleaved claims and LP removes:** mix of claims and LP withdrawals → all get correct amounts
+- **No-trade market:** market resolves without any trading → LP gets full collateral back
+
+---

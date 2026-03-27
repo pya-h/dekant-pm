@@ -57,7 +57,9 @@ Plus the PDA derivation `[LP_POSITION_SEED, market, provider]` ensures only the 
 
 ## 4. What If the Market Doesn't Have Enough Liquidity?
 
-**This cannot happen by construction.** Here's why:
+> **BUG-003 (Critical):** The analysis below is correct for **active markets** (no claims have occurred). For **resolved markets**, `claim_payout` never decrements `total_minted`, causing vault insolvency. See `MAJOR_BUGS.md → BUG-003` for details.
+
+**During active trading, this cannot happen by construction.** Here's why:
 
 The formula `collateral_out = total_minted × shares / lp_shares_total` is bounded:
 - If an LP owns 100% of shares (`shares == lp_shares_total`), they get back `total_minted` — exactly the entire pool
@@ -72,14 +74,18 @@ When removing: `total_payout = collateral_out + fee_share`. Both are drawn from 
 
 **Edge case — traders have claimed payouts in a resolved market:**
 
-The claim_payout instruction draws from `total_minted` too. After claims, `total_minted` is reduced. So if traders claim first, LPs get less collateral back (but they still get their proportional fee share). This is correct behavior: the LP's share of the pool is now smaller because collateral was paid out to winning traders.
+**KNOWN BUG (BUG-003):** `claim_payout` transfers collateral from the vault but **never decrements `market.total_minted`**. This means:
+- After trader claims, `total_minted` remains stale (its original value)
+- `remove_liquidity` computes `collateral_out` from this stale value
+- The vault no longer holds enough to cover the computed `collateral_out`
+- **Result:** Either LP withdrawal fails (SPL transfer error) or, if LPs withdraw first, traders receive nothing
 
-**The math guarantees:**
-- `Σ(all LP shares) = lp_shares_total` (invariant)
-- `Σ(all LP collateral claims) = total_minted` (exact)
-- `Σ(all LP fee claims) = lp_fee_accumulated` (exact)
-- No LP can withdraw more than their proportional share
-- No case where vault runs out before all LPs withdraw
+**The math guarantees (active markets only):**
+- `Σ(all LP shares) = lp_shares_total` (invariant) — correct
+- `Σ(all LP collateral claims) = total_minted` (exact) — correct during active trading
+- `Σ(all LP fee claims) = lp_fee_accumulated` (exact) — correct
+- ~~No LP can withdraw more than their proportional share~~ — **false post-resolution** (BUG-003)
+- ~~No case where vault runs out before all LPs withdraw~~ — **false post-resolution** (BUG-003)
 
 ---
 
@@ -136,7 +142,7 @@ Without open LP, markets die from low liquidity. The creator's initial deposit s
   - **Withdrawal fees** (discourage in-and-out)
   - **Gradual withdrawal** (cap % withdrawable per epoch)
 
-**Bottom line:** LP removal is necessary but is the design surface where abuse can happen. The current implementation is mathematically sound but lacks economic guardrails against strategic withdrawals. For a v1, this is acceptable — these mitigations are typically added after observing actual market behavior.
+**Bottom line:** LP removal is necessary but is the design surface where abuse can happen. The current implementation is mathematically sound **during active trading** but has a critical post-resolution accounting bug (BUG-003) and lacks economic guardrails against strategic withdrawals. For a v1, the strategic withdrawal risks are acceptable — these mitigations are typically added after observing actual market behavior. BUG-003 must be fixed before production.
 
 ---
 
@@ -153,9 +159,9 @@ Without open LP, markets die from low liquidity. The creator's initial deposit s
 ### Step 2: Traders claim payouts (`claim_payout`)
 - Each trader with winning tokens calls `claim_payout`
 - Payout formula: `gross_payout = winning_tokens × total_minted / winning_tokens_total`
-- After fee deductions, net payout is transferred from vault
-- **`total_minted` is reduced** by the collateral portion of each claim
-- LP fee pool and protocol fee pool are untouched by claims
+- After fee deductions (redemption fee), net payout is transferred from vault
+- **`total_minted` is NOT modified** — it remains at its pre-resolution value (this is BUG-003)
+- LP fee pool and protocol fee pool are untouched by claims (redemption fee goes to `protocol_fee_accumulated`)
 
 ### Step 3: LPs withdraw (`remove_liquidity`)
 - LPs can withdraw at any time (before, during, or after trader claims)
@@ -163,36 +169,58 @@ Without open LP, markets die from low liquidity. The creator's initial deposit s
   - `collateral_out = total_minted × shares / lp_shares_total`
   - `fee_share = lp_fee_accumulated × shares / lp_shares_total`
 
-### What does this mean concretely?
+> **BUG-003:** Because `total_minted` is never decremented by claims, `collateral_out` is computed from a stale value. This causes vault insolvency — see failure scenarios below.
+
+### What ACTUALLY happens (current buggy behavior)
 
 **If an LP withdraws BEFORE any trader claims:**
-- `total_minted` is still the full pool
-- LP gets their full proportional share of collateral + fees
-- The pool shrinks, and remaining traders/LPs split what's left
+- `total_minted` is the full pool → LP takes their full proportional share
+- Vault has enough → transfer succeeds
+- But now the vault is depleted by more than it should be — subsequent trader claims may fail
 
-**If an LP withdraws AFTER all traders have claimed:**
-- `total_minted` has been reduced by all trader payouts
-- LP gets their proportional share of what remains + fees
-- This is typically smaller than pre-claim withdrawal
+**If traders claim first, then LP withdraws:**
+- Vault has been reduced by trader payouts, but `total_minted` is unchanged
+- LP computes `collateral_out` from the original `total_minted` (too large)
+- **SPL token transfer fails** — vault doesn't have enough
 
-**Key insight:** The order of LP withdrawal vs trader claims DOES matter for LPs. Early-withdrawing LPs get a larger collateral share. However, `total_minted` is updated atomically with each claim, so the math is always consistent — no one gets more than the vault holds.
+**If LP removes first (100% shares):**
+- LP takes `total_minted` (the entire pool) + fee share
+- `total_minted` → 0, all reserves → 0
+- Traders then call `claim_payout` → `winning_tokens_total = 0 - 0 = 0` → **TX fails with NothingToClaim**
 
-### Example scenario:
+### What SHOULD happen (after BUG-003 is fixed)
+
+The intended design is:
+- Trader payouts come from the collateral pool, reducing the amount available to LPs
+- LPs receive the residual: whatever remains after all trader claims, plus their fee share
+- The order of claims vs LP withdrawal should not affect total amounts
+
+See `MAJOR_BUGS.md → BUG-003` for the proposed fix approaches.
+
+### Example of the bug:
 ```
 Market: Binary (Yes/No), resolves YES
-Pool: total_minted = 1000 USDC, lp_fee_accumulated = 50 USDC
-LP Alice: 60% of shares, LP Bob: 40% of shares
-Traders hold 800 USDC worth of YES tokens
+Pool: total_minted = 1000, lp_fee_accumulated = 50, protocol_fee = 10
+Vault balance = 1000 + 50 + 10 = 1060
+LP Alice: 100% of shares
+Traders collectively hold 600 YES tokens out of 800 total winning position (x_YES)
+(Pool implicit position = 200)
 
-Trader claims happen first:
-  total_minted: 1000 → 200 (after 800 USDC paid to YES holders)
+CURRENT (BUGGY) — traders claim first:
+  Total trader claims: 600 × 1000 / 800 = 750 (gross, ~746 net after redemption fee)
+  Vault: 1060 → ~314
+  total_minted: still 1000
 
-Then LPs withdraw:
-  Alice: collateral = 200 × 0.6 = 120 USDC, fees = 50 × 0.6 = 30 USDC → total 150
-  Bob:   collateral = 200 × 0.4 = 80 USDC,  fees = 50 × 0.4 = 20 USDC → total 100
+  Alice removes LP:
+    collateral_out = 1000, fee_share = 50, total = 1050
+    Vault has ~314 → TX FAILS
+
+CURRENT (BUGGY) — LP removes first:
+  Alice: collateral_out = 1000, fee_share = 50, total = 1050
+  Vault: 1060 → 10, total_minted → 0, reserves → [0, 0]
+  Traders claim: winning_tokens_total = 0 → NothingToClaim error
+  TRADERS GET NOTHING
 ```
-
-LPs effectively absorb the "loss" from paying out winning traders, but earn it back through accumulated trading fees. **This is the fundamental LP tradeoff:** you earn fees during trading but bear the risk that the pool shrinks when winners claim.
 
 ---
 
@@ -203,7 +231,7 @@ LPs effectively absorb the "loss" from paying out winning traders, but earn it b
 | Who can LP? | Any wallet (no role check) |
 | Is open LP wise? | Yes — standard, necessary for depth |
 | Who can remove? | Only the original depositor |
-| Can vault run out? | No — math guarantees solvency |
+| Can vault run out? | Yes — BUG-003: vault insolvent post-resolution |
 | Does LP affect trading? | No — probabilities preserved, only depth changes |
 | Is LP removal wise? | Yes but needs future guardrails (lock periods, fees) |
-| Resolution + LP? | LPs withdraw remaining pool + fees; order vs trader claims matters |
+| Resolution + LP? | BROKEN (BUG-003): either LP or trader loses funds depending on order |
