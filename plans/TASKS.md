@@ -809,7 +809,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 - **AMM engine** (`programs/dekant-pm/src/amm/`): Verify L2-norm cost function, price computation, buy/sell invariants, distribution weight calculations
 - **Fixed-point math** (`math.rs`): Check for overflow/underflow, precision loss, rounding bias in SCALE arithmetic
 - **Normal PDF approximation** (`normal.rs`): Verify accuracy against reference implementations, check edge cases (extreme mu/sigma, bins at tails)
-- **Payout logic** (`claim_payout`): Verify proportional payout correctness for binary, multi-outcome, and continuous markets
+- **Payout logic** (`claim_payout`): ~~Verify proportional payout correctness~~ → Addressed by 1:1 refactor (2026-03-28). Now uses `gross_payout = winning_tokens`. Verified by `tests/resolution-1to1.ts` (10 scenarios) and `tests/continuous-deep.ts` (18 tests)
 - **Fee calculations**: Confirm fees are applied correctly and don't create rounding exploits
 - **Edge cases**: Zero liquidity, single-outcome dominance, extreme probabilities near 0/1, very large/small trade amounts
 

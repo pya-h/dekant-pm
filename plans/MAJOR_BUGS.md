@@ -311,13 +311,24 @@ Not urgent for current stage. Must be addressed before production launch. Requir
 
 ---
 
-## BUG-003: Vault Insolvency — `claim_payout` does not decrement `total_minted`
+## ✅ BUG-003: Vault Insolvency — `claim_payout` does not decrement `total_minted`
 
-- **Status:** Open — validated 2026-03-27
+- **Status:** Fixed — resolved by 1:1 payout refactor (2026-03-28)
 - **Severity:** Critical (fund loss / protocol insolvency)
 - **Affects:** All market types, post-resolution
 - **Discovered:** 2026-03-27
 - **Category:** Accounting logic bug in on-chain program
+
+### Resolution
+
+Fixed by switching from proportional to 1:1 fixed payout model. See `RESOLUTION_REFACTOR_TASKS.md` for full task plan.
+
+**Changes (commit `847795c`):**
+- `claim_payout.rs`: `gross_payout = winning_tokens` (1:1, no `total_minted` dependency)
+- `market.rs`: Added `compute_lp_resolved_payout()` — LP payout from `reserves[winning]`
+- `remove_liquidity.rs`: Resolved-market branch uses residual reserves instead of `total_minted`
+
+With 1:1 payouts, `total_minted` is never used for claim/LP withdrawal computation on resolved markets, eliminating the insolvency by design. Verified by 18 new integration tests in `tests/resolution-1to1.ts` and `tests/continuous-deep.ts`.
 
 ### Summary
 
