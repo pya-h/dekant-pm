@@ -1,6 +1,9 @@
 import { PublicKey } from '@solana/web3.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 // Try bundled IDL first (Docker), fall back to monorepo target (local dev)
 const bundledPath = path.resolve(__dirname, '../../idl/dekant_pm.json');
