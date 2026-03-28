@@ -306,6 +306,8 @@ Based on the L2-norm AMM over parameterized distributions, discretized into bins
 
 ### 7.6 Settlement & Payout
 
+> **Implementation Note (2026-03-28):** The parimutuel formula below was the original spec. The implementation uses **1:1 fixed payout** instead: each winning token redeems for exactly 1 unit of collateral. See `MAJOR_BUGS.md` (BUG-003) and `RESOLUTION_REFACTOR_TASKS.md` for details.
+
 - After resolution, traders call a `claim` instruction to receive their payout.
 - Payout calculation:
   - **Binary/Multi-outcome:** `trader_tokens_in_winning_outcome * payout_per_token`

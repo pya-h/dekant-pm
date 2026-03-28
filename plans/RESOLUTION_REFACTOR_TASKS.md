@@ -596,16 +596,16 @@ If P-20 (Math Review) includes reviewing the payout formula, note that it has be
 Run these checks AFTER all changes are complete:
 
 ```
-[ ] anchor build                           — compiles cleanly
-[ ] cargo test --test '*'                  — all Rust unit tests pass
-[ ] anchor test                            — all integration tests pass (existing + new)
-[ ] cd backend && npm test                 — backend unit tests pass (unchanged)
-[ ] cd backend && npm run test:e2e         — backend e2e tests pass (unchanged)
-[ ] cd frontend && pnpm next build         — frontend builds cleanly (unchanged)
-[ ] git diff -- programs/                  — only expected files changed
-[ ] git diff -- backend/                   — NO changes (zero diff)
-[ ] git diff -- frontend/                  — NO changes (zero diff)
-[ ] git diff -- devkit/                    — NO changes (zero diff)
+[x] anchor build                           — compiles cleanly ✅
+[x] cargo test --test '*'                  — 215 Rust unit tests pass ✅
+[x] anchor test                            — 122 integration tests pass (existing + new) ✅
+[x] cd backend && npm test                 — 190 backend unit tests pass (unchanged) ✅
+[x] cd backend && npm run test:e2e         — 245 backend e2e tests pass (unchanged) ✅
+[x] cd frontend && pnpm next build         — frontend builds cleanly (unchanged) ✅
+[x] git diff -- programs/                  — only expected files changed ✅
+[x] git diff -- backend/                   — NO changes (zero diff) ✅
+[x] git diff -- frontend/                  — NO changes (zero diff) ✅
+[x] git diff -- devkit/                    — NO changes (zero diff) ✅
 ```
 
 ### Accounting Proof (verify in test T-R4 Scenario 2):
@@ -627,15 +627,16 @@ Verify:
 
 ## Summary of Changes
 
-| Section | Files changed | Lines changed (est.) |
+| Section | Files changed | Lines changed |
 |---------|--------------|---------------------|
-| On-chain program | 3 files | ~45 lines |
-| Integration tests | 4 files updated + 1 new file | ~400 lines |
-| Rust unit tests | 1 file | ~60 lines |
+| On-chain program | 3 files | +97/-54 |
+| Integration tests | 3 files updated + 2 new files | +1,548 lines |
+| Rust unit tests | 1 file | +56 lines |
 | Backend | 0 files | 0 |
 | Frontend | 0 files | 0 |
 | Devkit/CLIs | 0 files | 0 |
-| Documentation | 3-4 files | ~30 lines |
+| Scripts | 0 files | 0 |
+| Documentation | 6 files | ~50 lines |
 
 **Files modified (program):**
 1. `programs/dekant-pm/src/instructions/trading/claim_payout.rs` — replace formula
@@ -646,7 +647,14 @@ Verify:
 1. `tests/binary-market.ts` — strengthen assertions
 2. `tests/multi-market.ts` — strengthen assertions
 3. `tests/continuous-market.ts` — strengthen assertions
-4. `tests/resolution-1to1.ts` — NEW: comprehensive 1:1 test suite
-5. `programs/dekant-pm/tests/unit/state_market.rs` — add resolved payout unit tests
+4. `tests/resolution-1to1.ts` — NEW: comprehensive 1:1 test suite (691 lines, 10 scenarios)
+5. `tests/continuous-deep.ts` — NEW: deep continuous market tests (857 lines)
+6. `programs/dekant-pm/tests/unit/state_market.rs` — add resolved payout unit tests
 
-**Estimated effort:** 1.5-2 days (most time on tests, not the 3-file program change).
+**Documentation updated:**
+1. `plans/MAJOR_BUGS.md` — BUG-003 marked fixed with commit reference
+2. `plans/details/lp-analysis.md` — corrected false claims, updated summary table
+3. `plans/CONTEXT.md` — session context entry
+4. `plans/TASKS.md` — P-20 payout scope marked as addressed
+5. `plans/TDD.md` — added note that payout section is pre-refactor
+6. `plans/PRD.md` — added note that implementation uses 1:1 instead of parimutuel
