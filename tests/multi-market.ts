@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
+  getAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
 import { ctx } from "./helpers/context";
@@ -117,6 +118,12 @@ describe("Multi-Outcome Market Lifecycle", () => {
     const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
     const traderAAta = await getAssociatedTokenAddress(ctx.collateralMint, ctx.traderA.publicKey);
 
+    // Fetch position BEFORE claiming to get winning token count
+    const positionBefore = await ctx.program.account.userPosition.fetch(posA);
+    const winningTokens = positionBefore.holdings[outcomeA].toNumber();
+
+    const ataBalBefore = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+
     await ctx.program.methods
       .claimPayout()
       .accountsPartial({
@@ -134,6 +141,15 @@ describe("Multi-Outcome Market Lifecycle", () => {
 
     const positionA = await ctx.program.account.userPosition.fetch(posA);
     expect(positionA.claimed).to.be.true;
+
+    // Exact 1:1 payout: winning_tokens minus redemption fee
+    const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
+    const redemptionFeeBps = config.redemptionFeeBps;
+    const expectedFee = Math.floor(winningTokens * redemptionFeeBps / 10_000);
+    const expectedNet = winningTokens - expectedFee;
+
+    const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+    expect(Number(ataBalAfter) - Number(ataBalBefore)).to.equal(expectedNet);
 
     const [posB] = findUserPosition(marketPda, ctx.traderB.publicKey, ctx.program.programId);
     const traderBAta = await getAssociatedTokenAddress(ctx.collateralMint, ctx.traderB.publicKey);

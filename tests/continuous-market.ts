@@ -149,6 +149,8 @@ describe("Continuous Market Lifecycle", () => {
     const winningTokens = positionBefore.holdings[winningBin].toNumber();
 
     if (winningTokens > 0) {
+      const ataBalBefore = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+
       await ctx.program.methods
         .claimPayout()
         .accountsPartial({
@@ -166,6 +168,15 @@ describe("Continuous Market Lifecycle", () => {
 
       const positionAfter = await ctx.program.account.userPosition.fetch(posA);
       expect(positionAfter.claimed).to.be.true;
+
+      // Exact 1:1 payout: winning_tokens minus redemption fee
+      const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
+      const redemptionFeeBps = config.redemptionFeeBps;
+      const expectedFee = Math.floor(winningTokens * redemptionFeeBps / 10_000);
+      const expectedNet = winningTokens - expectedFee;
+
+      const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+      expect(Number(ataBalAfter) - Number(ataBalBefore)).to.equal(expectedNet);
     }
   });
 });

@@ -106,14 +106,15 @@ pub fn handle_remove_liquidity(
         // Scale ALL reserves proportionally by remaining LP ownership.
         // Only reserves[winning] has monetary value, but we keep all reserves
         // consistent so market state remains mathematically correct after withdrawal.
-        let remaining = market.lp_shares_total
+        let total_lp = market.lp_shares_total;
+        let remaining = total_lp
             .checked_sub(args.shares_to_burn)
             .ok_or_else(|| error!(DekantPmError::InsufficientShares))?;
         // k_squared is irrelevant post-resolution; discard it.
         let _ = amm::scale_reserves(
             &mut market.reserves,
             remaining,
-            market.lp_shares_total,
+            total_lp,
         )?;
     } else {
         // Active/PendingResolution: scale all reserves proportionally.

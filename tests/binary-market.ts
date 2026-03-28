@@ -272,6 +272,11 @@ describe("Binary Market Lifecycle", () => {
       ctx.traderA.publicKey,
       ctx.program.programId
     );
+
+    // Fetch position BEFORE claiming to get winning token count
+    const positionBefore = await ctx.program.account.userPosition.fetch(userPositionPda);
+    const winningTokens = positionBefore.holdings[0].toNumber(); // outcome 0 wins
+
     const ataBalBefore = (await getAccount(ctx.provider.connection, traderAAta)).amount;
 
     await ctx.program.methods
@@ -292,8 +297,14 @@ describe("Binary Market Lifecycle", () => {
     const position = await ctx.program.account.userPosition.fetch(userPositionPda);
     expect(position.claimed).to.be.true;
 
+    // Exact 1:1 payout: winning_tokens minus redemption fee
+    const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
+    const redemptionFeeBps = config.redemptionFeeBps;
+    const expectedFee = Math.floor(winningTokens * redemptionFeeBps / 10_000);
+    const expectedNet = winningTokens - expectedFee;
+
     const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
-    expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    expect(Number(ataBalAfter) - Number(ataBalBefore)).to.equal(expectedNet);
   });
 
   it("trader B claim fails (NothingToClaim — wrong outcome)", async () => {
@@ -352,5 +363,10 @@ describe("Binary Market Lifecycle", () => {
 
     const ataBalAfter = (await getAccount(ctx.provider.connection, lpProviderAta)).amount;
     expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+
+    // After LP removes, check vault still has enough for protocol fees
+    const vaultBal = (await getAccount(ctx.provider.connection, vault)).amount;
+    const market = await ctx.program.account.market.fetch(marketPda);
+    expect(Number(vaultBal)).to.be.greaterThanOrEqual(Number(market.protocolFeeAccumulated));
   });
 });
