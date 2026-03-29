@@ -1,3 +1,5 @@
+const { writeFileSync, readFileSync, existsSync } = require("fs");
+const { resolve } = require("path");
 const {
   createConnection,
   createProvider,
@@ -5,8 +7,13 @@ const {
   loadKeypair,
   getProgramId,
   findProtocolConfig,
+  Keypair,
+  PublicKey,
 } = require("./common");
 const { RandomGenerator } = require("./random");
+
+// Session file path (in scripts/.state/)
+const SESSION_PATH = resolve(__dirname, "../../.state/operator-session.json");
 
 class SessionState {
   constructor() {
@@ -62,6 +69,64 @@ class SessionState {
 
   findUser(pubkey) {
     return this.users.find((u) => u.pubkey.equals(pubkey));
+  }
+
+  saveSession() {
+    const data = {
+      users: this.users.map((u) => ({
+        label: u.label,
+        secretKey: Array.from(u.keypair.secretKey),
+        roles: u.roles,
+      })),
+      markets: this.markets.map((m) => ({
+        id: typeof m.id === "object" ? m.id.toString() : m.id,
+        label: m.label,
+        type: m.type,
+        mint: m.mint.toBase58(),
+        oracle: m.oracle.toBase58(),
+        numOutcomes: m.numOutcomes,
+        rangeMin: m.rangeMin,
+        rangeMax: m.rangeMax,
+      })),
+    };
+    try {
+      writeFileSync(SESSION_PATH, JSON.stringify(data, null, 2));
+    } catch {
+      // Silently fail — non-critical
+    }
+  }
+
+  loadSession() {
+    if (!existsSync(SESSION_PATH)) return false;
+    try {
+      const raw = JSON.parse(readFileSync(SESSION_PATH, "utf-8"));
+      this.users = (raw.users || []).map((u) => {
+        const keypair = Keypair.fromSecretKey(Uint8Array.from(u.secretKey));
+        return {
+          label: u.label,
+          keypair,
+          pubkey: keypair.publicKey,
+          roles: u.roles || [],
+        };
+      });
+      this.markets = (raw.markets || []).map((m) => ({
+        id: m.id,
+        label: m.label,
+        type: m.type,
+        mint: new PublicKey(m.mint),
+        oracle: new PublicKey(m.oracle),
+        numOutcomes: m.numOutcomes,
+        rangeMin: m.rangeMin,
+        rangeMax: m.rangeMax,
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  static hasSavedSession() {
+    return existsSync(SESSION_PATH);
   }
 }
 

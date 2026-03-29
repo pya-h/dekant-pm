@@ -241,7 +241,7 @@ PHASE_PREFLIGHT_TIME=$(($(date +%s) - PHASE_PREFLIGHT_START))
 PHASE_INFRA_START=$(date +%s)
 if [ "$START_INFRA" = true ]; then
   header "PHASE 1: STARTING INFRASTRUCTURE"
-  start_validator
+  start_validator reset
   start_backend
   start_frontend
 else

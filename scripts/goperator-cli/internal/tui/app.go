@@ -79,11 +79,13 @@ type AppModel struct {
 	height       int
 	quitting     bool
 	statusMsg    string
+	canContinue  bool
 }
 
 // NewAppModel creates the root app model.
 func NewAppModel(s *state.SessionState) AppModel {
-	items := buildMenuItems()
+	hasSaved := state.HasSavedSession()
+	items := buildMenuItems(hasSaved)
 
 	delegate := MenuItemDelegate{}
 	l := list.New(items, delegate, 50, 20)
@@ -96,14 +98,15 @@ func NewAppModel(s *state.SessionState) AppModel {
 	l.InfiniteScrolling = true
 
 	return AppModel{
-		state:  s,
-		menu:   l,
-		screen: ScreenMenu,
+		state:       s,
+		menu:        l,
+		screen:      ScreenMenu,
+		canContinue: hasSaved,
 	}
 }
 
-func buildMenuItems() []list.Item {
-	return []list.Item{
+func buildMenuItems(canContinue bool) []list.Item {
+	items := []list.Item{
 		MenuItem{Title: "── User Management ──", Action: "---user"},
 		MenuItem{Title: "Add New User", Action: "add-user", Description: "Generate keypair + airdrop SOL"},
 		MenuItem{Title: "Assign Role", Action: "assign-role", Description: "Oracle / Creator / Admin"},
@@ -124,9 +127,14 @@ func buildMenuItems() []list.Item {
 		MenuItem{Title: "── Query ──", Action: "---query"},
 		MenuItem{Title: "View Position", Action: "view-position", Description: "User holdings"},
 		MenuItem{Title: "Query Market Info", Action: "query-market", Description: "Full market details"},
+		MenuItem{Title: "View Balances", Action: "view-balances", Description: "All users' token balances"},
 		MenuItem{Title: "── ──", Action: "---exit"},
-		MenuItem{Title: "Exit", Action: "exit", Description: "Quit the CLI"},
 	}
+	if canContinue {
+		items = append(items, MenuItem{Title: "Continue From Before", Action: "continue", Description: "Load previous session"})
+	}
+	items = append(items, MenuItem{Title: "Exit", Action: "exit", Description: "Quit the CLI"})
+	return items
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -183,6 +191,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeAction = nil
 		if msg.Err != nil {
 			m.statusMsg = msg.Err.Error()
+		} else {
+			// Save session after any successful action
+			m.state.SaveSession()
+			if m.canContinue {
+				m.canContinue = false
+				m.menu.SetItems(buildMenuItems(false))
+			}
 		}
 		return m, nil
 	}
@@ -218,6 +233,15 @@ func (m AppModel) handleMenuSelect() (tea.Model, tea.Cmd) {
 	if selected.Action == "exit" {
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	if selected.Action == "continue" {
+		if m.state.LoadSession() {
+			m.statusMsg = fmt.Sprintf("Session restored: %d users, %d markets", len(m.state.Users), len(m.state.Markets))
+			m.canContinue = false
+			m.menu.SetItems(buildMenuItems(false))
+		}
+		return m, nil
 	}
 
 	// Create the action screen

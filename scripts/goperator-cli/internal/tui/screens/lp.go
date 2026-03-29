@@ -56,10 +56,6 @@ func NewAddLPScreen(s *state.SessionState) tea.Model {
 				Title("Select market to add liquidity").
 				Options(toHuhOptions(marketChoices)...).
 				Value(&m.marketChoice),
-			huh.NewInput().
-				Title("Amount (USDC) to add").
-				Value(&m.amount).
-				Placeholder("50"),
 		),
 	)
 	return m
@@ -102,6 +98,26 @@ func (m *addLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, returnToMenu(nil)
 			}
 			m.market = resolveMarketChoice(m.state, m.marketChoice)
+			// Advance to amount input
+			m.form = huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Amount (USDC) to add").
+						Value(&m.amount).
+						Placeholder("50"),
+				),
+			)
+			m.phase = phaseAddLPParams
+			return m, m.form.Init()
+		}
+		return m, cmd
+
+	case phaseAddLPParams:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
 			// Move to user selection
 			userChoices := buildUserChoices(m.state, true, true)
 			m.form = huh.NewForm(

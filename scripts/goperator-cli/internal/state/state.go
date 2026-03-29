@@ -2,8 +2,11 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"time"
 
 	"goperator-cli/internal/chain"
@@ -344,4 +347,123 @@ func DeserializeUserRole(data []byte) (*UserRoleAccount, error) {
 	ur.AssignedAt, off = chain.DecodeI64LE(data, off)
 	ur.Bump, _ = chain.DecodeU8(data, off)
 	return ur, nil
+}
+
+// ── Session Persistence ─────────────────────────────────────────────────────
+
+type savedSession struct {
+	Users   []savedUser   `json:"users"`
+	Markets []savedMarket `json:"markets"`
+}
+
+type savedUser struct {
+	Label     string   `json:"label"`
+	SecretKey []byte   `json:"secretKey"`
+	Roles     []string `json:"roles"`
+}
+
+type savedMarket struct {
+	ID          uint64  `json:"id"`
+	Label       string  `json:"label"`
+	Type        uint8   `json:"type"`
+	Mint        string  `json:"mint"`
+	Oracle      string  `json:"oracle"`
+	NumOutcomes int     `json:"numOutcomes"`
+	RangeMin    float64 `json:"rangeMin"`
+	RangeMax    float64 `json:"rangeMax"`
+}
+
+func sessionPath() string {
+	// Try multiple locations: run from scripts/goperator-cli/ or project root
+	candidates := []string{
+		filepath.Join("..", ".state", "goperator-session.json"),  // from scripts/goperator-cli/
+		filepath.Join("scripts", ".state", "goperator-session.json"), // from project root
+	}
+	for _, c := range candidates {
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		parent := filepath.Dir(abs)
+		if info, err := os.Stat(parent); err == nil && info.IsDir() {
+			return abs
+		}
+	}
+	// Fallback
+	abs, _ := filepath.Abs(candidates[0])
+	return abs
+}
+
+// SaveSession persists users and markets to disk.
+func (s *SessionState) SaveSession() {
+	data := savedSession{}
+	for _, u := range s.Users {
+		data.Users = append(data.Users, savedUser{
+			Label:     u.Label,
+			SecretKey: []byte(u.Keypair),
+			Roles:     u.Roles,
+		})
+	}
+	for _, m := range s.Markets {
+		data.Markets = append(data.Markets, savedMarket{
+			ID:          m.ID,
+			Label:       m.Label,
+			Type:        m.Type,
+			Mint:        m.Mint.String(),
+			Oracle:      m.Oracle.String(),
+			NumOutcomes: m.NumOutcomes,
+			RangeMin:    m.RangeMin,
+			RangeMax:    m.RangeMax,
+		})
+	}
+	raw, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(sessionPath(), raw, 0644)
+}
+
+// LoadSession restores users and markets from disk.
+func (s *SessionState) LoadSession() bool {
+	path := sessionPath()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var data savedSession
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return false
+	}
+	s.Users = make([]User, 0, len(data.Users))
+	for _, su := range data.Users {
+		kp := solana.PrivateKey(su.SecretKey)
+		s.Users = append(s.Users, User{
+			Label:   su.Label,
+			Keypair: kp,
+			Pubkey:  kp.PublicKey(),
+			Roles:   su.Roles,
+		})
+	}
+	s.Markets = make([]SessionMarket, 0, len(data.Markets))
+	for _, sm := range data.Markets {
+		mint := solana.MustPublicKeyFromBase58(sm.Mint)
+		oracle := solana.MustPublicKeyFromBase58(sm.Oracle)
+		s.Markets = append(s.Markets, SessionMarket{
+			ID:          sm.ID,
+			Label:       sm.Label,
+			Type:        sm.Type,
+			Mint:        mint,
+			Oracle:      oracle,
+			NumOutcomes: sm.NumOutcomes,
+			RangeMin:    sm.RangeMin,
+			RangeMax:    sm.RangeMax,
+		})
+	}
+	return true
+}
+
+// HasSavedSession checks if a session file exists on disk.
+func HasSavedSession() bool {
+	_, err := os.Stat(sessionPath())
+	return err == nil
 }

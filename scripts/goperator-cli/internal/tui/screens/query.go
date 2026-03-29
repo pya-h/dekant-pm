@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/gagliardetto/solana-go"
 )
 
 // ── Query Market Info ───────────────────────────────────────────────────────
@@ -414,6 +415,123 @@ func (m *viewPositionScreen) View() string {
 				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
 		return m.infoView
+	}
+	return ""
+}
+
+// ── View Balances ────────────────────────────────────────────────────────
+
+type viewBalancesScreen struct {
+	state  *state.SessionState
+	phase  Phase
+	result string
+	err    error
+}
+
+const (
+	phaseBalancesLoad Phase = iota + 50
+	phaseBalancesDone
+)
+
+func NewViewBalancesScreen(s *state.SessionState) tea.Model {
+	if len(s.Users) == 0 {
+		return &viewBalancesScreen{state: s, phase: phaseBalancesDone, err: fmt.Errorf("no users available")}
+	}
+	return &viewBalancesScreen{state: s, phase: phaseBalancesLoad}
+}
+
+func (m *viewBalancesScreen) Init() tea.Cmd {
+	return m.loadBalances()
+}
+
+func (m *viewBalancesScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "esc" {
+			return m, returnToMenu(nil)
+		}
+	case doneMsg:
+		m.result = msg.result
+		m.phase = phaseBalancesDone
+		return m, nil
+	case errMsg:
+		m.err = msg.err
+		m.phase = phaseBalancesDone
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *viewBalancesScreen) loadBalances() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		var sb strings.Builder
+
+		// Collect unique mints from markets
+		type mintInfo struct {
+			Mint  solana.PublicKey
+			Label string
+		}
+		seen := map[string]bool{}
+		var mints []mintInfo
+		for _, mkt := range m.state.Markets {
+			key := mkt.Mint.String()
+			if !seen[key] {
+				seen[key] = true
+				mints = append(mints, mintInfo{Mint: mkt.Mint, Label: fmt.Sprintf("Market #%d", mkt.ID)})
+			}
+		}
+
+		for _, user := range m.state.Users {
+			sb.WriteString(fmt.Sprintf("  %s (%s)\n", user.Label, util.FormatPubkey(user.Pubkey)))
+			if len(user.Roles) > 0 {
+				sb.WriteString(fmt.Sprintf("    Roles: [%s]\n", strings.Join(user.Roles, ", ")))
+			}
+
+			// SOL balance
+			solBal, err := m.state.Client.GetSOLBalance(ctx, user.Pubkey)
+			if err == nil {
+				sb.WriteString(fmt.Sprintf("    SOL: %.4f\n", float64(solBal)/1e9))
+			} else {
+				sb.WriteString("    SOL: (error)\n")
+			}
+
+			// Token balances
+			for _, mi := range mints {
+				ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, mi.Mint)
+				if err != nil {
+					sb.WriteString(fmt.Sprintf("    %s: 0 USDC\n", mi.Label))
+					continue
+				}
+				bal, err := m.state.Client.GetTokenBalance(ctx, ata)
+				if err != nil {
+					sb.WriteString(fmt.Sprintf("    %s: 0 USDC\n", mi.Label))
+					continue
+				}
+				sb.WriteString(fmt.Sprintf("    %s: %s USDC\n", mi.Label, util.FormatTokenAmount(bal)))
+			}
+
+			if len(mints) == 0 {
+				sb.WriteString("    No markets -- no token balances to show\n")
+			}
+			sb.WriteString("\n")
+		}
+
+		return doneMsg{result: sb.String()}
+	}
+}
+
+func (m *viewBalancesScreen) View() string {
+	title := styles.StyleTitle.Render("  User Balances\n\n")
+	switch m.phase {
+	case phaseBalancesLoad:
+		return title + styles.StyleDim.Render("  Loading balances...")
+	case phaseBalancesDone:
+		if m.err != nil {
+			return title + styles.StyleError.Render("  "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
+		}
+		return title + m.result + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

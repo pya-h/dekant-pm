@@ -5,6 +5,7 @@ const { selectUser } = require("../prompts/user-select");
 const { selectMarket } = require("../prompts/market-select");
 const {
   Keypair,
+  PublicKey,
   SystemProgram,
   airdropSol,
   getOrCreateAta,
@@ -130,25 +131,48 @@ async function fundUser(state) {
     return;
   }
 
-  if (state.markets.length === 0) {
-    console.log(
-      chalk.yellow(
-        "  No markets available. Create a market first (needed for collateral mint)."
-      )
-    );
-    await pressKey();
-    return;
-  }
-
   const selected = await selectUser(state, {
     message: "Select user to fund:",
   });
   if (!selected || selected === "cancel") return;
 
-  const market = await selectMarket(state, {
-    message: "Select market (for collateral mint):",
-  });
-  if (!market || market === "cancel") return;
+  // Determine collateral mint
+  let mint;
+  if (state.markets.length > 0) {
+    const source = await select({
+      message: "Token source:",
+      choices: [
+        { name: "From market collateral", value: "market" },
+        { name: "Enter mint address", value: "manual" },
+      ],
+    });
+
+    if (source === "market") {
+      const market = await selectMarket(state, {
+        message: "Select market (for collateral mint):",
+      });
+      if (!market || market === "cancel") return;
+      mint = market.mint;
+    } else {
+      const mintStr = await input({ message: "Token mint address:" });
+      try {
+        mint = new PublicKey(mintStr);
+      } catch {
+        console.log(chalk.red("  Invalid mint address."));
+        await pressKey();
+        return;
+      }
+    }
+  } else {
+    const mintStr = await input({ message: "Token mint address:" });
+    try {
+      mint = new PublicKey(mintStr);
+    } catch {
+      console.log(chalk.red("  Invalid mint address."));
+      await pressKey();
+      return;
+    }
+  }
 
   const amountStr = await input({
     message: "Amount (USDC):",
@@ -163,13 +187,13 @@ async function fundUser(state) {
     const amount = parseTokenAmount(amountStr);
     const ata = await getOrCreateAta(
       state.connection,
-      market.mint,
+      mint,
       selected.pubkey,
       state.superuser.keypair
     );
     await mintTokens(
       state.connection,
-      market.mint,
+      mint,
       ata,
       state.superuser.keypair,
       BigInt(amount.toString())

@@ -193,7 +193,11 @@ header "Starting Services"
 
 # Validator — only for local networks
 if [ "$IS_LOCAL" = true ]; then
-  start_validator
+  if [ "$DO_RESET" = true ]; then
+    start_validator reset
+  else
+    start_validator
+  fi
 else
   log "Skipping validator (network: $NETWORK, RPC: $RPC_URL)"
   # Verify remote RPC is reachable

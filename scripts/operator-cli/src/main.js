@@ -8,7 +8,7 @@ const { createMarket, pauseUnpause } = require("./actions/market");
 const { buyOutcome, sellOutcome } = require("./actions/trade");
 const { addLiquidity, removeLiquidity } = require("./actions/liquidity");
 const { resolveMarket, claimPayout, collectFees } = require("./actions/settle");
-const { queryMarketInfo, viewPosition } = require("./actions/query");
+const { queryMarketInfo, viewPosition, viewBalances } = require("./actions/query");
 
 async function main() {
   clear();
@@ -45,6 +45,8 @@ async function main() {
 
   await pressKey("Press Enter to start...");
 
+  let canContinue = SessionState.hasSavedSession();
+
   // Main menu loop
   while (true) {
     clear();
@@ -55,6 +57,7 @@ async function main() {
       action = await select({
         message: "What would you like to do?",
         choices: [
+          ...(canContinue ? [{ name: chalk.cyan("Continue From Before"), value: "continue" }] : []),
           new Separator(chalk.dim("── User Management ──")),
           { name: "Add New User", value: "add-user" },
           { name: "Assign Role", value: "assign-role" },
@@ -75,6 +78,7 @@ async function main() {
           new Separator(chalk.dim("── Query ──")),
           { name: "View Position", value: "view-position" },
           { name: "Query Market Info", value: "query-market" },
+          { name: "View Balances", value: "view-balances" },
           new Separator(""),
           { name: chalk.red("Exit"), value: "exit" },
         ],
@@ -89,6 +93,15 @@ async function main() {
     clear();
     try {
       switch (action) {
+        case "continue":
+          if (state.loadSession()) {
+            console.log(chalk.green(`  Session restored: ${state.users.length} users, ${state.markets.length} markets`));
+            canContinue = false;
+          } else {
+            console.log(chalk.yellow("  No saved session found."));
+          }
+          await pressKey();
+          break;
         case "add-user":
           await addUser(state);
           break;
@@ -131,6 +144,15 @@ async function main() {
         case "query-market":
           await queryMarketInfo(state);
           break;
+        case "view-balances":
+          await viewBalances(state);
+          break;
+      }
+
+      // Save session after state-changing actions
+      if (!["view-position", "query-market", "view-balances", "continue"].includes(action)) {
+        state.saveSession();
+        canContinue = false;
       }
     } catch (e) {
       // Ctrl+C during an action should return to main menu, not crash

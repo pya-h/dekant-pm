@@ -24,7 +24,8 @@ type assignRoleScreen struct {
 }
 
 const (
-	phaseRoleForm Phase = iota
+	phaseRoleUser Phase = iota
+	phaseRoleSelect
 	phaseRoleExec
 	phaseRoleDone
 )
@@ -46,18 +47,11 @@ func NewAssignRoleScreen(s *state.SessionState) tea.Model {
 				Title("Select user to assign role").
 				Options(toHuhOptions(userChoices)...).
 				Value(&m.userChoice),
-			huh.NewSelect[string]().
-				Title("Select role").
-				Options(
-					huh.NewOption("Oracle", "Oracle"),
-					huh.NewOption("Creator", "Creator"),
-					huh.NewOption("Admin", "Admin"),
-				).
-				Value(&m.roleChoice),
 		),
 	)
 
 	m.form = form
+	m.phase = phaseRoleUser
 	return m
 }
 
@@ -101,16 +95,40 @@ func (m *assignRoleScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.phase == phaseRoleForm {
+	switch m.phase {
+	case phaseRoleUser:
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
 		}
-
 		if m.form.State == huh.StateCompleted {
 			if m.userChoice == "Cancel" {
 				return m, returnToMenu(nil)
 			}
+			// Advance to role selection
+			m.form = huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Select role").
+						Options(
+							huh.NewOption("Oracle", "Oracle"),
+							huh.NewOption("Creator", "Creator"),
+							huh.NewOption("Admin", "Admin"),
+						).
+						Value(&m.roleChoice),
+				),
+			)
+			m.phase = phaseRoleSelect
+			return m, m.form.Init()
+		}
+		return m, cmd
+
+	case phaseRoleSelect:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
 			m.phase = phaseRoleExec
 			return m, m.execAssignRole()
 		}
@@ -154,7 +172,7 @@ func (m *assignRoleScreen) execAssignRole() tea.Cmd {
 
 func (m *assignRoleScreen) View() string {
 	switch m.phase {
-	case phaseRoleForm:
+	case phaseRoleUser, phaseRoleSelect:
 		return styles.StyleTitle.Render("  Assign Role\n\n") + m.form.View()
 	case phaseRoleExec:
 		return styles.StyleTitle.Render("  Assign Role\n\n") +
