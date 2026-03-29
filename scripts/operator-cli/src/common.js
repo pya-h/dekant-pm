@@ -9,6 +9,7 @@ const {
   PublicKey,
   LAMPORTS_PER_SOL,
   SystemProgram,
+  Transaction,
 } = require("@solana/web3.js");
 const {
   TOKEN_PROGRAM_ID,
@@ -190,6 +191,30 @@ async function getTokenBalance(connection, tokenAccount) {
   return account.amount;
 }
 
+async function transferSol(connection, fromKeypair, toPubkey, lamports) {
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: fromKeypair.publicKey,
+      toPubkey: toPubkey,
+      lamports,
+    })
+  );
+  const sig = await connection.sendTransaction(tx, [fromKeypair], {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+  await connection.confirmTransaction(sig, "confirmed");
+  return sig;
+}
+
+async function getNetworkMints(connection) {
+  const accounts = await connection.getProgramAccounts(TOKEN_PROGRAM_ID, {
+    filters: [{ dataSize: 82 }],
+    dataSlice: { offset: 0, length: 0 },
+  });
+  return accounts.map((a) => a.pubkey);
+}
+
 // ─── Formatting Helpers ──────────────────────────────────────────────────────
 function formatTokenAmount(amount, decimals) {
   const d = decimals || USDC_DECIMALS;
@@ -295,6 +320,8 @@ module.exports = {
   mintTokens,
   createCollateralMint,
   getTokenBalance,
+  transferSol,
+  getNetworkMints,
   // Format
   formatTokenAmount,
   parseTokenAmount,

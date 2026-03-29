@@ -208,3 +208,62 @@ func (c *Client) MintTo(ctx context.Context, authority solana.PrivateKey, mint, 
 	}
 	return c.ConfirmTransaction(ctx, sig)
 }
+
+// TransferSOL sends SOL (lamports) from one account to another.
+func (c *Client) TransferSOL(ctx context.Context, from solana.PrivateKey, to solana.PublicKey, lamports uint64) (solana.Signature, error) {
+	blockhash, err := c.GetLatestBlockhash(ctx)
+	if err != nil {
+		return solana.Signature{}, err
+	}
+
+	tx, err := solana.NewTransaction(
+		[]solana.Instruction{
+			system.NewTransferInstruction(
+				lamports,
+				from.PublicKey(),
+				to,
+			).Build(),
+		},
+		blockhash,
+		solana.TransactionPayer(from.PublicKey()),
+	)
+	if err != nil {
+		return solana.Signature{}, err
+	}
+
+	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+		if key == from.PublicKey() {
+			return &from
+		}
+		return nil
+	})
+	if err != nil {
+		return solana.Signature{}, err
+	}
+
+	sig, err := c.RPC.SendTransaction(ctx, tx)
+	if err != nil {
+		return solana.Signature{}, err
+	}
+	if err := c.ConfirmTransaction(ctx, sig); err != nil {
+		return solana.Signature{}, err
+	}
+	return sig, nil
+}
+
+// GetNetworkMints returns all SPL token mint pubkeys on the network.
+func (c *Client) GetNetworkMints(ctx context.Context) ([]solana.PublicKey, error) {
+	resp, err := c.RPC.GetProgramAccountsWithOpts(ctx, constants.TokenProgramID, &rpc.GetProgramAccountsOpts{
+		Filters: []rpc.RPCFilter{
+			{DataSize: 82},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	mints := make([]solana.PublicKey, len(resp))
+	for i, a := range resp {
+		mints[i] = a.Pubkey
+	}
+	return mints, nil
+}
