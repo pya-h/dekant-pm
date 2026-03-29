@@ -9,6 +9,7 @@ const { buyOutcome, sellOutcome } = require("./actions/trade");
 const { addLiquidity, removeLiquidity } = require("./actions/liquidity");
 const { resolveMarket, claimPayout, collectFees } = require("./actions/settle");
 const { queryMarketInfo, viewPosition, viewBalances } = require("./actions/query");
+const { airdropSuperuser } = require("./actions/superuser");
 
 async function main() {
   clear();
@@ -58,6 +59,8 @@ async function main() {
         message: "What would you like to do?",
         choices: [
           ...(canContinue ? [{ name: chalk.cyan("Continue From Before"), value: "continue" }] : []),
+          new Separator(chalk.dim("── Superuser ──")),
+          { name: "Airdrop SOL to Superuser", value: "airdrop-super" },
           new Separator(chalk.dim("── User Management ──")),
           { name: "Add New User", value: "add-user" },
           { name: "Assign Role", value: "assign-role" },
@@ -101,6 +104,9 @@ async function main() {
             console.log(chalk.yellow("  No saved session found."));
           }
           await pressKey();
+          break;
+        case "airdrop-super":
+          await airdropSuperuser(state);
           break;
         case "add-user":
           await addUser(state);
