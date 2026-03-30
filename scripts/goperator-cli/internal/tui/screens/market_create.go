@@ -165,7 +165,8 @@ func (m *createMarketScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *createMarketScreen) advanceToParams() tea.Cmd {
-	if m.marketType == "multi" {
+	switch m.marketType {
+	case "multi":
 		m.form = huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
@@ -174,7 +175,7 @@ func (m *createMarketScreen) advanceToParams() tea.Cmd {
 					Placeholder("4"),
 			),
 		)
-	} else if m.marketType == "continuous" {
+	case "continuous":
 		m.form = huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
@@ -191,7 +192,7 @@ func (m *createMarketScreen) advanceToParams() tea.Cmd {
 					Placeholder("64"),
 			),
 		)
-	} else {
+	default:
 		// Binary — skip to oracle
 		m.numOutcomes = "2"
 		return m.advanceToOracle()

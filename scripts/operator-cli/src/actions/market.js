@@ -33,6 +33,7 @@ const {
   MARKET_TYPE_MULTI,
   MARKET_TYPE_CONTINUOUS,
   MARKET_TYPE_NAMES,
+  MARKET_STATE_PAUSED,
   MARKET_STATE_NAMES,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -351,7 +352,7 @@ async function pauseUnpause(state) {
 
   const [marketPda] = findMarket(market.id, state.programId);
   const marketData = await state.superProgram.account.market.fetch(marketPda);
-  const isPaused = marketData.state === 1;
+  const isPaused = marketData.state === MARKET_STATE_PAUSED;
   const action = isPaused ? "Unpause" : "Pause";
 
   console.log(
