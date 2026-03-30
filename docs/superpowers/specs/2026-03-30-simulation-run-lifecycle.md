@@ -4,6 +4,8 @@
 
 Each simulation run models a complete prediction market lifecycle — from creation through trading to resolution and payout. The simulation measures how different AMM designs and fee mechanisms perform under realistic market conditions.
 
+The simulation runs in two phases: Phase 1 down-selects AMM designs under flat fee, Phase 2 sweeps fee mechanisms on the surviving designs.
+
 ## Lifecycle Phases
 
 ### Phase 1: Initialize
@@ -11,9 +13,12 @@ Each simulation run models a complete prediction market lifecycle — from creat
 1. Create a market with N bins (default: 256) spanning a defined continuous range
 2. Seed initial liquidity (configurable: 1k, 10k, or 100k USDC)
 3. Set reserves to uniform distribution: `reserves[i] = L - isqrt(L^2 / N)` for all bins
-4. Inject the "true" underlying distribution that informed traders will trade toward (e.g., Normal(mu=50000, sigma=5000) for a BTC price market)
-5. Initialize all agents with starting capital and strategy parameters
-6. Select the AMM design and fee mechanism for this run
+4. Select Gaussian weight implementation:
+   - **Baseline A**: Taylor-4 approximation (matching on-chain `normal_pdf.rs`)
+   - **Baseline B + all redesigns**: exact Gaussian via `scipy.stats.norm`
+5. Inject the "true" underlying distribution that informed traders will trade toward (e.g., Normal(mu=50000, sigma=5000) for a BTC price market)
+6. Initialize all agents with starting capital and strategy parameters
+7. Select the AMM design (settlement function) and fee mechanism for this run
 
 ### Phase 2: Trade Rounds (100-500 rounds per run)
 
@@ -29,7 +34,7 @@ Each round proceeds in this order:
 - Rebalancing LPs do the same but also concentrate positions toward high-activity bins every R rounds, modeling what LPs would do if concentrated liquidity were available
 
 **Step 2 — Trade execution.** All agent actions are queued and executed sequentially (random order within the round):
-- For AMM designs (baseline, piecewise, kernel-smoothed, scalar): trades go through the L2-norm CFAMM engine
+- For AMM designs (baseline A, baseline B, piecewise, kernel, scalar, CRPS): trades go through the L2-norm CFAMM math engine (pure numpy)
 - For CLOB hybrid: trades are matched against the price-time priority limit orderbook (tick size = 1 bin width), unmatched orders rest on the book
 - Fees are computed per the active fee mechanism and split between LP pool and protocol
 
@@ -40,23 +45,25 @@ Each round proceeds in this order:
 
 **Step 4 — Metrics snapshot.** Every 10 rounds:
 - Compute KL divergence between AMM-implied and true distribution
-- Record current LP P&L
+- Record current LP P&L (passive and rebalancing separately)
 - Record pool depth and slippage at standard trade sizes
+- Test exitability: attempt to unwind a reference position and measure cost
 
 ### Phase 3: Resolve
 
 1. Sample the resolved value from the true distribution (or use a fixed value for deterministic tests)
 2. Map the resolved value to a bin via `value_to_bin`
-3. Apply the design's payout function:
-   - **Baseline**: winning bin gets 100%, all others get 0%
+3. Apply the design's settlement/payout function:
+   - **Baseline A/B**: winning bin gets 100%, all others get 0%
    - **Piecewise-Linear**: winning bin gets 100%, bins within dynamic bandwidth W get linearly decaying payout `max(0, 1 - distance/W)`, rest get 0%. W scales with bin count to maintain constant economic meaning.
    - **Kernel-Smoothed**: `payout[bin] = exp(-distance^2 / (2 * bandwidth^2))` normalized so winning bin = 1.0. Smooth (C-infinity) decay, same dynamic bandwidth scaling as piecewise-linear.
    - **Scalar**: each bin pays proportional to its final implied probability
+   - **CRPS**: payout computed via discretized Continuous Ranked Probability Score — rewards forecast quality directly based on proper scoring rule theory
    - **CLOB Hybrid**: payout based on order fill bin proximity to resolved bin, using same dynamic bandwidth formula
 
 ### Phase 4: Measure
 
-Compute all 6 metrics for the completed run:
+Compute all 8 metrics for the completed run:
 
 1. **Price accuracy**: final KL divergence between AMM-implied and true distribution
 2. **Convergence speed**: round number at which KL first dropped below 0.01. If never reached, record total_rounds.
@@ -64,32 +71,60 @@ Compute all 6 metrics for the completed run:
 4. **LP profitability**: `(fees_earned - impermanent_loss) / capital_deposited` for each LP agent. Report passive and rebalancing LP returns separately.
 5. **Manipulation resistance**: total capital spent by manipulator vs price distortion achieved. For scalar design, additionally measure late-round whale attack: capital needed in final 10% of rounds to capture >50% of payout pool.
 6. **Resolution fairness**: for each trader, compute `actual_payout / ideal_payout` where ideal = proportional to prediction accuracy (distance from resolved bin)
+7. **Boundary sensitivity**: for each bin boundary, compute `|payout(b + epsilon) - payout(b - epsilon)|`. Report max and mean boundary jump. Measures payoff discontinuity — ideal = 0 (smooth), baseline will show 1.0 (maximum discontinuity).
+8. **Exitability**: shift a reference trader's belief by (delta_mu, delta_sigma). Measure max feasible unwind as fraction of position, and slippage cost to reposition. Tests whether traders can exit or adjust positions without being locked in.
 
 ### Phase 5: Sweep (cadCAD orchestration)
 
-cadCAD orchestrates the full parameter sweep:
+cadCAD orchestrates the sweep in two phases:
 
+**Phase 1 — Design down-selection (flat fee only):**
 ```
-For each AMM design in [baseline, piecewise, kernel_smoothed, scalar, clob]:
+For each AMM design in [baseline_a, baseline_b, piecewise, kernel, scalar, crps]:
+  fee_mechanism = flat
+  For each Monte Carlo run in range(1000):
+    - Randomize: agent initial positions, noise trader behavior, true distribution parameters
+    - Execute phases 1-4
+    - Store all metrics
+
+CLOB hybrid runs separately with same 1000 MC paths for qualitative comparison.
+```
+Phase 1 total: 7 x 1000 = 7,000 runs.
+
+After Phase 1: rank designs by composite score, select top 3 (excluding CLOB which is analyzed separately).
+
+**Phase 2 — Fee mechanism sweep (top 3 designs):**
+```
+For each AMM design in [top_3_from_phase_1]:
   For each fee mechanism in [flat, dynamic, tiered, spread, time_weighted]:
     For each Monte Carlo run in range(1000):
-      - Randomize: agent initial positions, noise trader behavior, true distribution parameters
       - Execute phases 1-4
       - Store all metrics
 ```
+Phase 2 total: 3 x 5 x 1000 = 15,000 runs.
 
-Total runs: 5 x 5 x 1000 = 25,000 simulation runs.
+**Grand total: ~22,000 simulation runs.**
 
 ### Phase 6: Report
 
-Aggregate all 25,000 runs into the comparative HTML report:
+Aggregate results into the comparative HTML report:
 
-1. Group results by design x fee combo (25 groups of 1000 runs each)
-2. Compute median, p5, p95 for each metric per group
-3. Rank groups by weighted composite score (Resolution Fairness 0.25, Price Accuracy 0.20, Convergence Speed 0.20, Capital Efficiency 0.15, LP Profitability 0.10, Manipulation Resistance 0.10)
-4. Generate plotly charts, heatmaps, and sensitivity plots
-5. Export top 3 combos as structured JSON for MiroFish ingestion
-6. Bundle everything into a self-contained HTML file
+**Phase 1 report:**
+1. Baseline A vs B analysis (isolating weight bug vs settlement design)
+2. Design leaderboard (6 AMM designs under flat fee)
+3. CLOB hybrid qualitative comparison (separate section)
+4. Down-select decision with justification
+
+**Phase 2 report:**
+5. Fee mechanism heatmaps for top 3 designs
+6. Optimal fee per design recommendation
+
+**Cross-cutting:**
+7. Sensitivity analysis (bins, agent mix, liquidity)
+8. MiroFish export (top 3 combos as structured JSON)
+9. Raw data (CSV download)
+
+Bundle everything into a self-contained HTML file.
 
 ## Sensitivity Runs
 
@@ -97,11 +132,11 @@ After the main sweep, additional runs vary:
 
 | Parameter | Values | Purpose |
 |-----------|--------|---------|
-| Number of bins | 16, 32, 64, 128, 256 | Does bin granularity matter more for some designs? |
+| Number of bins | 16, 32, 64, 128, 256 | Does bin granularity matter more for some designs? Also tests dynamic bandwidth scaling. |
 | Agent mix | 80/10/5/3/2/0/0, 45/25/13/5/2/5/5, 20/30/15/10/5/10/10 | Noise-heavy vs balanced vs adversarial (7 agent types) |
 | Initial liquidity | 1k, 10k, 100k USDC | Does more liquidity disproportionately help some designs? |
 
-These use the top 3 designs from the main sweep only (to keep runtime manageable).
+These use the top 3 designs from Phase 1 only (to keep runtime manageable).
 
 ## Randomization
 
