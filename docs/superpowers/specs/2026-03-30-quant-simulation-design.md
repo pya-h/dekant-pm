@@ -6,7 +6,7 @@ DekantPM's continuous market AMM has fundamental bin-related issues that block c
 
 1. **Winner-take-all resolution** — a single bin wins 100%, adjacent bins get nothing, creating discontinuous payoff cliffs
 2. **Coarse granularity** — MAX_BINS = 256 yields ~0.4% range resolution per bin
-3. **Normal PDF approximation degrades** — Taylor degree-4 is only accurate to ~0.1% for |z| <= 1.5, systematically mispricing tails
+3. **Normal PDF approximation is severely wrong** — Taylor degree-4 is ~3.9% high at |z|=1.5, ~146% high at |z|=2, and explodes past |z|=2.5 (3644% error). The clamped polynomial effectively saturates by z~2.5, systematically overpricing near-center bins and destroying tail accuracy
 4. **Liquidity fragmentation** — uniform reserves across 256 bins means ~1/256th depth per bin
 5. **LPs can't concentrate liquidity** — forced uniform exposure causes adverse selection losses
 6. **Bin boundary arbitrage** — hard boundaries create exploitable edge effects
