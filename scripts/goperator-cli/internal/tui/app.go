@@ -107,12 +107,11 @@ func NewAppModel(s *state.SessionState) AppModel {
 
 func buildMenuItems(canContinue bool) []list.Item {
 	items := []list.Item{
-		MenuItem{Title: "── Superuser ──", Action: "---super"},
-		MenuItem{Title: "Airdrop SOL to Superuser", Action: "airdrop-super", Description: "Fund superuser via airdrop"},
 		MenuItem{Title: "── User Management ──", Action: "---user"},
 		MenuItem{Title: "Add New User", Action: "add-user", Description: "Generate keypair + airdrop SOL"},
 		MenuItem{Title: "Assign Role", Action: "assign-role", Description: "Oracle / Creator / Admin"},
-		MenuItem{Title: "Fund User", Action: "fund-user", Description: "Mint USDC to user"},
+		MenuItem{Title: "── Funding Tools ──", Action: "---funding"},
+		MenuItem{Title: "Funding Tools", Action: "funding-tools", Description: "Fund users, charge superuser, create tokens"},
 		MenuItem{Title: "── Market Operations ──", Action: "---market"},
 		MenuItem{Title: "Create Market", Action: "create-market", Description: "Binary / Multi / Continuous"},
 		MenuItem{Title: "Pause / Unpause", Action: "pause-unpause", Description: "Toggle market state"},
