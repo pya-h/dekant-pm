@@ -20,6 +20,7 @@ DEFAULT_LP_FEE_SHARE_BPS: int = 5000  # 50% of trade fee to LPs
 # ── Simulation ──────────────────────────────────────────────────────
 DEFAULT_NUM_ROUNDS: int = 200
 DEFAULT_MC_RUNS: int = 1000
+DEFAULT_RESOLUTION_FAIRNESS_BINS: int = 5  # evaluate fairness near the resolved outcome
 
 # ── Dynamic bandwidth ──────────────────────────────────────────────
 # target_payout_width chosen so W=5 at 256 bins with range_span=100*SCALE

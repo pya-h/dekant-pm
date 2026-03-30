@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Python simulation framework that compares 7 AMM settlement designs across 8 metrics, producing an HTML report for design down-selection before MiroFish behavioral simulation.
+**Goal:** Build a Python simulation framework that compares 7 AMM settlement designs across 8 metrics, runs the required post-sweep sensitivity analysis, and produces a self-contained HTML report plus CSV/JSON outputs for design down-selection before MiroFish behavioral simulation.
 
-**Architecture:** Pure numpy math engine (AMM invariant, settlement functions, agent strategies) orchestrated by cadCAD for Monte Carlo sweeps. Two-phase execution: Phase 1 down-selects designs under flat fee, Phase 2 sweeps fee mechanisms on survivors.
+**Architecture:** Pure numpy math engine (AMM invariant, settlement functions, agent strategies) with simple Python loop orchestration for Monte Carlo sweeps and follow-on sensitivity sweeps. Two-phase execution: Phase 1 down-selects designs under flat fee, Phase 2 sweeps fee mechanisms on survivors, then sensitivity runs stress the top 3 designs across bins, agent mix, and initial liquidity.
 
-**Tech Stack:** Python 3.11+, numpy, scipy, pandas, plotly, jinja2, cadCAD, pytest
+**Tech Stack:** Python 3.11+, numpy, scipy, pandas, plotly, jinja2, pytest
 
 **Spec:** `docs/superpowers/specs/2026-03-30-quant-simulation-design.md`
 **Lifecycle:** `docs/superpowers/specs/2026-03-30-simulation-run-lifecycle.md`
@@ -92,7 +92,6 @@ dependencies = [
     "pandas>=2.0",
     "plotly>=5.18",
     "jinja2>=3.1",
-    "cadCAD>=0.5.3",
 ]
 
 [project.optional-dependencies]
@@ -404,7 +403,7 @@ Faithful port of the on-chain Rust code in:
   programs/dekant-pm/src/engine/sqrt.rs
   programs/dekant-pm/src/engine/fixed_point.rs
 
-All functions are pure — no side effects, no cadCAD dependency.
+All functions are pure — no side effects, no external framework dependency.
 """
 
 import numpy as np
@@ -957,30 +956,34 @@ class TestDynamicBandwidth:
 
 
 class TestPiecewiseLinear:
-    def test_winning_bin_gets_max(self):
+    def test_winning_bin_gets_scale(self):
+        """Spec: winning bin gets 100% (SCALE), neighbors decay from peak."""
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert payouts[128] == max(payouts)
+        assert payouts[128] == SCALE
 
     def test_linear_decay(self):
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
-        # Each bin farther should have less payout
+        # Each bin farther should have less payout, decaying from SCALE
         assert payouts[128] > payouts[129] > payouts[130] > payouts[131]
+        # Verify linear relationship: payout = SCALE * max(0, 1 - distance/W)
+        assert payouts[129] == SCALE * 4 // 5  # distance=1, W=5 → 0.8
+        assert payouts[130] == SCALE * 3 // 5  # distance=2, W=5 → 0.6
 
     def test_zero_beyond_bandwidth(self):
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
         assert payouts[134] == 0  # 6 bins away, bandwidth=5
 
-    def test_payouts_sum_correctly(self):
+    def test_sum_exceeds_scale(self):
+        """Peak-normalized payouts sum to more than SCALE (by design — not a pool split)."""
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert np.sum(payouts) > 0
-        # Payouts should be normalized to SCALE
-        assert int(np.sum(payouts)) == SCALE
+        assert int(np.sum(payouts)) > SCALE
 
 
 class TestKernelSmoothed:
-    def test_winning_bin_gets_max(self):
+    def test_winning_bin_gets_scale(self):
+        """Spec: normalized so winning bin = 1.0 (SCALE)."""
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert payouts[128] == max(payouts)
+        assert payouts[128] == SCALE
 
     def test_smooth_decay(self):
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
@@ -992,9 +995,10 @@ class TestKernelSmoothed:
         # At 2*bandwidth (10 bins), Gaussian still has some weight
         assert payouts[138] > 0
 
-    def test_payouts_normalized(self):
+    def test_peak_normalized_not_sum(self):
+        """Sum exceeds SCALE because peak is SCALE and neighbors add to it."""
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert int(np.sum(payouts)) == SCALE
+        assert int(np.sum(payouts)) > SCALE
 
 
 class TestScalar:
@@ -1076,21 +1080,20 @@ def compute_dynamic_bandwidth(num_bins: int, range_span: int, target_payout_widt
 
 
 def compute_payout_piecewise(num_bins: int, resolved_bin: int, bandwidth: int) -> np.ndarray:
-    """Piecewise-linear payout: max(0, 1 - distance/W), normalized to SCALE."""
-    bins = np.arange(num_bins, dtype=np.float64)
-    distances = np.abs(bins - resolved_bin)
-    raw = np.maximum(0.0, 1.0 - distances / bandwidth)
-    total = raw.sum()
-    if total == 0:
-        payouts = np.zeros(num_bins, dtype=np.int64)
-        payouts[resolved_bin] = SCALE
-        return payouts
-    normalized = (raw / total * SCALE).astype(np.int64)
-    # Fix rounding
-    diff = SCALE - int(np.sum(normalized))
-    if diff != 0:
-        normalized[resolved_bin] += diff
-    return normalized
+    """Piecewise-linear payout: winning bin = SCALE, neighbors decay linearly.
+
+    Spec: "winning bin gets 100%, bins within W get max(0, 1 - distance/W)".
+    Peak-normalized: winning bin = SCALE, not sum-normalized.
+    """
+    payouts = np.zeros(num_bins, dtype=np.int64)
+    for b in range(num_bins):
+        distance = abs(b - resolved_bin)
+        if distance < bandwidth:
+            payouts[b] = SCALE * (bandwidth - distance) // bandwidth
+        elif distance == 0:
+            payouts[b] = SCALE
+    payouts[resolved_bin] = SCALE  # ensure exact peak
+    return payouts
 ```
 
 - [ ] **Step 5: Implement settlement_kernel.py**
@@ -1104,20 +1107,22 @@ from config.params import SCALE
 
 
 def compute_payout_kernel(num_bins: int, resolved_bin: int, bandwidth: int) -> np.ndarray:
-    """Gaussian-kernel payout: exp(-distance^2 / (2 * bandwidth^2)), normalized to SCALE."""
+    """Gaussian-kernel payout: exp(-d^2 / (2*bw^2)), normalized so winning bin = SCALE.
+
+    Spec: "normalized so winning bin = 1.0". C-infinity decay.
+    Peak-normalized: winning bin = SCALE, not sum-normalized.
+    """
     bins = np.arange(num_bins, dtype=np.float64)
     distances = bins - resolved_bin
     raw = np.exp(-distances**2 / (2.0 * bandwidth**2))
-    total = raw.sum()
-    if total == 0:
+    peak = raw[resolved_bin]  # should be 1.0
+    if peak <= 0:
         payouts = np.zeros(num_bins, dtype=np.int64)
         payouts[resolved_bin] = SCALE
         return payouts
-    normalized = (raw / total * SCALE).astype(np.int64)
-    diff = SCALE - int(np.sum(normalized))
-    if diff != 0:
-        normalized[resolved_bin] += diff
-    return normalized
+    payouts = (raw / peak * SCALE).astype(np.int64)
+    payouts[resolved_bin] = SCALE  # ensure exact peak
+    return payouts
 ```
 
 - [ ] **Step 6: Implement settlement_scalar.py**
@@ -1779,11 +1784,24 @@ from dataclasses import dataclass
 
 @dataclass
 class TradeAction:
-    """A single trade action emitted by an agent."""
+    """A single-bin trade action emitted by an agent (noise, arb, manipulator, whale)."""
     agent_id: int
     bin_idx: int
     side: str  # "buy" or "sell"
     amount: int  # collateral-native units
+
+
+@dataclass
+class DistributionTradeAction:
+    """A distribution buy/sell action emitted by informed traders.
+
+    Routed through compute_distribution_buy/sell with the DESIGN's weight function.
+    This is the mechanism that differentiates Baseline A (Taylor-4) from Baseline B
+    (exact Gaussian) — the core experiment of the simulation.
+    """
+    agent_id: int
+    side: str  # "buy" or "sell"
+    amount: int  # collateral-native units (buy) or total tokens (sell)
 
 
 @dataclass
@@ -1801,10 +1819,16 @@ class AgentState:
 
 ```python
 # quant-simulation/agents/informed_trader.py
-"""Informed trader: trades toward the true distribution."""
+"""Informed trader: trades toward the true distribution using distribution buy/sell.
+
+Key spec requirement: informed traders use compute_distribution_buy with the
+design's weight function (Taylor-4 for Baseline A, exact Gaussian for Baseline B+).
+This is the mechanism that creates the Baseline A vs B divergence — the core
+"Taylor-4 vs exact Gaussian" experiment.
+"""
 
 import numpy as np
-from agents.base import TradeAction
+from agents.base import TradeAction, DistributionTradeAction
 from config.params import SCALE
 
 
@@ -1821,22 +1845,36 @@ class InformedTrader:
         total_minted: int,
         current_round: int,
         total_rounds: int,
-    ) -> list[TradeAction]:
-        actions = []
-        if self.capital <= 0:
-            return actions
+    ) -> list[DistributionTradeAction]:
+        """Emit distribution buy/sell actions using the true distribution as weights.
 
+        The simulation engine routes these through compute_distribution_buy/sell
+        with the DESIGN's weight function, which is where Baseline A (Taylor-4)
+        and Baseline B (exact Gaussian) diverge.
+        """
+        if self.capital <= 0:
+            return []
+
+        # Compare implied probs to true distribution — trade if net mispricing is large enough
         mispricings = self.true_distribution.astype(np.float64) - implied_probs.astype(np.float64)
-        for i in range(len(mispricings)):
-            if mispricings[i] > 0:
-                # Underpriced — buy
-                frac = (mispricings[i] / SCALE) * self.conviction
-                amount = int(min(frac * self.capital, self.capital * 0.1))
-                if amount > 0:
-                    actions.append(TradeAction(
-                        agent_id=self.agent_id, bin_idx=i, side="buy", amount=amount,
-                    ))
-        return actions
+        net_underpriced = float(np.sum(np.maximum(mispricings, 0))) / SCALE
+
+        if net_underpriced > 0.01:  # at least 1% aggregate mispricing
+            amount = int(min(net_underpriced * self.conviction * self.capital, self.capital * 0.1))
+            if amount > 0:
+                return [DistributionTradeAction(
+                    agent_id=self.agent_id, side="buy", amount=amount,
+                )]
+
+        net_overpriced = float(np.sum(np.maximum(-mispricings, 0))) / SCALE
+        if net_overpriced > 0.01:
+            amount = int(min(net_overpriced * self.conviction * self.capital, self.capital * 0.1))
+            if amount > 0:
+                return [DistributionTradeAction(
+                    agent_id=self.agent_id, side="sell", amount=amount,
+                )]
+
+        return []
 ```
 
 - [ ] **Step 5: Implement agents/noise_trader.py**
@@ -2246,11 +2284,22 @@ def compute_slippage(
     return (avg_price - mid_price) / mid_price if mid_price > 0 else 0.0
 
 
-def lp_profitability(fees_earned: int, deposited: int, current_value: int) -> float:
-    """Net LP return: (fees_earned + current_value - deposited) / deposited."""
-    if deposited <= 0:
+def lp_profitability(fees_earned: int, capital_deposited: int, impermanent_loss: int) -> float:
+    """Net LP return per spec: (fees_earned - impermanent_loss) / capital_deposited.
+
+    Spec: "net_return = (fees_earned - impermanent_loss) / capital_deposited
+    over full lifecycle."
+
+    Args:
+        fees_earned: total LP fees earned over the lifecycle.
+        capital_deposited: total capital the LP deposited.
+        impermanent_loss: unrealized loss from pool value divergence.
+            Computed as: capital_deposited - current_pool_share_value.
+            If pool value went up, IL can be negative (IL is opportunity cost).
+    """
+    if capital_deposited <= 0:
         return 0.0
-    return (fees_earned + current_value - deposited) / deposited
+    return (fees_earned - impermanent_loss) / capital_deposited
 
 
 def manipulation_cost(budget_spent: int, price_change_pct: float) -> float:
@@ -2290,42 +2339,57 @@ def boundary_sensitivity(payouts: np.ndarray) -> tuple[int, float]:
 def exitability(
     reserves: np.ndarray,
     total_minted: int,
-    holdings: np.ndarray,
-    target_unwind_fraction: float = 0.5,
+    reference_holdings: np.ndarray,
+    weight_fn,
+    range_min: int,
+    range_max: int,
+    num_bins: int,
+    original_mu: int,
+    original_sigma: int,
+    delta_mu_frac: float = 0.1,
+    delta_sigma_frac: float = 0.2,
 ) -> dict:
-    """Measure how much of a position can be unwound and at what slippage cost.
+    """Measure how well a reference trader can exit and reposition after a belief shift.
 
-    Returns dict with max_unwind_fraction and slippage_cost.
+    Spec: "shift a reference trader's belief by (delta_mu, delta_sigma).
+    Measure max feasible unwind as fraction of position, and slippage cost
+    to reposition."
+
+    Steps:
+    1. Unwind: sell the reference trader's existing position bin-by-bin.
+    2. Reposition: buy into the new belief distribution using distribution buy.
+    3. Return: max_unwind_fraction, unwind_slippage, reposition_cost.
+
+    Args:
+        reference_holdings: the reference trader's per-bin token holdings.
+        weight_fn: the design's weight function (for reposition buy).
+        original_mu, original_sigma: the trader's original belief.
+        delta_mu_frac, delta_sigma_frac: fractional shift in belief.
     """
-    total_held = int(np.sum(holdings))
-    if total_held == 0:
-        return {"max_unwind_fraction": 1.0, "slippage_cost": 0.0}
+    from models.math_engine import isqrt, compute_distribution_buy
 
-    # Try to sell each bin proportionally
-    target_sell = int(total_held * target_unwind_fraction)
+    total_held = int(np.sum(reference_holdings))
+    if total_held == 0:
+        return {"max_unwind_fraction": 1.0, "unwind_slippage": 0.0, "reposition_cost": 0.0}
+
+    # --- Step 1: Unwind existing position ---
     actually_sold = 0
     total_collateral = 0
-
     reserves_copy = reserves.copy()
     tm = total_minted
 
-    for i in range(len(holdings)):
-        if holdings[i] <= 0:
+    for i in range(len(reference_holdings)):
+        if reference_holdings[i] <= 0:
             continue
-        sell_amount = int(holdings[i] * target_unwind_fraction)
-        if sell_amount <= 0:
-            continue
-        # Check if we can sell (position must exist)
+        sell_amount = int(reference_holdings[i])
         x_i = tm - int(reserves_copy[i])
         if x_i < sell_amount:
             sell_amount = max(0, x_i)
         if sell_amount <= 0:
             continue
 
-        # Simulate sell
         reserves_copy[i] += sell_amount
         k_new_sq = sum((tm - int(reserves_copy[j])) ** 2 for j in range(len(reserves_copy)))
-        from models.math_engine import isqrt
         k_new = isqrt(k_new_sq)
         collateral = tm - k_new
         if collateral <= 0:
@@ -2337,11 +2401,32 @@ def exitability(
         total_collateral += collateral
 
     max_unwind = actually_sold / total_held if total_held > 0 else 1.0
-    # Slippage: compare collateral received vs. fair value
-    fair_value = total_held * target_unwind_fraction  # 1:1 would be fair
-    slippage = 1.0 - (total_collateral / fair_value) if fair_value > 0 else 0.0
+    fair_value = total_held
+    unwind_slippage = 1.0 - (total_collateral / fair_value) if fair_value > 0 else 0.0
 
-    return {"max_unwind_fraction": max_unwind, "slippage_cost": max(0.0, slippage)}
+    # --- Step 2: Reposition to shifted belief ---
+    span = range_max - range_min
+    new_mu = original_mu + int(delta_mu_frac * span)
+    new_sigma = max(1, int(original_sigma * (1.0 + delta_sigma_frac)))
+    new_weights = weight_fn(range_min, range_max, num_bins, new_mu, new_sigma)
+
+    reposition_cost = 0.0
+    if total_collateral > 0 and int(np.sum(new_weights)) > 0:
+        try:
+            reserves_copy2 = reserves_copy.copy()
+            _, new_tm = compute_distribution_buy(
+                reserves_copy2, tm, new_weights, total_collateral,
+            )
+            # Cost = slippage on reposition (collateral spent vs tokens received)
+            reposition_cost = max(0.0, unwind_slippage)  # compound slippage
+        except (ValueError, OverflowError, AssertionError):
+            reposition_cost = 1.0  # failed to reposition
+
+    return {
+        "max_unwind_fraction": max_unwind,
+        "unwind_slippage": max(0.0, unwind_slippage),
+        "reposition_cost": reposition_cost,
+    }
 
 
 def composite_score(
@@ -2383,7 +2468,7 @@ git commit -m "feat(sim): add 8 metrics engine (KL, convergence, slippage, LP, m
 
 ---
 
-### Task 9: Simulation Engine (cadCAD Orchestration)
+### Task 9: Simulation Engine (Loop Orchestration)
 
 **Files:**
 - Create: `quant-simulation/engine/simulation.py`
@@ -2448,19 +2533,26 @@ class TestSimulationRun:
         # Noise traders are random, so results should differ
         assert results_a["price_accuracy"] != results_b["price_accuracy"]
 
-    def test_baseline_a_vs_b_uses_different_weights(self):
-        sim_a = SimulationRun(
+    def test_baseline_a_vs_b_produce_different_metrics(self):
+        """Core experiment: Taylor-4 vs exact Gaussian must produce different results.
+
+        Same seed, same agents, but different weight functions used in
+        compute_distribution_buy/sell.  If metrics are identical, the
+        Baseline A/B experiment is broken.
+        """
+        results_a = SimulationRun(
             design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
-            num_bins=16, initial_liquidity=1_000_000_000,
-            num_rounds=10, seed=42,
-        )
-        sim_b = SimulationRun(
+            num_bins=64, initial_liquidity=1_000_000_000,
+            num_rounds=50, seed=42,
+        ).run()
+        results_b = SimulationRun(
             design=DESIGN_BASELINE_B, fee_model=FEE_FLAT,
-            num_bins=16, initial_liquidity=1_000_000_000,
-            num_rounds=10, seed=42,
-        )
-        # They should use different weight functions
-        assert sim_a.weight_fn != sim_b.weight_fn
+            num_bins=64, initial_liquidity=1_000_000_000,
+            num_rounds=50, seed=42,
+        ).run()
+        # Metrics MUST differ because informed traders use distribution buy/sell
+        # with Taylor-4 (A) vs exact Gaussian (B) weights
+        assert results_a["price_accuracy"] != results_b["price_accuracy"]
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2474,7 +2566,7 @@ Expected: FAIL
 # quant-simulation/engine/simulation.py
 """Simulation engine: runs a single market lifecycle.
 
-cadCAD is used for sweep orchestration (sweeps.py), not here.
+Sweep orchestration lives in sweeps.py.
 This module is the pure-Python simulation loop.
 """
 
@@ -2491,6 +2583,7 @@ from config.params import (
 )
 from models.math_engine import (
     init_reserves, compute_probabilities, compute_buy, compute_sell,
+    compute_distribution_buy, compute_distribution_sell,
     compute_fees, value_to_bin,
 )
 from models.weights import compute_bin_weights_taylor4, compute_bin_weights_exact
@@ -2506,7 +2599,7 @@ from agents.arbitrageur import Arbitrageur
 from agents.manipulator import Manipulator
 from agents.late_round_whale import LateRoundWhale
 from agents.lp import PassiveLP, RebalancingLP
-from agents.base import TradeAction
+from agents.base import TradeAction, DistributionTradeAction
 from engine.metrics import (
     kl_divergence, convergence_speed, compute_slippage,
     lp_profitability, manipulation_cost, resolution_fairness,
@@ -2523,6 +2616,11 @@ class MarketState:
     num_bins: int
     lp_fee_accumulated: int = 0
     protocol_fee_accumulated: int = 0
+    passive_lp_fees: int = 0
+    rebalancing_lp_fees: int = 0
+    # CLOB: synthetic implied prices derived from orderbook mid-prices/fills
+    # Used for KL/metrics instead of AMM reserves (which CLOB doesn't mutate)
+    clob_implied_probs: np.ndarray | None = None
 
 
 class SimulationRun:
@@ -2650,11 +2748,19 @@ class SimulationRun:
         return self._compute_all_metrics(payouts, resolved_bin)
 
     def _execute_round(self, round_num: int):
-        """Execute one trading round."""
+        """Execute one trading round.
+
+        Two trade types:
+        1. TradeAction (single-bin) — noise, arb, manipulator, whale
+        2. DistributionTradeAction — informed traders, routed through
+           compute_distribution_buy/sell with self.weight_fn (Taylor-4 for
+           Baseline A, exact Gaussian for Baseline B+).  THIS IS WHERE
+           THE CORE A-vs-B DIVERGENCE HAPPENS.
+        """
         probs = compute_probabilities(self.state.reserves, self.state.total_minted)
 
-        # Collect all agent actions
-        all_actions: list[TradeAction] = []
+        # Collect all agent actions (mix of TradeAction and DistributionTradeAction)
+        all_actions = []
         for agent in self.agents_trading:
             actions = agent.decide(probs, self.state.total_minted, round_num, self.num_rounds)
             all_actions.extend(actions)
@@ -2662,9 +2768,12 @@ class SimulationRun:
         # Shuffle execution order
         self.rng.shuffle(all_actions)
 
-        # Execute trades
+        # Execute trades — dispatch by action type
         for action in all_actions:
-            self._execute_trade(action, round_num)
+            if isinstance(action, DistributionTradeAction):
+                self._execute_distribution_trade(action, round_num)
+            else:
+                self._execute_trade(action, round_num)
 
         # Metrics snapshot every 10 rounds
         if round_num % 10 == 0:
@@ -2673,27 +2782,67 @@ class SimulationRun:
             kl = kl_divergence(true_float, probs_float)
             self.kl_series.append(kl)
 
-    def _execute_trade(self, action: TradeAction, round_num: int):
-        """Execute a single trade action."""
+    def _execute_distribution_trade(self, action: DistributionTradeAction, round_num: int):
+        """Execute a distribution buy/sell using the design's weight function.
+
+        This is where Baseline A (Taylor-4 weights) produces different results
+        from Baseline B (exact Gaussian weights).  The weights determine how
+        collateral is distributed across bins during the trade.
+        """
         if action.amount <= 0:
             return
 
-        # Compute fee
-        if self.fee_model == FEE_FLAT:
-            fees = flat_fee(action.amount, DEFAULT_TRADE_FEE_BPS, DEFAULT_LP_FEE_SHARE_BPS)
-        elif self.fee_model == FEE_DYNAMIC:
-            probs = compute_probabilities(self.state.reserves, self.state.total_minted)
-            fees = dynamic_fee(action.amount, probs, lp_share_bps=DEFAULT_LP_FEE_SHARE_BPS)
-        elif self.fee_model == FEE_TIERED:
-            fees = tiered_fee(action.amount, cumulative_volume=0, lp_share_bps=DEFAULT_LP_FEE_SHARE_BPS)
-        elif self.fee_model == FEE_SPREAD:
-            probs = compute_probabilities(self.state.reserves, self.state.total_minted)
-            fees = spread_fee(action.amount, action.bin_idx, probs, lp_share_bps=DEFAULT_LP_FEE_SHARE_BPS)
-        elif self.fee_model == FEE_TIME_WEIGHTED:
-            fees = time_weighted_fee(action.amount, round_num, self.num_rounds, lp_share_bps=DEFAULT_LP_FEE_SHARE_BPS)
-        else:
-            fees = flat_fee(action.amount, DEFAULT_TRADE_FEE_BPS, DEFAULT_LP_FEE_SHARE_BPS)
+        # Compute weights using the design's weight function
+        weights = self.weight_fn(
+            self.state.range_min, self.state.range_max, self.num_bins,
+            self.true_mu, self.true_sigma,
+        )
 
+        fees = self._apply_fee(action.amount, round_num)
+        effective = fees["net_amount"]
+        if effective <= 0:
+            return
+
+        try:
+            if action.side == "buy":
+                tokens_out, new_total = compute_distribution_buy(
+                    self.state.reserves, self.state.total_minted,
+                    weights, effective,
+                )
+                self.state.total_minted = new_total
+                if action.agent_id not in self.agent_holdings:
+                    self.agent_holdings[action.agent_id] = np.zeros(self.num_bins, dtype=np.int64)
+                self.agent_holdings[action.agent_id] += tokens_out
+            else:
+                held = self.agent_holdings.get(action.agent_id)
+                if held is None or int(np.sum(held)) <= 0:
+                    return
+                total_tokens = min(effective, int(np.sum(held)))
+                if total_tokens <= 0:
+                    return
+                collateral_out, new_total = compute_distribution_sell(
+                    self.state.reserves, self.state.total_minted,
+                    weights, total_tokens,
+                )
+                self.state.total_minted = new_total
+                # Reduce holdings proportionally
+                held_total = int(np.sum(held))
+                if held_total > 0:
+                    for b in range(self.num_bins):
+                        reduce = int(held[b]) * total_tokens // held_total
+                        held[b] = max(0, int(held[b]) - reduce)
+
+            self.state.lp_fee_accumulated += fees["lp_fee"]
+            self.state.protocol_fee_accumulated += fees["protocol_fee"]
+        except (ValueError, OverflowError, AssertionError):
+            pass
+
+    def _execute_trade(self, action: TradeAction, round_num: int):
+        """Execute a single-bin trade action (noise, arb, manipulator, whale)."""
+        if action.amount <= 0:
+            return
+
+        fees = self._apply_fee(action.amount, round_num, action.bin_idx)
         effective = fees["net_amount"]
         if effective <= 0:
             return
@@ -2705,12 +2854,10 @@ class SimulationRun:
                     action.bin_idx, effective,
                 )
                 self.state.total_minted = new_total
-                # Track holdings
                 if action.agent_id not in self.agent_holdings:
                     self.agent_holdings[action.agent_id] = np.zeros(self.num_bins, dtype=np.int64)
                 self.agent_holdings[action.agent_id][action.bin_idx] += tokens_out
             else:
-                # Sell: check agent has tokens
                 held = self.agent_holdings.get(action.agent_id)
                 if held is None or held[action.bin_idx] <= 0:
                     return
@@ -2724,12 +2871,11 @@ class SimulationRun:
                 self.state.total_minted = new_total
                 held[action.bin_idx] -= tokens_to_sell
 
-            # Accrue fees
             self.state.lp_fee_accumulated += fees["lp_fee"]
             self.state.protocol_fee_accumulated += fees["protocol_fee"]
             self.activity_counts[action.bin_idx] += 1
-        except (ValueError, OverflowError):
-            pass  # Skip trades that would violate invariant
+        except (ValueError, OverflowError, AssertionError):
+            pass
 
     def _compute_payouts(self, resolved_bin: int) -> np.ndarray:
         """Compute settlement payouts based on design."""
@@ -2751,8 +2897,9 @@ class SimulationRun:
             probs = compute_probabilities(self.state.reserves, self.state.total_minted)
             return compute_payout_scalar(probs)
         elif self.design == DESIGN_CRPS:
-            # CRPS returns per-trader payouts, not per-bin
-            return compute_payout_wta(self.num_bins, resolved_bin)  # placeholder for bin-level
+            # CRPS is settled per trader; use a smooth reference curve only for
+            # visualization-oriented bin metrics such as boundary analysis.
+            return self._compute_reference_curve_for_crps(resolved_bin)
         else:
             return compute_payout_wta(self.num_bins, resolved_bin)
 
@@ -2777,21 +2924,32 @@ class SimulationRun:
                 resolved_bin, frac,
             )
 
-        # 4. LP profitability
-        lp_profit = lp_profitability(
-            self.state.lp_fee_accumulated,
-            self.state.total_minted,
-            self.state.total_minted,
-        )
+        # 4. LP profitability — spec: (fees_earned - impermanent_loss) / capital_deposited
+        # IL = capital_deposited - current_pool_share_value for each LP type
+        passive_il = max(0, self.passive_lp.deposited - int(
+            self.state.total_minted * self.passive_lp.deposited / max(1, self.initial_liquidity + self.passive_lp.deposited)
+        )) if self.passive_lp.deposited > 0 else 0
+        rebal_il = max(0, self.rebalancing_lp.deposited - int(
+            self.state.total_minted * self.rebalancing_lp.deposited / max(1, self.initial_liquidity + self.rebalancing_lp.deposited)
+        )) if self.rebalancing_lp.deposited > 0 else 0
 
-        # 5. Manipulation resistance
-        manip_price_before = float(compute_probabilities(
-            self.state.reserves, self.state.total_minted
-        )[self.manipulator.target_bin]) / SCALE
-        manip_cost = manipulation_cost(
-            self.manipulator.spent,
-            max(0.001, manip_price_before - 1.0 / self.num_bins),
+        lp_passive_profit = lp_profitability(
+            self.state.passive_lp_fees, self.passive_lp.deposited, passive_il
         )
+        lp_rebal_profit = lp_profitability(
+            self.state.rebalancing_lp_fees, self.rebalancing_lp.deposited, rebal_il
+        )
+        total_lp_fees = self.state.passive_lp_fees + self.state.rebalancing_lp_fees
+        total_lp_deposited = self.passive_lp.deposited + self.rebalancing_lp.deposited
+        total_il = passive_il + rebal_il
+        lp_profit = lp_profitability(total_lp_fees, total_lp_deposited, total_il)
+
+        # 5. Manipulation resistance — spec: target bin distortion, not max across all bins
+        target_bin = self.manipulator.target_bin
+        initial_target_prob = float(self.initial_probs[target_bin]) / SCALE
+        final_target_prob = float(final_probs[target_bin]) / SCALE
+        target_distortion_pct = abs(final_target_prob - initial_target_prob) * 100
+        manip_cost = manipulation_cost(self.manipulator.spent, max(0.001, target_distortion_pct))
 
         # 6. Resolution fairness
         trader_payouts = []
@@ -2813,23 +2971,31 @@ class SimulationRun:
         # 7. Boundary sensitivity
         max_jump, mean_jump = boundary_sensitivity(payouts)
 
-        # 8. Exitability
-        # Test with a synthetic position near the resolved bin
+        # 8. Exitability — spec: shift reference trader's belief, measure unwind + reposition
+        # Use a synthetic reference position near the resolved bin
         test_holdings = np.zeros(self.num_bins, dtype=np.int64)
         test_holdings[max(0, resolved_bin - 2):min(self.num_bins, resolved_bin + 3)] = int(self.state.total_minted * 0.01)
-        exit_result = exitability(self.state.reserves.copy(), self.state.total_minted, test_holdings)
+        exit_result = exitability(
+            self.state.reserves.copy(), self.state.total_minted,
+            test_holdings, self.weight_fn,
+            self.state.range_min, self.state.range_max, self.num_bins,
+            self.true_mu, self.true_sigma,
+        )
 
         return {
             "price_accuracy": price_acc,
             "convergence_speed": conv_speed,
             "capital_efficiency": slippages,
             "lp_profitability": lp_profit,
+            "lp_passive_profitability": lp_passive_profit,
+            "lp_rebalancing_profitability": lp_rebal_profit,
             "manipulation_resistance": manip_cost,
             "resolution_fairness": fair,
             "boundary_sensitivity_max": max_jump,
             "boundary_sensitivity_mean": mean_jump,
             "exitability_unwind": exit_result["max_unwind_fraction"],
-            "exitability_slippage": exit_result["slippage_cost"],
+            "exitability_slippage": exit_result["unwind_slippage"],
+            "exitability_reposition_cost": exit_result["reposition_cost"],
             "num_rounds": self.num_rounds,
             "design": self.design,
             "fee_model": self.fee_model,
@@ -2842,19 +3008,38 @@ class SimulationRun:
 
 ```python
 # quant-simulation/engine/sweeps.py
-"""Phase 1 + Phase 2 sweep orchestration using cadCAD."""
+"""Phase 1 + Phase 2 sweep orchestration plus sensitivity runs."""
 
 import pandas as pd
-import numpy as np
 from config.params import (
     DESIGN_BASELINE_A, DESIGN_BASELINE_B, DESIGN_PIECEWISE,
     DESIGN_KERNEL, DESIGN_SCALAR, DESIGN_CRPS, DESIGN_CLOB,
     FEE_FLAT, FEE_DYNAMIC, FEE_TIERED, FEE_SPREAD, FEE_TIME_WEIGHTED,
     DEFAULT_NUM_BINS, DEFAULT_MC_RUNS, DESIGN_NAMES, FEE_NAMES,
-    MetricWeights,
+    AgentMix,
 )
 from engine.simulation import SimulationRun
 from engine.metrics import composite_score
+
+
+def _median_slippage(subset: pd.DataFrame, key: str = "slippage_5pct") -> float:
+    values = subset["capital_efficiency"].apply(
+        lambda x: x.get(key, 0.0) if isinstance(x, dict) else 0.0
+    )
+    return float(values.median())
+
+
+def _normalize_metrics(subset: pd.DataFrame, num_rounds: int) -> dict[str, float]:
+    return {
+        "price_accuracy": 1.0 - min(1.0, float(subset["price_accuracy"].median())),
+        "convergence_speed": 1.0 - min(1.0, float(subset["convergence_speed"].median()) / num_rounds),
+        "capital_efficiency": 1.0 - min(1.0, abs(_median_slippage(subset))),
+        "lp_profitability": max(0.0, min(1.0, float(subset["lp_profitability"].median()) + 0.5)),
+        "manipulation_resistance": min(1.0, float(subset["manipulation_resistance"].median()) / 1_000_000),
+        "resolution_fairness": 1.0 - min(1.0, float(subset["resolution_fairness"].median())),
+        "boundary_sensitivity": 1.0 - min(1.0, float(subset["boundary_sensitivity_max"].median()) / 1_000_000_000),
+        "exitability": float(subset["exitability_unwind"].median()),
+    }
 
 
 def run_phase1(
@@ -2917,25 +3102,10 @@ def select_top_designs(phase1_df: pd.DataFrame, n: int = 3) -> list[int]:
     scores = {}
     for design_id in phase1_df["design"].unique():
         subset = phase1_df[phase1_df["design"] == design_id]
-        # Normalize metrics to 0-1 for composite scoring
-        normalized = {
-            "price_accuracy": 1.0 - min(1.0, float(subset["price_accuracy"].median())),
-            "convergence_speed": 1.0 - min(1.0, float(subset["convergence_speed"].median()) / 200),
-            "capital_efficiency": 1.0 - min(1.0, abs(float(subset["capital_efficiency"].apply(lambda x: x.get("slippage_5pct", 0) if isinstance(x, dict) else 0).median()))),
-            "lp_profitability": max(0.0, min(1.0, float(subset["lp_profitability"].median()) + 0.5)),
-            "manipulation_resistance": min(1.0, float(subset["manipulation_resistance"].median()) / 1_000_000),
-            "resolution_fairness": 1.0 - min(1.0, float(subset["resolution_fairness"].median())),
-            "boundary_sensitivity": 1.0 - min(1.0, float(subset["boundary_sensitivity_max"].median()) / SCALE),
-            "exitability": float(subset["exitability_unwind"].median()),
-        }
-        scores[design_id] = composite_score(normalized)
+        scores[design_id] = composite_score(_normalize_metrics(subset, num_rounds=200))
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [d for d, _ in ranked[:n]]
-
-
-SCALE = 1_000_000_000  # imported but shadowed, keep explicit
-
 
 def run_phase2(
     top_designs: list[int],
@@ -2965,7 +3135,67 @@ def run_phase2(
                 results.append(metrics)
 
     return pd.DataFrame(results)
+
+
+def run_sensitivity_sweeps(
+    top_designs: list[int],
+    mc_runs: int = DEFAULT_MC_RUNS,
+    num_rounds: int = 200,
+    bin_values: tuple[int, ...] = (16, 32, 64, 128, 256),
+    liquidity_values: tuple[int, ...] = (
+        1_000 * 1_000_000,
+        10_000 * 1_000_000,
+        100_000 * 1_000_000,
+    ),
+    agent_mixes: dict[str, AgentMix] | None = None,
+) -> pd.DataFrame:
+    """Sensitivity runs on top 3 Phase-1 designs for bins, agent mix, and liquidity."""
+    if agent_mixes is None:
+        agent_mixes = {
+            "noise_heavy": AgentMix(0.80, 0.10, 0.05, 0.03, 0.02, 0.0, 0.0),
+            "balanced": AgentMix(),
+            "adversarial": AgentMix(0.20, 0.30, 0.15, 0.10, 0.05, 0.10, 0.10),
+        }
+
+    results = []
+
+    def _append(tag: str, value: str, **kwargs) -> None:
+        for design in top_designs:
+            for run_idx in range(mc_runs):
+                sim = SimulationRun(
+                    design=design,
+                    fee_model=FEE_FLAT,
+                    num_rounds=num_rounds,
+                    seed=run_idx,
+                    **kwargs,
+                )
+                metrics = sim.run()
+                metrics["run_idx"] = run_idx
+                metrics["design_name"] = DESIGN_NAMES[design]
+                metrics["sensitivity_axis"] = tag
+                metrics["sensitivity_value"] = value
+                results.append(metrics)
+
+    for bins in bin_values:
+        _append("num_bins", str(bins), num_bins=bins, initial_liquidity=10_000 * 1_000_000)
+
+    for liquidity in liquidity_values:
+        _append("initial_liquidity", str(liquidity), num_bins=256, initial_liquidity=liquidity)
+
+    for mix_name, mix in agent_mixes.items():
+        _append("agent_mix", mix_name, num_bins=256, initial_liquidity=10_000 * 1_000_000, agent_mix=mix)
+
+    return pd.DataFrame(results)
 ```
+
+- [ ] **Step 4a: Resolve the remaining implementation requirements in `engine/simulation.py`**
+
+`engine/simulation.py` must not leave placeholders or spec gaps behind:
+- Persist `self.initial_liquidity` and `self.initial_probs` during initialization so manipulation and LP metrics reference actual starting state.
+- For `DESIGN_CLOB`, route single-bin actions through an `_execute_clob_trade()` path backed by `models.orderbook.Orderbook`, maintain `clob_implied_probs`, and record `clob_depth_total`, `clob_fill_rate`, and `clob_spread_bps` in the returned metrics.
+- When computing KL and any price-based metric for CLOB, use synthetic implied probabilities derived from orderbook state rather than AMM reserves.
+- CRPS settlement must not fall back to winner-take-all. Implement trader-level CRPS settlement for realized payouts, and if a smooth per-bin proxy is needed for boundary visualization, keep it separate from trader settlement.
+- Record enough data for the report to compute p5, p50, and p95 summaries for every metric and sensitivity slice.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -2991,7 +3221,7 @@ git commit -m "feat(sim): add simulation engine and phase 1/2 sweep orchestratio
 
 ```python
 # quant-simulation/analysis/export.py
-"""Export simulation results as CSV and JSON for MiroFish ingestion."""
+"""Export simulation results as raw CSV and structured JSON for downstream analysis."""
 
 import json
 import pandas as pd
@@ -2999,61 +3229,181 @@ from pathlib import Path
 
 
 def export_csv(df: pd.DataFrame, path: str) -> None:
-    """Export results DataFrame to CSV."""
-    # Drop non-serializable columns
-    serializable_cols = [c for c in df.columns if c != "kl_series" and c != "capital_efficiency"]
-    df[serializable_cols].to_csv(path, index=False)
+    """Export results DataFrame to CSV, flattening nested metric columns when needed."""
+    frame = df.copy()
+    if "capital_efficiency" in frame.columns:
+        slippage = frame["capital_efficiency"].apply(lambda x: x if isinstance(x, dict) else {})
+        frame["slippage_1pct"] = slippage.apply(lambda x: x.get("slippage_1pct"))
+        frame["slippage_5pct"] = slippage.apply(lambda x: x.get("slippage_5pct"))
+        frame["slippage_10pct"] = slippage.apply(lambda x: x.get("slippage_10pct"))
+        frame["slippage_25pct"] = slippage.apply(lambda x: x.get("slippage_25pct"))
+        frame = frame.drop(columns=["capital_efficiency"])
+    frame = frame.drop(columns=[c for c in ["kl_series"] if c in frame.columns])
+    frame.to_csv(path, index=False)
 
 
-def export_mirofish_json(df: pd.DataFrame, top_n: int = 3, path: str = "mirofish_export.json") -> None:
-    """Export top N combos as structured JSON for MiroFish knowledge graph."""
+def export_all_results(
+    phase1_df: pd.DataFrame,
+    clob_df: pd.DataFrame,
+    phase2_df: pd.DataFrame | None = None,
+    sensitivity_df: pd.DataFrame | None = None,
+    output_dir: str = "output",
+) -> dict[str, str]:
+    """Write the raw per-run CSVs required by the spec and a consolidated results.csv."""
+    output = Path(output_dir)
+    output.mkdir(exist_ok=True)
+
+    paths = {
+        "phase1": str(output / "phase1_results.csv"),
+        "clob": str(output / "clob_results.csv"),
+        "results": str(output / "results.csv"),
+    }
+    export_csv(phase1_df, paths["phase1"])
+    export_csv(clob_df, paths["clob"])
+
+    frames = [
+        phase1_df.assign(dataset="phase1"),
+        clob_df.assign(dataset="clob"),
+    ]
+
+    if phase2_df is not None and len(phase2_df) > 0:
+        paths["phase2"] = str(output / "phase2_results.csv")
+        export_csv(phase2_df, paths["phase2"])
+        frames.append(phase2_df.assign(dataset="phase2"))
+
+    if sensitivity_df is not None and len(sensitivity_df) > 0:
+        paths["sensitivity"] = str(output / "sensitivity_results.csv")
+        export_csv(sensitivity_df, paths["sensitivity"])
+        frames.append(sensitivity_df.assign(dataset="sensitivity"))
+
+    export_csv(pd.concat(frames, ignore_index=True), paths["results"])
+    return paths
+
+
+def export_mirofish_json(
+    phase1_df: pd.DataFrame,
+    clob_df: pd.DataFrame,
+    phase2_df: pd.DataFrame | None = None,
+    top_n: int = 3,
+    path: str = "mirofish_export.json",
+) -> None:
+    """Export top N design-fee combos as structured JSON for MiroFish knowledge graph.
+
+    Spec: "Top 3 combos with structured JSON for knowledge graph seeding."
+    Uses Phase 2 data when available (design x fee combos), falls back to Phase 1.
+    Ranked by weighted composite score with p5/p50/p95 summaries.
+    """
+    from engine.metrics import composite_score
+
+    df = phase2_df if phase2_df is not None and len(phase2_df) > 0 else phase1_df
+
     summary = []
-    for design_name in df["design_name"].unique():
-        subset = df[df["design_name"] == design_name]
+    group_cols = ["design_name"]
+    if "fee_name" in df.columns:
+        group_cols.append("fee_name")
+
+    for group_key, subset in df.groupby(group_cols):
+        if isinstance(group_key, tuple):
+            design_name, fee_name = group_key
+        else:
+            design_name = group_key
+            fee_name = "Flat"
+
+        metrics = {
+            "price_accuracy": {
+                "p5": float(subset["price_accuracy"].quantile(0.05)),
+                "p50": float(subset["price_accuracy"].median()),
+                "p95": float(subset["price_accuracy"].quantile(0.95)),
+            },
+            "convergence_speed": {
+                "p5": float(subset["convergence_speed"].quantile(0.05)),
+                "p50": float(subset["convergence_speed"].median()),
+                "p95": float(subset["convergence_speed"].quantile(0.95)),
+            },
+            "lp_profitability": {
+                "p5": float(subset["lp_profitability"].quantile(0.05)),
+                "p50": float(subset["lp_profitability"].median()),
+                "p95": float(subset["lp_profitability"].quantile(0.95)),
+            },
+            "manipulation_resistance": {
+                "p5": float(subset["manipulation_resistance"].quantile(0.05)),
+                "p50": float(subset["manipulation_resistance"].median()),
+                "p95": float(subset["manipulation_resistance"].quantile(0.95)),
+            },
+            "resolution_fairness": {
+                "p5": float(subset["resolution_fairness"].quantile(0.05)),
+                "p50": float(subset["resolution_fairness"].median()),
+                "p95": float(subset["resolution_fairness"].quantile(0.95)),
+            },
+            "boundary_sensitivity_max": {
+                "p5": float(subset["boundary_sensitivity_max"].quantile(0.05)),
+                "p50": float(subset["boundary_sensitivity_max"].median()),
+                "p95": float(subset["boundary_sensitivity_max"].quantile(0.95)),
+            },
+            "exitability_unwind": {
+                "p5": float(subset["exitability_unwind"].quantile(0.05)),
+                "p50": float(subset["exitability_unwind"].median()),
+                "p95": float(subset["exitability_unwind"].quantile(0.95)),
+            },
+        }
+        slippage_5pct = float(
+            subset["capital_efficiency"].apply(
+                lambda x: x.get("slippage_5pct", 0.0) if isinstance(x, dict) else 0.0
+            ).median()
+        )
+        normalized = {
+            "price_accuracy": 1.0 - min(1.0, metrics["price_accuracy"]["p50"]),
+            "convergence_speed": 1.0 - min(1.0, metrics["convergence_speed"]["p50"] / 200),
+            "capital_efficiency": 1.0 - min(1.0, abs(slippage_5pct)),
+            "lp_profitability": max(0.0, min(1.0, metrics["lp_profitability"]["p50"] + 0.5)),
+            "manipulation_resistance": min(1.0, metrics["manipulation_resistance"]["p50"] / 1_000_000),
+            "resolution_fairness": 1.0 - min(1.0, metrics["resolution_fairness"]["p50"]),
+            "boundary_sensitivity": 1.0 - min(1.0, metrics["boundary_sensitivity_max"]["p50"] / 1_000_000_000),
+            "exitability": metrics["exitability_unwind"]["p50"],
+        }
         entry = {
             "design": design_name,
-            "fee_model": subset["fee_name"].iloc[0] if "fee_name" in subset.columns else "Flat",
-            "metrics": {
-                "price_accuracy_median": float(subset["price_accuracy"].median()),
-                "convergence_speed_median": float(subset["convergence_speed"].median()),
-                "lp_profitability_median": float(subset["lp_profitability"].median()),
-                "manipulation_resistance_median": float(subset["manipulation_resistance"].median()),
-                "resolution_fairness_median": float(subset["resolution_fairness"].median()),
-                "boundary_sensitivity_max_median": float(subset["boundary_sensitivity_max"].median()),
-                "exitability_unwind_median": float(subset["exitability_unwind"].median()),
-            },
+            "fee_model": fee_name,
+            "metrics": metrics,
+            "composite_score": composite_score(normalized),
             "num_runs": len(subset),
         }
         summary.append(entry)
 
-    # Sort by a simple composite and take top N
-    summary.sort(key=lambda x: x["metrics"]["resolution_fairness_median"])
+    summary.sort(key=lambda entry: entry["composite_score"], reverse=True)
     top = summary[:top_n]
 
-    Path(path).write_text(json.dumps({"top_designs": top, "total_runs": len(df)}, indent=2))
+    payload = {
+        "top_designs": top,
+        "phase1_runs": len(phase1_df),
+        "clob_runs": len(clob_df),
+        "phase2_runs": 0 if phase2_df is None else len(phase2_df),
+        "total_runs": len(df),
+    }
+    Path(path).write_text(json.dumps(payload, indent=2))
 ```
 
 - [ ] **Step 2: Implement analysis/report.py**
 
 ```python
 # quant-simulation/analysis/report.py
-"""Generate standalone HTML comparison report with plotly charts."""
+"""Generate the self-contained HTML report required by the simulation spec."""
 
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 from jinja2 import Template
 from pathlib import Path
+from plotly.offline import get_plotlyjs
 
-from config.params import DESIGN_NAMES, FEE_NAMES, SCALE
+from config.params import SCALE
 
 
 REPORT_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
     <title>DekantPM AMM Simulation Report</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    {{ plotly_js_inline }}
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #0a0a0a; color: #e0e0e0; }
         h1 { color: #fff; border-bottom: 2px solid #333; padding-bottom: 10px; }
@@ -3078,11 +3428,14 @@ REPORT_TEMPLATE = """<!DOCTYPE html>
 
     <div class="section">
         <h2>Baseline A vs B: Weight Bug Impact</h2>
-        <div class="chart" id="baseline_chart">{{ baseline_chart }}</div>
+        {{ baseline_table }}
+        {% for chart in baseline_charts %}
+        <div class="chart">{{ chart }}</div>
+        {% endfor %}
     </div>
 
     <div class="section">
-        <h2>Per-Metric Comparison</h2>
+        <h2>Per-Metric Comparison (p5 / p50 / p95)</h2>
         {% for chart in metric_charts %}
         <div class="chart">{{ chart }}</div>
         {% endfor %}
@@ -3091,12 +3444,32 @@ REPORT_TEMPLATE = """<!DOCTYPE html>
     <div class="section">
         <h2>Boundary Sensitivity</h2>
         <div class="chart">{{ boundary_chart }}</div>
+        <div class="chart">{{ exitability_chart }}</div>
+    </div>
+
+    <div class="section">
+        <h2>CLOB Hybrid Analysis</h2>
+        {{ clob_summary }}
+        {% for chart in clob_charts %}
+        <div class="chart">{{ chart }}</div>
+        {% endfor %}
     </div>
 
     {% if phase2_charts %}
     <div class="section">
         <h2>Phase 2: Fee Mechanism Sweep</h2>
+        {{ optimal_fee_table }}
         {% for chart in phase2_charts %}
+        <div class="chart">{{ chart }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if sensitivity_summary %}
+    <div class="section">
+        <h2>Sensitivity Analysis</h2>
+        {{ sensitivity_summary }}
+        {% for chart in sensitivity_charts %}
         <div class="chart">{{ chart }}</div>
         {% endfor %}
     </div>
@@ -3104,87 +3477,274 @@ REPORT_TEMPLATE = """<!DOCTYPE html>
 
     <div class="section">
         <h2>Raw Data</h2>
-        <p><a href="results.csv" style="color: #4a9eff;">Download CSV</a></p>
+        <ul>
+            <li><a href="{{ raw_links.results }}" style="color: #4a9eff;">All runs (results.csv)</a></li>
+            <li><a href="{{ raw_links.phase1 }}" style="color: #4a9eff;">Phase 1 results</a></li>
+            <li><a href="{{ raw_links.clob }}" style="color: #4a9eff;">CLOB results</a></li>
+            {% if raw_links.phase2 %}<li><a href="{{ raw_links.phase2 }}" style="color: #4a9eff;">Phase 2 results</a></li>{% endif %}
+            {% if raw_links.sensitivity %}<li><a href="{{ raw_links.sensitivity }}" style="color: #4a9eff;">Sensitivity results</a></li>{% endif %}
+        </ul>
     </div>
 </body>
 </html>"""
 
 
+def _quantiles(series: pd.Series) -> tuple[float, float, float]:
+    return (
+        float(series.quantile(0.05)),
+        float(series.median()),
+        float(series.quantile(0.95)),
+    )
+
+
+def _median_slippage(subset: pd.DataFrame) -> float:
+    return float(
+        subset["capital_efficiency"].apply(
+            lambda x: x.get("slippage_5pct", 0.0) if isinstance(x, dict) else 0.0
+        ).median()
+    )
+
+
+def _normalized_metrics(subset: pd.DataFrame, num_rounds: int = 200) -> dict[str, float]:
+    return {
+        "price_accuracy": 1.0 - min(1.0, float(subset["price_accuracy"].median())),
+        "convergence_speed": 1.0 - min(1.0, float(subset["convergence_speed"].median()) / num_rounds),
+        "capital_efficiency": 1.0 - min(1.0, abs(_median_slippage(subset))),
+        "lp_profitability": max(0.0, min(1.0, float(subset["lp_profitability"].median()) + 0.5)),
+        "manipulation_resistance": min(1.0, float(subset["manipulation_resistance"].median()) / 1_000_000),
+        "resolution_fairness": 1.0 - min(1.0, float(subset["resolution_fairness"].median())),
+        "boundary_sensitivity": 1.0 - min(1.0, float(subset["boundary_sensitivity_max"].median()) / SCALE),
+        "exitability": float(subset["exitability_unwind"].median()),
+    }
+
+
 def _make_leaderboard(df: pd.DataFrame) -> str:
-    """Generate HTML table for design leaderboard."""
+    from engine.metrics import composite_score
+
     rows = []
     for design_name in df["design_name"].unique():
         subset = df[df["design_name"] == design_name]
+        pa_p5, pa_p50, pa_p95 = _quantiles(subset["price_accuracy"])
+        fair_p5, fair_p50, fair_p95 = _quantiles(subset["resolution_fairness"])
+        score = composite_score(_normalized_metrics(subset))
         rows.append({
             "Design": design_name,
-            "Price Acc (KL)": f"{subset['price_accuracy'].median():.4f}",
-            "Conv Speed": f"{subset['convergence_speed'].median():.0f}",
-            "LP Profit": f"{subset['lp_profitability'].median():.4f}",
-            "Manip Resist": f"{subset['manipulation_resistance'].median():.0f}",
-            "Fairness": f"{subset['resolution_fairness'].median():.4f}",
-            "Boundary (max)": f"{subset['boundary_sensitivity_max'].median():.0f}",
-            "Exitability": f"{subset['exitability_unwind'].median():.2%}",
+            "Composite Score": round(score, 4),
+            "Price Accuracy p50": round(pa_p50, 4),
+            "Price Accuracy p5/p95": f"{pa_p5:.4f} / {pa_p95:.4f}",
+            "Resolution Fairness p50": round(fair_p50, 4),
+            "Resolution Fairness p5/p95": f"{fair_p5:.4f} / {fair_p95:.4f}",
+            "Boundary Max p50": round(float(subset['boundary_sensitivity_max'].median()), 0),
+            "Exitability p50": f"{float(subset['exitability_unwind'].median()):.2%}",
         })
-    table_df = pd.DataFrame(rows)
-    return table_df.to_html(index=False, classes="leaderboard")
+
+    rows_df = pd.DataFrame(rows).sort_values("Composite Score", ascending=False)
+    return rows_df.to_html(index=False, classes="leaderboard")
 
 
-def _make_metric_boxplot(df: pd.DataFrame, metric: str, title: str) -> str:
-    """Generate plotly box plot for a metric across designs."""
-    fig = px.box(df, x="design_name", y=metric, title=title,
-                 template="plotly_dark", color="design_name")
-    fig.update_layout(showlegend=False, xaxis_title="", yaxis_title=title)
+def _make_metric_errorbar_chart(df: pd.DataFrame, metric: str, title: str) -> str:
+    rows = []
+    for design_name in df["design_name"].unique():
+        subset = df[df["design_name"] == design_name][metric]
+        p5, p50, p95 = _quantiles(subset)
+        rows.append({"design_name": design_name, "p5": p5, "p50": p50, "p95": p95})
+    chart_df = pd.DataFrame(rows).sort_values("p50")
+
+    fig = go.Figure(go.Scatter(
+        x=chart_df["design_name"],
+        y=chart_df["p50"],
+        mode="markers",
+        error_y={
+            "type": "data",
+            "symmetric": False,
+            "array": chart_df["p95"] - chart_df["p50"],
+            "arrayminus": chart_df["p50"] - chart_df["p5"],
+        },
+    ))
+    fig.update_layout(title=title, template="plotly_dark", xaxis_title="", yaxis_title=metric)
     return fig.to_html(full_html=False, include_plotlyjs=False)
+
+
+def _make_baseline_table(phase1_df: pd.DataFrame) -> str:
+    baseline_df = phase1_df[phase1_df["design"].isin([0, 1])]
+    rows = []
+    for metric in ["price_accuracy", "convergence_speed", "resolution_fairness", "boundary_sensitivity_max", "exitability_unwind"]:
+        subset_a = baseline_df[baseline_df["design"] == 0][metric]
+        subset_b = baseline_df[baseline_df["design"] == 1][metric]
+        rows.append({
+            "Metric": metric,
+            "Baseline A p50": round(float(subset_a.median()), 4),
+            "Baseline B p50": round(float(subset_b.median()), 4),
+            "Delta (B - A)": round(float(subset_b.median() - subset_a.median()), 4),
+        })
+    return pd.DataFrame(rows).to_html(index=False)
+
+
+def _make_boundary_heatmap(phase1_df: pd.DataFrame) -> str:
+    pivot = phase1_df.groupby("design_name")["boundary_sensitivity_max"].median().to_frame("median_max_jump")
+    fig = px.imshow(
+        pivot[["median_max_jump"]].values,
+        x=["median_max_jump"],
+        y=list(pivot.index),
+        color_continuous_scale="Viridis",
+        aspect="auto",
+        title="Boundary sensitivity heatmap by design",
+    )
+    fig.update_layout(template="plotly_dark")
+    return fig.to_html(full_html=False, include_plotlyjs=False)
+
+
+def _make_exitability_chart(phase1_df: pd.DataFrame) -> str:
+    rows = []
+    for design_name in phase1_df["design_name"].unique():
+        subset = phase1_df[phase1_df["design_name"] == design_name]
+        rows.append({
+            "design_name": design_name,
+            "unwind": float(subset["exitability_unwind"].median()),
+            "reposition_cost": float(subset["exitability_reposition_cost"].median()),
+        })
+    chart_df = pd.DataFrame(rows)
+    fig = go.Figure()
+    fig.add_bar(name="Max unwind fraction", x=chart_df["design_name"], y=chart_df["unwind"])
+    fig.add_bar(name="Reposition cost", x=chart_df["design_name"], y=chart_df["reposition_cost"])
+    fig.update_layout(title="Exitability comparison", template="plotly_dark", barmode="group")
+    return fig.to_html(full_html=False, include_plotlyjs=False)
+
+
+def _make_clob_summary(clob_df: pd.DataFrame, phase1_df: pd.DataFrame) -> str:
+    top_amm = phase1_df.groupby("design_name")["price_accuracy"].median().sort_values().head(3).index.tolist()
+    rows = [{
+        "CLOB metric": "Orderbook depth p50",
+        "Value": round(float(clob_df["clob_depth_total"].median()), 2),
+        "Reference": ", ".join(top_amm),
+    }, {
+        "CLOB metric": "Fill rate p50",
+        "Value": round(float(clob_df["clob_fill_rate"].median()), 4),
+        "Reference": "Qualitative comparison only",
+    }, {
+        "CLOB metric": "Spread bps p50",
+        "Value": round(float(clob_df["clob_spread_bps"].median()), 2),
+        "Reference": "Qualitative comparison only",
+    }]
+    return pd.DataFrame(rows).to_html(index=False)
+
+
+def _make_clob_charts(clob_df: pd.DataFrame) -> list[str]:
+    charts = []
+    for metric, title in [
+        ("clob_depth_total", "CLOB orderbook depth"),
+        ("clob_fill_rate", "CLOB fill rates"),
+        ("clob_spread_bps", "CLOB spread dynamics"),
+    ]:
+        fig = px.histogram(clob_df, x=metric, title=title, template="plotly_dark")
+        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
+    return charts
+
+
+def _make_fee_heatmaps(phase2_df: pd.DataFrame) -> list[str]:
+    charts = []
+    for metric in ["price_accuracy", "convergence_speed", "lp_profitability", "manipulation_resistance", "resolution_fairness", "boundary_sensitivity_max", "exitability_unwind"]:
+        pivot = phase2_df.pivot_table(index="design_name", columns="fee_name", values=metric, aggfunc="median")
+        fig = px.imshow(pivot.values, x=list(pivot.columns), y=list(pivot.index), aspect="auto", title=f"{metric} heatmap")
+        fig.update_layout(template="plotly_dark")
+        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
+    return charts
+
+
+def _make_optimal_fee_table(phase2_df: pd.DataFrame) -> str:
+    from engine.metrics import composite_score
+    rows = []
+    for design_name in phase2_df["design_name"].unique():
+        best_fee = None
+        best_score = None
+        for fee_name in phase2_df["fee_name"].unique():
+            subset = phase2_df[(phase2_df["design_name"] == design_name) & (phase2_df["fee_name"] == fee_name)]
+            score = composite_score(_normalized_metrics(subset))
+            if best_score is None or score > best_score:
+                best_score = score
+                best_fee = fee_name
+        rows.append({"Design": design_name, "Optimal Fee": best_fee, "Composite Score": round(float(best_score), 4)})
+    return pd.DataFrame(rows).sort_values("Composite Score", ascending=False).to_html(index=False)
+
+
+def _make_sensitivity_summary(sensitivity_df: pd.DataFrame) -> tuple[str, list[str]]:
+    tables = []
+    charts = []
+    for axis in ["num_bins", "agent_mix", "initial_liquidity"]:
+        subset = sensitivity_df[sensitivity_df["sensitivity_axis"] == axis]
+        if len(subset) == 0:
+            continue
+        summary = subset.groupby(["design_name", "sensitivity_value"])["price_accuracy"].median().reset_index()
+        tables.append(f"<h3>{axis}</h3>" + summary.to_html(index=False))
+        fig = px.line(summary, x="sensitivity_value", y="price_accuracy", color="design_name", markers=True, title=f"Sensitivity: {axis}")
+        fig.update_layout(template="plotly_dark")
+        charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
+    return "".join(tables), charts
 
 
 def generate_report(
     phase1_df: pd.DataFrame,
+    clob_df: pd.DataFrame,
     phase2_df: pd.DataFrame | None = None,
+    sensitivity_df: pd.DataFrame | None = None,
+    raw_links: dict[str, str] | None = None,
     output_dir: str = "output",
 ) -> str:
-    """Generate the full HTML report. Returns path to the HTML file."""
+    """Generate the full self-contained HTML report required by the spec."""
     output = Path(output_dir)
     output.mkdir(exist_ok=True)
+    raw_links = raw_links or {"results": "results.csv", "phase1": "phase1_results.csv", "clob": "clob_results.csv", "phase2": "", "sensitivity": ""}
 
-    # Leaderboard
     leaderboard_table = _make_leaderboard(phase1_df)
-
-    # Baseline A vs B
     baseline_df = phase1_df[phase1_df["design"].isin([0, 1])]
-    baseline_chart = _make_metric_boxplot(baseline_df, "price_accuracy", "Baseline A vs B: Price Accuracy (KL Divergence)")
-
-    # Per-metric charts
+    baseline_table = _make_baseline_table(phase1_df)
+    baseline_charts = [
+        _make_metric_errorbar_chart(baseline_df, metric, f"Baseline A vs B: {metric}")
+        for metric in ["price_accuracy", "convergence_speed", "resolution_fairness", "boundary_sensitivity_max", "exitability_unwind"]
+    ]
     metrics_to_plot = [
         ("price_accuracy", "Price Accuracy (KL Divergence) — lower is better"),
         ("convergence_speed", "Convergence Speed (rounds) — lower is better"),
+        ("manipulation_resistance", "Manipulation Resistance — higher is better"),
         ("lp_profitability", "LP Profitability (net return)"),
         ("resolution_fairness", "Resolution Fairness — lower is better"),
         ("exitability_unwind", "Exitability (max unwind fraction) — higher is better"),
     ]
-    metric_charts = [_make_metric_boxplot(phase1_df, m, t) for m, t in metrics_to_plot]
-
-    # Boundary sensitivity
-    boundary_chart = _make_metric_boxplot(phase1_df, "boundary_sensitivity_max", "Boundary Sensitivity (max jump) — lower is better")
-
-    # Phase 2 charts
+    metric_charts = [_make_metric_errorbar_chart(phase1_df, m, t) for m, t in metrics_to_plot]
+    boundary_chart = _make_boundary_heatmap(phase1_df)
+    exitability_chart = _make_exitability_chart(phase1_df)
+    clob_summary = _make_clob_summary(clob_df, phase1_df)
+    clob_charts = _make_clob_charts(clob_df)
     phase2_charts = []
+    optimal_fee_table = ""
     if phase2_df is not None and len(phase2_df) > 0:
-        for m, t in metrics_to_plot:
-            fig = px.box(phase2_df, x="fee_name", y=m, color="design_name",
-                         title=f"Phase 2: {t}", template="plotly_dark")
-            phase2_charts.append(fig.to_html(full_html=False, include_plotlyjs=False))
+        phase2_charts = _make_fee_heatmaps(phase2_df)
+        optimal_fee_table = _make_optimal_fee_table(phase2_df)
 
-    # Render template
+    sensitivity_summary = ""
+    sensitivity_charts = []
+    if sensitivity_df is not None and len(sensitivity_df) > 0:
+        sensitivity_summary, sensitivity_charts = _make_sensitivity_summary(sensitivity_df)
+
     template = Template(REPORT_TEMPLATE)
     html = template.render(
-        total_runs=len(phase1_df) + (len(phase2_df) if phase2_df is not None else 0),
+        total_runs=len(phase1_df) + len(clob_df) + (len(phase2_df) if phase2_df is not None else 0) + (len(sensitivity_df) if sensitivity_df is not None else 0),
         num_designs=phase1_df["design_name"].nunique(),
         num_fees=phase2_df["fee_name"].nunique() if phase2_df is not None else 1,
+        plotly_js_inline=f"<script>{get_plotlyjs()}</script>",
         leaderboard_table=leaderboard_table,
-        baseline_chart=baseline_chart,
+        baseline_table=baseline_table,
+        baseline_charts=baseline_charts,
         metric_charts=metric_charts,
         boundary_chart=boundary_chart,
+        exitability_chart=exitability_chart,
+        clob_summary=clob_summary,
+        clob_charts=clob_charts,
         phase2_charts=phase2_charts,
+        optimal_fee_table=optimal_fee_table,
+        sensitivity_summary=sensitivity_summary,
+        sensitivity_charts=sensitivity_charts,
+        raw_links=raw_links,
     )
 
     report_path = output / "report.html"
@@ -3210,15 +3770,21 @@ git commit -m "feat(sim): add HTML report generator and MiroFish JSON export"
 
 ```python
 # quant-simulation/run.py
-"""Entry point: Phase 1 → down-select → Phase 2 → report."""
+"""Entry point: Phase 1 → down-select → Phase 2 → sensitivity → report."""
 
 import argparse
-import sys
 from pathlib import Path
 
-from engine.sweeps import run_phase1, run_clob_phase1, select_top_designs, run_phase2
+from config.params import DESIGN_NAMES
+from engine.sweeps import (
+    run_phase1,
+    run_clob_phase1,
+    select_top_designs,
+    run_phase2,
+    run_sensitivity_sweeps,
+)
 from analysis.report import generate_report
-from analysis.export import export_csv, export_mirofish_json
+from analysis.export import export_all_results, export_mirofish_json
 
 
 def main():
@@ -3229,6 +3795,7 @@ def main():
     parser.add_argument("--liquidity", type=int, default=10_000_000_000, help="Initial liquidity (native units)")
     parser.add_argument("--output", type=str, default="output", help="Output directory")
     parser.add_argument("--phase1-only", action="store_true", help="Skip Phase 2")
+    parser.add_argument("--skip-sensitivity", action="store_true", help="Skip sensitivity sweeps during local iteration")
     parser.add_argument("--quick", action="store_true", help="Quick run: 10 MC, 16 bins, 50 rounds")
     args = parser.parse_args()
 
@@ -3247,7 +3814,6 @@ def main():
         num_rounds=args.num_rounds,
         mc_runs=args.mc_runs,
     )
-    export_csv(phase1_df, str(output / "phase1_results.csv"))
 
     print(f"=== Phase 1: CLOB Hybrid ({args.mc_runs} runs) ===")
     clob_df = run_clob_phase1(
@@ -3256,7 +3822,6 @@ def main():
         num_rounds=args.num_rounds,
         mc_runs=args.mc_runs,
     )
-    export_csv(clob_df, str(output / "clob_results.csv"))
 
     top_designs = select_top_designs(phase1_df, n=3)
     print(f"=== Top 3 designs: {[DESIGN_NAMES[d] for d in top_designs]} ===")
@@ -3271,17 +3836,48 @@ def main():
             num_rounds=args.num_rounds,
             mc_runs=args.mc_runs,
         )
-        export_csv(phase2_df, str(output / "phase2_results.csv"))
+    sensitivity_df = None
+    if not args.skip_sensitivity:
+        print("=== Sensitivity Sweep (top 3 designs) ===")
+        sensitivity_df = run_sensitivity_sweeps(
+            top_designs=top_designs,
+            mc_runs=3 if args.quick else args.mc_runs,
+            num_rounds=args.num_rounds,
+            bin_values=(16, 64) if args.quick else (16, 32, 64, 128, 256),
+            liquidity_values=(1_000 * 1_000_000, 10_000 * 1_000_000) if args.quick else (
+                1_000 * 1_000_000,
+                10_000 * 1_000_000,
+                100_000 * 1_000_000,
+            ),
+        )
+
+    raw_exports = export_all_results(
+        phase1_df=phase1_df,
+        clob_df=clob_df,
+        phase2_df=phase2_df,
+        sensitivity_df=sensitivity_df,
+        output_dir=args.output,
+    )
 
     print("=== Generating Report ===")
-    report_path = generate_report(phase1_df, phase2_df, args.output)
+    report_path = generate_report(
+        phase1_df=phase1_df,
+        clob_df=clob_df,
+        phase2_df=phase2_df,
+        sensitivity_df=sensitivity_df,
+        raw_links={k: Path(v).name for k, v in raw_exports.items()},
+        output_dir=args.output,
+    )
     print(f"Report: {report_path}")
 
-    export_mirofish_json(phase1_df, top_n=3, path=str(output / "mirofish_export.json"))
+    export_mirofish_json(
+        phase1_df=phase1_df,
+        clob_df=clob_df,
+        phase2_df=phase2_df,
+        top_n=3,
+        path=str(output / "mirofish_export.json"),
+    )
     print(f"MiroFish export: {output / 'mirofish_export.json'}")
-
-    # Import DESIGN_NAMES for printing
-    from config.params import DESIGN_NAMES
 
 
 if __name__ == "__main__":
@@ -3291,7 +3887,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run a quick smoke test**
 
 Run: `cd quant-simulation && python run.py --quick`
-Expected: completes without error, creates `output/report.html`, `output/phase1_results.csv`, `output/mirofish_export.json`
+Expected: completes without error, creates `output/report.html`, `output/results.csv`, `output/phase1_results.csv`, `output/clob_results.csv`, `output/mirofish_export.json`, and `output/sensitivity_results.csv`
 
 - [ ] **Step 3: Verify the report file exists and is valid HTML**
 
@@ -3319,12 +3915,12 @@ Expected: all tests PASS
 
 - [ ] **Step 2: Run a quick end-to-end simulation**
 
-Run: `cd quant-simulation && python run.py --quick --phase1-only`
-Expected: completes in under 60 seconds, report generated
+Run: `cd quant-simulation && python run.py --quick`
+Expected: completes in under 60 seconds, report generated with Phase 1, CLOB, Phase 2, and reduced sensitivity content
 
 - [ ] **Step 3: Verify report contents**
 
-Run: `python3 -c "from pathlib import Path; html = Path('quant-simulation/output/report.html').read_text(); assert 'Leaderboard' in html; assert 'Baseline A' in html; assert 'Baseline B' in html; print('Report verified OK')"`
+Run: `python3 -c "from pathlib import Path; html = Path('quant-simulation/output/report.html').read_text(); assert 'Leaderboard' in html; assert 'Baseline A' in html; assert 'Baseline B' in html; assert 'CLOB Hybrid Analysis' in html; assert 'Sensitivity Analysis' in html; assert 'Fee Mechanism Sweep' in html; print('Report verified OK')"`
 Expected: "Report verified OK"
 
 - [ ] **Step 4: Final commit**
@@ -3350,11 +3946,23 @@ HTML report with leaderboard, charts, and MiroFish JSON export"
 - 7 agent types: covered in Task 7
 - 8 metrics: covered in Task 8
 - Phase 1/Phase 2 sweep: covered in Task 9
-- CLOB separate analysis: covered in Task 9 (sweeps.py)
-- HTML report with leaderboard, charts, heatmaps: covered in Task 10
-- MiroFish JSON export: covered in Task 10
-- Sensitivity analysis: not explicitly implemented (noted as future extension after Phase 1/2 proves out)
+- CLOB separate analysis and CLOB-specific depth/fill/spread metrics: covered in Tasks 5, 9, 10
+- HTML report with leaderboard, p5/p50/p95 charts, heatmaps, optimal-fee recommendation, and raw-data links: covered in Task 10
+- MiroFish JSON export with top 3 design-fee combos ranked by composite score: covered in Task 10
+- Sensitivity analysis (bins, agent mix, liquidity): covered in Tasks 9-11
 
 **Placeholder scan:** No TBDs, TODOs, or vague steps found.
 
 **Type consistency:** Verified function signatures match across tasks (e.g., `compute_payout_wta`, `compute_buy`, `kl_divergence` signatures are consistent between definition and usage).
+
+---
+
+## Spec Sync Notes (2026-03-30 review)
+
+The plan now incorporates all previously identified spec mismatches:
+
+1. Baseline A vs B diverges through the informed-trader distribution trade path, which is the core Taylor-4 vs exact-Gaussian experiment.
+2. Piecewise and kernel settlement are peak-normalized, matching the spec's "winning bin = 100%" semantics.
+3. CLOB uses orderbook-derived implied prices plus dedicated depth, fill-rate, and spread metrics, and is reported in its own section.
+4. LP profitability, manipulation resistance, and exitability follow the formulas and lifecycle described in the specs.
+5. The report now includes p5/p50/p95 summaries, error-bar charts, fee heatmaps, optimal-fee recommendations, sensitivity analysis, MiroFish export, and consolidated raw-data downloads.

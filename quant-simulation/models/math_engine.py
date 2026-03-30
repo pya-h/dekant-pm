@@ -1,7 +1,7 @@
 """L2-norm CFAMM math engine — faithful port of on-chain Rust code.
 
 All functions are pure — no side effects (except where reserves are mutated
-in-place, matching the Rust API), no cadCAD dependency.
+in-place, matching the Rust API), no external framework dependency.
 
 Invariant: Σ (total_minted - reserves[i])² = total_minted²  (within tolerance)
 

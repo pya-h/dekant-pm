@@ -1,7 +1,7 @@
 """All 8 simulation metrics."""
 import numpy as np
 from config.params import SCALE, MetricWeights
-from models.math_engine import compute_buy, compute_probabilities, isqrt
+from models.math_engine import compute_buy, compute_distribution_buy, compute_probabilities, isqrt
 
 
 def kl_divergence(p_true: np.ndarray, p_amm: np.ndarray, epsilon: float = 1e-12) -> float:
@@ -12,12 +12,12 @@ def kl_divergence(p_true: np.ndarray, p_amm: np.ndarray, epsilon: float = 1e-12)
     return float(np.sum(p[mask] * np.log(p[mask] / q[mask])))
 
 
-def convergence_speed(kl_series: list[float], threshold: float = 0.01) -> int:
-    """Number of rounds (index) to reach KL < threshold. Returns len if never reached."""
+def convergence_speed(kl_series: list[float], threshold: float = 0.01, snapshot_interval: int = 10) -> int:
+    """Number of rounds to reach KL < threshold. Returns total rounds if never reached."""
     for i, kl in enumerate(kl_series):
         if kl < threshold:
-            return i
-    return len(kl_series)
+            return i * snapshot_interval
+    return len(kl_series) * snapshot_interval
 
 
 def compute_slippage(reserves: np.ndarray, total_minted: int, outcome: int, trade_fraction: float) -> float:
@@ -37,11 +37,11 @@ def compute_slippage(reserves: np.ndarray, total_minted: int, outcome: int, trad
     return (avg_price - mid_price) / mid_price if mid_price > 0 else 0.0
 
 
-def lp_profitability(fees_earned: int, deposited: int, current_value: int) -> float:
-    """Net LP return: (fees_earned + current_value - deposited) / deposited."""
-    if deposited <= 0:
+def lp_profitability(fees_earned: int, capital_deposited: int, impermanent_loss: float) -> float:
+    """Net LP return per spec: (fees_earned - impermanent_loss) / capital_deposited."""
+    if capital_deposited <= 0:
         return 0.0
-    return (fees_earned + current_value - deposited) / deposited
+    return (fees_earned - impermanent_loss) / capital_deposited
 
 
 def manipulation_cost(budget_spent: int, price_change_pct: float) -> float:
@@ -51,9 +51,16 @@ def manipulation_cost(budget_spent: int, price_change_pct: float) -> float:
     return budget_spent / price_change_pct
 
 
-def resolution_fairness(trader_payouts: np.ndarray, trader_distances: np.ndarray, ideal_payouts: np.ndarray) -> float:
-    """Mean |actual_payout / ideal_payout - 1| for traders near resolved bin. Lower = more fair."""
+def resolution_fairness(
+    trader_payouts: np.ndarray,
+    trader_distances: np.ndarray,
+    ideal_payouts: np.ndarray,
+    max_distance: int | None = None,
+) -> float:
+    """Mean absolute payout-ratio error for traders near the resolved bin."""
     mask = ideal_payouts > 0
+    if max_distance is not None:
+        mask &= trader_distances <= max_distance
     if not np.any(mask):
         return 0.0
     ratios = trader_payouts[mask].astype(np.float64) / ideal_payouts[mask].astype(np.float64)
@@ -68,23 +75,33 @@ def boundary_sensitivity(payouts: np.ndarray) -> tuple[int, float]:
     return int(np.max(diffs)), float(np.mean(diffs))
 
 
-def exitability(reserves: np.ndarray, total_minted: int, holdings: np.ndarray, target_unwind_fraction: float = 0.5) -> dict:
-    """Measure how much of a position can be unwound and at what slippage cost.
-    Returns dict with max_unwind_fraction and slippage_cost."""
-    total_held = int(np.sum(holdings))
+def exitability(
+    reserves: np.ndarray,
+    total_minted: int,
+    reference_holdings: np.ndarray,
+    weight_fn,
+    range_min: int,
+    range_max: int,
+    num_bins: int,
+    original_mu: int,
+    original_sigma: int,
+    delta_mu_frac: float = 0.1,
+    delta_sigma_frac: float = 0.2,
+) -> dict:
+    """Measure unwind feasibility plus reposition cost after a belief shift."""
+    total_held = int(np.sum(reference_holdings))
     if total_held == 0:
-        return {"max_unwind_fraction": 1.0, "slippage_cost": 0.0}
+        return {"max_unwind_fraction": 1.0, "unwind_slippage": 0.0, "reposition_cost": 0.0}
 
-    target_sell = int(total_held * target_unwind_fraction)
     actually_sold = 0
     total_collateral = 0
     reserves_copy = reserves.copy()
     tm = total_minted
 
-    for i in range(len(holdings)):
-        if holdings[i] <= 0:
+    for i in range(len(reference_holdings)):
+        if reference_holdings[i] <= 0:
             continue
-        sell_amount = int(holdings[i] * target_unwind_fraction)
+        sell_amount = int(reference_holdings[i])
         if sell_amount <= 0:
             continue
         x_i = tm - int(reserves_copy[i])
@@ -105,10 +122,36 @@ def exitability(reserves: np.ndarray, total_minted: int, holdings: np.ndarray, t
         total_collateral += collateral
 
     max_unwind = actually_sold / total_held if total_held > 0 else 1.0
-    fair_value = total_held * target_unwind_fraction
-    slippage = 1.0 - (total_collateral / fair_value) if fair_value > 0 else 0.0
+    fair_value = total_held
+    unwind_slippage = 1.0 - (total_collateral / fair_value) if fair_value > 0 else 0.0
 
-    return {"max_unwind_fraction": max_unwind, "slippage_cost": max(0.0, slippage)}
+    span = range_max - range_min
+    new_mu = original_mu + int(delta_mu_frac * span)
+    new_sigma = max(1, int(original_sigma * (1.0 + delta_sigma_frac)))
+    new_weights = weight_fn(range_min, range_max, num_bins, new_mu, new_sigma)
+
+    reposition_cost = 0.0
+    if total_collateral > 0 and int(np.sum(new_weights)) > 0:
+        try:
+            reserves_copy2 = reserves_copy.copy()
+            tokens_out, _ = compute_distribution_buy(
+                reserves_copy2,
+                tm,
+                new_weights,
+                total_collateral,
+            )
+            received = int(np.sum(tokens_out))
+            fair_reposition = total_collateral
+            if fair_reposition > 0:
+                reposition_cost = max(0.0, 1.0 - (received / fair_reposition))
+        except (ValueError, OverflowError, AssertionError, ZeroDivisionError):
+            reposition_cost = 1.0
+
+    return {
+        "max_unwind_fraction": max_unwind,
+        "unwind_slippage": max(0.0, unwind_slippage),
+        "reposition_cost": reposition_cost,
+    }
 
 
 def composite_score(normalized_metrics: dict[str, float], weights: MetricWeights | None = None) -> float:

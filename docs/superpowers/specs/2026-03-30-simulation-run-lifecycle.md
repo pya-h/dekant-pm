@@ -74,9 +74,9 @@ Compute all 8 metrics for the completed run:
 7. **Boundary sensitivity**: for each bin boundary, compute `|payout(b + epsilon) - payout(b - epsilon)|`. Report max and mean boundary jump. Measures payoff discontinuity — ideal = 0 (smooth), baseline will show 1.0 (maximum discontinuity).
 8. **Exitability**: shift a reference trader's belief by (delta_mu, delta_sigma). Measure max feasible unwind as fraction of position, and slippage cost to reposition. Tests whether traders can exit or adjust positions without being locked in.
 
-### Phase 5: Sweep (cadCAD orchestration)
+### Phase 5: Sweep (loop orchestration)
 
-cadCAD orchestrates the sweep in two phases:
+The sweep engine (`engine/sweeps.py`) orchestrates the sweep in two phases using simple Python loops with explicit seed management:
 
 **Phase 1 — Design down-selection (flat fee only):**
 ```

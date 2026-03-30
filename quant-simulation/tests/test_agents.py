@@ -23,7 +23,14 @@ class TestInformedTrader:
         reserves, total_minted, probs = _make_market()
         true_dist = np.zeros(16, dtype=np.int64)
         true_dist[8] = SCALE
-        agent = InformedTrader(agent_id=0, capital=1_000_000_000, conviction=0.5, true_distribution=true_dist)
+        agent = InformedTrader(
+            agent_id=0,
+            capital=1_000_000_000,
+            conviction=0.5,
+            true_distribution=true_dist,
+            true_mu=50 * SCALE,
+            true_sigma=10 * SCALE,
+        )
         actions = agent.decide(probs, total_minted, current_round=10, total_rounds=200)
         buys = [a for a in actions if a.side == "buy"]
         assert len(buys) > 0
@@ -33,10 +40,35 @@ class TestInformedTrader:
         reserves, total_minted, probs = _make_market()
         true_dist = np.zeros(16, dtype=np.int64)
         true_dist[8] = SCALE
-        agent = InformedTrader(agent_id=0, capital=100, conviction=1.0, true_distribution=true_dist)
+        agent = InformedTrader(
+            agent_id=0,
+            capital=100,
+            conviction=1.0,
+            true_distribution=true_dist,
+            true_mu=50 * SCALE,
+            true_sigma=10 * SCALE,
+        )
         actions = agent.decide(probs, total_minted, current_round=10, total_rounds=200)
         total_spend = sum(a.amount for a in actions if a.side == "buy")
         assert total_spend <= 100
+
+    def test_can_emit_sell_when_bundle_is_overpriced(self):
+        true_dist = np.zeros(16, dtype=np.int64)
+        true_dist[8] = int(0.7 * SCALE)
+        true_dist[9] = SCALE - true_dist[8]
+        implied = np.zeros(16, dtype=np.int64)
+        implied[8] = SCALE
+        agent = InformedTrader(
+            agent_id=0,
+            capital=1_000_000_000,
+            conviction=1.0,
+            true_distribution=true_dist,
+            true_mu=50 * SCALE,
+            true_sigma=10 * SCALE,
+        )
+        actions = agent.decide(implied, 1_000_000_000, current_round=10, total_rounds=200)
+        sells = [a for a in actions if a.side == "sell"]
+        assert len(sells) > 0
 
 
 class TestNoiseTrader:
@@ -102,3 +134,16 @@ class TestRebalancingLP:
             num_bins=16, current_round=10,
         )
         assert weights[0] > weights[3]
+
+    def test_rebalance_weights_persist_between_intervals(self):
+        agent = RebalancingLP(agent_id=6, capital=1_000_000_000, yield_threshold=0.0, loss_tolerance=1.0, rebalance_interval=10, concentration_factor=2.0)
+        weights = agent.compute_rebalance_weights(
+            activity_counts=np.array([10, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            num_bins=16, current_round=10,
+        )
+        agent.last_weights = weights
+        persisted = agent.compute_rebalance_weights(
+            activity_counts=np.zeros(16, dtype=np.int64),
+            num_bins=16, current_round=11,
+        )
+        assert np.allclose(persisted, weights)

@@ -64,7 +64,7 @@ Two baselines to isolate the Gaussian approximation effect from settlement desig
 
 ```
 quant-simulation/
-├── pyproject.toml              # Dependencies: numpy, scipy, pandas, plotly, jinja2, cadcad
+├── pyproject.toml              # Dependencies: numpy, scipy, pandas, plotly, jinja2
 ├── config/
 │   └── params.py               # All tunable parameters (bins, fees, trader profiles, phases)
 ├── models/
@@ -85,7 +85,7 @@ quant-simulation/
 │   ├── late_round_whale.py     # Last-minute probability manipulation (scalar design stress test)
 │   └── lp.py                   # Passive and rebalancing LP strategies
 ├── engine/
-│   ├── simulation.py           # cadCAD orchestration: state machine, round loop
+│   ├── simulation.py           # SimulationRun: state machine, round loop
 │   ├── metrics.py              # Computes all 8 metrics per run
 │   └── sweeps.py               # Phase 1 + Phase 2 sweep configs
 ├── analysis/
@@ -94,7 +94,7 @@ quant-simulation/
 └── run.py                      # Entry point: phase 1 -> down-select -> phase 2 -> report
 ```
 
-**Key architectural principle:** the math engine (`math_engine.py`, `weights.py`, settlement modules) is pure numpy vectorized code with no cadCAD dependency. cadCAD is used only for orchestration (sweep configuration, state machine bookkeeping, Monte Carlo scheduling). This keeps the core microstructure math testable and fast independently.
+**Key architectural principle:** the math engine (`math_engine.py`, `weights.py`, settlement modules) is pure numpy vectorized code with no external framework dependency. Orchestration uses simple Python loops with explicit seed management for Monte Carlo scheduling (`engine/sweeps.py`). This keeps the core microstructure math testable and fast independently, with no framework coupling.
 
 ## Agent Behavior Models
 
@@ -159,7 +159,7 @@ The HTML report contains:
 
 ### AMM Math Engine
 
-Pure numpy vectorized code, no cadCAD dependency:
+Pure numpy vectorized code, no external framework dependency:
 - L2-norm invariant: `sum((total_minted - reserves[i])^2) = total_minted^2`
 - Integer arithmetic with SCALE = 10^9
 - isqrt via Newton's method
@@ -167,14 +167,14 @@ Pure numpy vectorized code, no cadCAD dependency:
   - Taylor-4 approximation (faithful port of `normal_pdf.rs` for Baseline A)
   - Exact Gaussian via `scipy.stats.norm.pdf` (for Baseline B and all redesigns)
 
-### cadCAD Integration (orchestration only)
+### Orchestration
 
-- **State variables**: reserves, total_minted, agent_positions, agent_balances, fee_accumulators, orderbook_state
-- **Policies**: one per agent type (informed_trade, noise_trade, arb_trade, manipulate, whale_attack, lp_passive, lp_rebalance)
-- **State update functions**: apply_trade, apply_fees, update_positions, rebalance_lps, compute_metrics
-- **Phase 1 sweeps**: `M = {'amm_design': [0,1,2,3,4,5], 'fee_model': [0]}` (flat only)
-- **Phase 2 sweeps**: `M = {'amm_design': [top_3], 'fee_model': [0,1,2,3,4]}`
-- **Monte Carlo**: `N = 1000` runs per parameter combo
+Simple Python loops with explicit seed management (no framework dependency):
+- **SimulationRun class**: encapsulates full market lifecycle (init → trade rounds → resolve → metrics)
+- **Phase 1 sweeps**: iterates designs 0-5 × MC seeds under flat fee
+- **Phase 2 sweeps**: iterates top 3 designs × 5 fee models × MC seeds
+- **Monte Carlo**: 1000 runs per parameter combo, reproducible via sequential seed assignment
+- **Sensitivity sweeps**: additional parameter variations (bins, liquidity, agent mix) on top designs
 
 ### Dependencies
 
@@ -183,4 +183,3 @@ Pure numpy vectorized code, no cadCAD dependency:
 - pandas >= 2.0
 - plotly >= 5.18
 - jinja2 >= 3.1 (for HTML report templating)
-- cadCAD >= 0.5.3 (orchestration only)

@@ -30,6 +30,7 @@ class RebalancingLP:
         self.loss_tolerance = loss_tolerance
         self.rebalance_interval = rebalance_interval
         self.concentration_factor = concentration_factor
+        self.last_weights = None
 
     def decide_lp(self, fee_yield, unrealized_loss, current_round) -> dict | None:
         if unrealized_loss > self.loss_tolerance and self.deposited > 0:
@@ -42,13 +43,13 @@ class RebalancingLP:
         return None
 
     def compute_rebalance_weights(self, activity_counts, num_bins, current_round) -> np.ndarray:
+        uniform = np.ones(num_bins, dtype=np.float64) / num_bins
         if current_round % self.rebalance_interval != 0:
-            return np.ones(num_bins, dtype=np.float64) / num_bins
+            return self.last_weights.copy() if self.last_weights is not None else uniform
         total_activity = float(np.sum(activity_counts))
         if total_activity == 0:
-            return np.ones(num_bins, dtype=np.float64) / num_bins
+            return self.last_weights.copy() if self.last_weights is not None else uniform
         activity_share = activity_counts.astype(np.float64) / total_activity
-        uniform = np.ones(num_bins, dtype=np.float64) / num_bins
         weights = uniform + self.concentration_factor * activity_share
         weights /= weights.sum()
         return weights

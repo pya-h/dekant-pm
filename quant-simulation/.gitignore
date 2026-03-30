@@ -2,6 +2,7 @@
 output/*.html
 output/*.csv
 output/*.json
+output_full/
 
 # Python
 __pycache__/

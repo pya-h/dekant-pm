@@ -37,7 +37,7 @@ class TestDynamicBandwidth:
 class TestPiecewiseLinear:
     def test_winning_bin_gets_max(self):
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert payouts[128] == max(payouts)
+        assert payouts[128] == SCALE
 
     def test_linear_decay(self):
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
@@ -47,14 +47,15 @@ class TestPiecewiseLinear:
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
         assert payouts[134] == 0
 
-    def test_payouts_sum_correctly(self):
+    def test_peak_normalized(self):
         payouts = compute_payout_piecewise(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert int(np.sum(payouts)) == SCALE
+        assert payouts[128] == SCALE
+        assert int(np.sum(payouts)) > SCALE
 
 class TestKernelSmoothed:
     def test_winning_bin_gets_max(self):
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert payouts[128] == max(payouts)
+        assert payouts[128] == SCALE
 
     def test_smooth_decay(self):
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
@@ -64,9 +65,10 @@ class TestKernelSmoothed:
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
         assert payouts[138] > 0
 
-    def test_payouts_normalized(self):
+    def test_peak_normalized(self):
         payouts = compute_payout_kernel(num_bins=256, resolved_bin=128, bandwidth=5)
-        assert int(np.sum(payouts)) == SCALE
+        assert payouts[128] == SCALE
+        assert int(np.sum(payouts)) > SCALE
 
 class TestScalar:
     def test_uses_implied_probabilities(self):
@@ -97,4 +99,12 @@ class TestCRPS:
         holdings = np.zeros(num_bins, dtype=np.int64)
         holdings[resolved_bin] = 1_000_000
         payout = compute_payout_crps(holdings, resolved_bin, num_bins)
-        assert payout > 0
+        assert payout == SCALE
+
+    def test_worst_case_prediction_gets_zero(self):
+        num_bins = 8
+        resolved_bin = 0
+        holdings = np.zeros(num_bins, dtype=np.int64)
+        holdings[-1] = 1_000_000
+        payout = compute_payout_crps(holdings, resolved_bin, num_bins)
+        assert payout == 0

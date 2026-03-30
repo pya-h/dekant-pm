@@ -11,6 +11,12 @@ class TradeAction:
 
 
 @dataclass
+class DistributionTradeAction(TradeAction):
+    mu: int
+    sigma: int
+
+
+@dataclass
 class AgentState:
     agent_id: int
     capital: int

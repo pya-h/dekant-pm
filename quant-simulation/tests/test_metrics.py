@@ -32,11 +32,11 @@ class TestKLDivergence:
 class TestConvergenceSpeed:
     def test_detects_convergence(self):
         kl_series = [0.5, 0.2, 0.05, 0.008, 0.005]
-        assert convergence_speed(kl_series, threshold=0.01) == 3
+        assert convergence_speed(kl_series, threshold=0.01) == 30
 
     def test_never_converged(self):
         kl_series = [0.5, 0.3, 0.2, 0.1, 0.05]
-        assert convergence_speed(kl_series, threshold=0.01) == 5
+        assert convergence_speed(kl_series, threshold=0.01) == 50
 
 
 class TestBoundarySensitivity:
@@ -49,6 +49,25 @@ class TestBoundarySensitivity:
         payouts = compute_payout_kernel(num_bins=64, resolved_bin=32, bandwidth=5)
         max_jump, mean_jump = boundary_sensitivity(payouts)
         assert max_jump < SCALE // 2
+
+
+class TestLpProfitability:
+    def test_uses_fees_minus_impermanent_loss(self):
+        assert lp_profitability(fees_earned=20, capital_deposited=100, impermanent_loss=10) == 0.1
+
+    def test_negative_impermanent_loss_increases_return(self):
+        assert lp_profitability(fees_earned=20, capital_deposited=100, impermanent_loss=-5) == 0.25
+
+
+class TestResolutionFairness:
+    def test_ignores_traders_outside_window(self):
+        fairness = resolution_fairness(
+            trader_payouts=np.array([100, 0], dtype=np.int64),
+            trader_distances=np.array([1, 10], dtype=np.int64),
+            ideal_payouts=np.array([100, 100], dtype=np.int64),
+            max_distance=5,
+        )
+        assert fairness == 0.0
 
 
 class TestCompositeScore:
