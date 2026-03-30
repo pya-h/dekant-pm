@@ -1,0 +1,27 @@
+[project]
+name = "quant-simulation"
+version = "0.1.0"
+description = "Quantitative AMM settlement design simulator for DekantPM"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "plotly>=5.18",
+    "jinja2>=3.1",
+    "cadCAD>=0.5.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["config*", "models*", "agents*", "engine*", "analysis*"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
