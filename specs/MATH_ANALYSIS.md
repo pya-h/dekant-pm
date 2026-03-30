@@ -699,7 +699,7 @@ bin = ⌊(3150 − 2000) × 5 / (4000 − 2000)⌋ = ⌊1150 × 5 / 2000⌋ = �
   lp_payout = h₂_final × Carol_shares / L_total + fee_share
   ```
 
-**Key observation:** The resolution maps a continuous value ($3,150) to a discrete bin (bin 2). Any value in [$2,800, $3,200) would have resolved identically. This is the fundamental discretization trade-off — see Section 10.1.
+**Key observation:** The resolution maps a continuous value ($3,150) to a discrete bin (bin 2). Any value in [$2,800, $3,200) would have resolved identically. This is the fundamental discretization trade-off — see Section 10.
 
 ### 8.6 Lifecycle Summary
 
