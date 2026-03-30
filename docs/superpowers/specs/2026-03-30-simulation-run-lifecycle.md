@@ -24,11 +24,13 @@ Each round proceeds in this order:
 - Noise traders randomly buy/sell random bins
 - Arbitrageurs scan for probability sum deviations or irrational adjacent-bin pricing
 - Manipulators spend from their budget to push their target bin's price
-- LPs evaluate their fee yield vs adverse selection losses, deposit or withdraw accordingly
+- Late-round whales activate only in the final 10% of rounds, depositing heavily to inflate a target bin's implied probability (specifically stress-tests the scalar design)
+- Passive LPs evaluate their fee yield vs adverse selection losses, deposit or withdraw accordingly
+- Rebalancing LPs do the same but also concentrate positions toward high-activity bins every R rounds, modeling what LPs would do if concentrated liquidity were available
 
 **Step 2 — Trade execution.** All agent actions are queued and executed sequentially (random order within the round):
-- For AMM designs (baseline, piecewise, scalar): trades go through the L2-norm CFAMM engine
-- For CLOB hybrid: trades are matched against the order book, unmatched orders rest on the book
+- For AMM designs (baseline, piecewise, kernel-smoothed, scalar): trades go through the L2-norm CFAMM engine
+- For CLOB hybrid: trades are matched against the price-time priority limit orderbook (tick size = 1 bin width), unmatched orders rest on the book
 - Fees are computed per the active fee mechanism and split between LP pool and protocol
 
 **Step 3 — State update.** After all trades execute:
@@ -47,42 +49,44 @@ Each round proceeds in this order:
 2. Map the resolved value to a bin via `value_to_bin`
 3. Apply the design's payout function:
    - **Baseline**: winning bin gets 100%, all others get 0%
-   - **Piecewise-Linear**: winning bin gets 100%, bins within bandwidth get linearly decaying payout, rest get 0%
+   - **Piecewise-Linear**: winning bin gets 100%, bins within dynamic bandwidth W get linearly decaying payout `max(0, 1 - distance/W)`, rest get 0%. W scales with bin count to maintain constant economic meaning.
+   - **Kernel-Smoothed**: `payout[bin] = exp(-distance^2 / (2 * bandwidth^2))` normalized so winning bin = 1.0. Smooth (C-infinity) decay, same dynamic bandwidth scaling as piecewise-linear.
    - **Scalar**: each bin pays proportional to its final implied probability
-   - **CLOB Hybrid**: continuous payoff based on order fill prices and resolved value proximity
+   - **CLOB Hybrid**: payout based on order fill bin proximity to resolved bin, using same dynamic bandwidth formula
 
 ### Phase 4: Measure
 
-Compute all 5 metrics for the completed run:
+Compute all 6 metrics for the completed run:
 
-1. **Price accuracy**: final KL divergence + convergence speed (round at which KL first dropped below 0.01)
-2. **Capital efficiency**: slippage measurements at 1%, 5%, 10%, 25% of pool depth (sampled at mid-run and end-of-run)
-3. **LP profitability**: `(fees_earned - impermanent_loss) / capital_deposited` for each LP agent
-4. **Manipulation resistance**: total capital spent by manipulator vs price distortion achieved (percent move in target bin)
-5. **Resolution fairness**: for each trader, compute `actual_payout / ideal_payout` where ideal = proportional to prediction accuracy (distance from resolved bin)
+1. **Price accuracy**: final KL divergence between AMM-implied and true distribution
+2. **Convergence speed**: round number at which KL first dropped below 0.01. If never reached, record total_rounds.
+3. **Capital efficiency**: slippage measurements at 1%, 5%, 10%, 25% of pool depth (sampled at mid-run and end-of-run)
+4. **LP profitability**: `(fees_earned - impermanent_loss) / capital_deposited` for each LP agent. Report passive and rebalancing LP returns separately.
+5. **Manipulation resistance**: total capital spent by manipulator vs price distortion achieved. For scalar design, additionally measure late-round whale attack: capital needed in final 10% of rounds to capture >50% of payout pool.
+6. **Resolution fairness**: for each trader, compute `actual_payout / ideal_payout` where ideal = proportional to prediction accuracy (distance from resolved bin)
 
 ### Phase 5: Sweep (cadCAD orchestration)
 
 cadCAD orchestrates the full parameter sweep:
 
 ```
-For each AMM design in [baseline, piecewise, scalar, clob]:
-  For each fee mechanism in [flat, dynamic, tiered, spread]:
+For each AMM design in [baseline, piecewise, kernel_smoothed, scalar, clob]:
+  For each fee mechanism in [flat, dynamic, tiered, spread, time_weighted]:
     For each Monte Carlo run in range(1000):
       - Randomize: agent initial positions, noise trader behavior, true distribution parameters
       - Execute phases 1-4
       - Store all metrics
 ```
 
-Total runs: 4 x 4 x 1000 = 16,000 simulation runs.
+Total runs: 5 x 5 x 1000 = 25,000 simulation runs.
 
 ### Phase 6: Report
 
-Aggregate all 16,000 runs into the comparative HTML report:
+Aggregate all 25,000 runs into the comparative HTML report:
 
-1. Group results by design x fee combo (16 groups of 1000 runs each)
+1. Group results by design x fee combo (25 groups of 1000 runs each)
 2. Compute median, p5, p95 for each metric per group
-3. Rank groups by composite score (weighted average across all 5 metrics)
+3. Rank groups by weighted composite score (Resolution Fairness 0.25, Price Accuracy 0.20, Convergence Speed 0.20, Capital Efficiency 0.15, LP Profitability 0.10, Manipulation Resistance 0.10)
 4. Generate plotly charts, heatmaps, and sensitivity plots
 5. Export top 3 combos as structured JSON for MiroFish ingestion
 6. Bundle everything into a self-contained HTML file
@@ -94,7 +98,7 @@ After the main sweep, additional runs vary:
 | Parameter | Values | Purpose |
 |-----------|--------|---------|
 | Number of bins | 16, 32, 64, 128, 256 | Does bin granularity matter more for some designs? |
-| Agent mix | 90/5/5/0/0, 50/25/15/5/5, 20/40/20/10/10 | Noise-heavy vs informed-heavy vs adversarial |
+| Agent mix | 80/10/5/3/2/0/0, 45/25/13/5/2/5/5, 20/30/15/10/5/10/10 | Noise-heavy vs balanced vs adversarial (7 agent types) |
 | Initial liquidity | 1k, 10k, 100k USDC | Does more liquidity disproportionately help some designs? |
 
 These use the top 3 designs from the main sweep only (to keep runtime manageable).
