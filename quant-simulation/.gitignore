@@ -1,0 +1,17 @@
+# Output artifacts (generated at runtime)
+output/*.html
+output/*.csv
+output/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
