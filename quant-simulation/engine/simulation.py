@@ -57,7 +57,16 @@ from models.settlement_scalar import compute_payout_scalar
 from models.settlement_crps import compute_payout_crps
 from models.fee_models import flat_fee, dynamic_fee, tiered_fee, spread_fee, time_weighted_fee
 from models.orderbook import Orderbook, Order, Side, Fill
-from agents.base import TradeAction, DistributionTradeAction, AgentState
+from agents.base import (
+    TradeAction,
+    DistributionTradeAction,
+    AgentState,
+    DecisionContext,
+    SETTLEMENT_RULES,
+    AMM_ACTIONS,
+    CLOB_ACTIONS,
+)
+from config.scenarios import sample_scenario, Scenario
 from agents.noise_trader import NoiseTrader
 from agents.informed_trader import InformedTrader
 from agents.arbitrageur import Arbitrageur
@@ -114,6 +123,8 @@ class SimulationRun:
         range_min: int = DEFAULT_RANGE_MIN,
         range_max: int = DEFAULT_RANGE_MAX,
         agent_mix: AgentMix | None = None,
+        scenario_family: str | None = None,
+        belief_family: str | None = None,
     ):
         self.design = design
         self.fee_model = fee_model
@@ -142,27 +153,18 @@ class SimulationRun:
             num_bins=num_bins,
         )
 
-        # Generate true distribution params
-        span = range_max - range_min
-        center = (range_min + range_max) // 2
-        self.true_mu = center + int(self.rng.uniform(-0.2, 0.2) * span)
-        self.true_sigma = int(self.rng.uniform(span / 10, span / 3))
-        if self.true_sigma <= 0:
-            self.true_sigma = span // 10
-
-        # Compute true distribution weights — always exact Gaussian regardless of
-        # design, so that the ground truth is the same for all designs (including
-        # Baseline A whose AMM uses Taylor-4).
-        self.true_weights = compute_bin_weights_exact(
-            range_min, range_max, num_bins, self.true_mu, self.true_sigma
+        # Generate scenario (truth + belief distributions)
+        scenario = sample_scenario(
+            self.rng, num_bins, range_min, range_max,
+            truth_family=scenario_family, belief_family=belief_family,
         )
-
+        self.scenario = scenario
+        self.true_weights = scenario.truth_weights
+        self.true_mu = scenario.truth_mu
+        self.true_sigma = scenario.truth_sigma
         # True distribution as float probabilities for KL divergence
         tw_sum = float(np.sum(self.true_weights))
-        if tw_sum > 0:
-            self.true_probs = self.true_weights / tw_sum
-        else:
-            self.true_probs = np.ones(num_bins) / num_bins
+        self.true_probs = self.true_weights / tw_sum if tw_sum > 0 else np.ones(num_bins) / num_bins
 
         # Create agents
         self.agents: list = []
@@ -350,7 +352,6 @@ class SimulationRun:
         for _ in range(n_noise):
             agent = NoiseTrader(
                 agent_id=agent_id,
-                capital=noise_capital,
                 trade_min=noise_params.trade_min,
                 trade_max=noise_params.trade_max,
                 frequency=noise_params.frequency,
@@ -370,11 +371,7 @@ class SimulationRun:
             capital = min(informed_params.capital_limit, informed_capital)
             agent = InformedTrader(
                 agent_id=agent_id,
-                capital=capital,
                 conviction=informed_params.conviction,
-                true_distribution=self.true_weights,
-                true_mu=self.true_mu,
-                true_sigma=self.true_sigma,
             )
             self.agents.append(agent)
             self.agent_states[agent_id] = AgentState(
@@ -389,7 +386,6 @@ class SimulationRun:
         for _ in range(n_arb):
             agent = Arbitrageur(
                 agent_id=agent_id,
-                capital=arb_capital,
                 min_edge=arb_params.min_edge,
             )
             self.agents.append(agent)
@@ -440,7 +436,6 @@ class SimulationRun:
         for _ in range(n_lp_passive):
             agent = PassiveLP(
                 agent_id=agent_id,
-                capital=passive_lp_capital,
                 yield_threshold=lp_params.yield_threshold,
                 loss_tolerance=lp_params.loss_tolerance,
             )
@@ -457,7 +452,6 @@ class SimulationRun:
         for _ in range(n_lp_rebal):
             agent = RebalancingLP(
                 agent_id=agent_id,
-                capital=rebalancing_lp_capital,
                 yield_threshold=lp_rebal_params.yield_threshold,
                 loss_tolerance=lp_rebal_params.loss_tolerance,
                 rebalance_interval=lp_rebal_params.rebalance_interval,
@@ -653,7 +647,7 @@ class SimulationRun:
                     num_bins=self.num_bins,
                     current_round=round_num,
                 )
-            decision = agent.decide_lp(fee_yield, unrealized_loss, round_num)
+            decision = agent.decide_lp(fee_yield, unrealized_loss, round_num, self.agent_states[agent.agent_id])
             if decision is None:
                 continue
             agent_state = self.agent_states[agent.agent_id]
@@ -677,10 +671,8 @@ class SimulationRun:
                 agent_state.deposited_lp = max(0, agent_state.deposited_lp - amount)
                 if isinstance(agent, PassiveLP):
                     self.state.passive_lp_deposited = max(0, self.state.passive_lp_deposited - amount)
-                    agent.deposited = 0
                 else:
                     self.state.rebalancing_lp_deposited = max(0, self.state.rebalancing_lp_deposited - amount)
-                    agent.deposited = 0
 
         # Attribute LP fees using concentration-aware effective liquidity.
         current_total_lp_deposited = self.state.passive_lp_deposited + self.state.rebalancing_lp_deposited
@@ -804,19 +796,53 @@ class SimulationRun:
     def _run_trade_round(self, round_num: int) -> None:
         """Run a single trading round: agents decide, shuffle, execute."""
         implied_probs = self._current_implied_probs()
+        allowed = CLOB_ACTIONS if self.design == DESIGN_CLOB else AMM_ACTIONS
+        settlement_rule = SETTLEMENT_RULES.get(self.design, "wta")
+
+        # Handle regime shift
+        if (self.scenario.shift_round_frac is not None
+                and self.scenario.post_shift_weights is not None
+                and round_num == int(self.num_rounds * self.scenario.shift_round_frac)):
+            self.true_weights = self.scenario.post_shift_weights
+            self.true_mu = self.scenario.post_shift_mu or self.true_mu
+            self.true_sigma = self.scenario.post_shift_sigma or self.true_sigma
+            tw_sum = float(np.sum(self.true_weights))
+            self.true_probs = self.true_weights / tw_sum if tw_sum > 0 else np.ones(self.num_bins) / self.num_bins
 
         # Collect all actions from trading agents
         all_actions: list[TradeAction] = []
         for agent in self.agents:
             if isinstance(agent, (PassiveLP, RebalancingLP)):
                 continue
-            actions = agent.decide(
-                implied_probs, self.state.total_minted, round_num, self.num_rounds
+            agent_state = self.agent_states[agent.agent_id]
+            ctx = DecisionContext(
+                implied_probs=implied_probs,
+                total_minted=self.state.total_minted,
+                reserves=self.state.reserves.copy(),
+                current_round=round_num,
+                total_rounds=self.num_rounds,
+                design=self.design,
+                fee_model=self.fee_model,
+                agent_state=agent_state,
+                allowed_actions=allowed,
+                scenario_family=self.scenario.truth_family,
+                belief_family=self.scenario.belief_family,
+                settlement_rule=settlement_rule,
             )
+            if isinstance(agent, InformedTrader):
+                actions = agent.decide(ctx, self.true_weights)
+            else:
+                actions = agent.decide(ctx)
             all_actions.extend(actions)
 
         # Shuffle actions to avoid ordering bias
         self.rng.shuffle(all_actions)
+
+        # Fill in mu/sigma for DistributionTradeActions that have defaults
+        for action in all_actions:
+            if isinstance(action, DistributionTradeAction) and action.mu == 0 and action.sigma == 0:
+                action.mu = self.scenario.belief_mu
+                action.sigma = self.scenario.belief_sigma
 
         # Execute all trades — route through orderbook for CLOB, AMM otherwise
         if self.design == DESIGN_CLOB:
@@ -1167,6 +1193,10 @@ class SimulationRun:
             "clob_fill_volume": self.clob_total_fill_volume,
             "clob_avg_spread": self._compute_clob_avg_spread() if self.orderbook else 0,
             "clob_total_depth": self._compute_clob_total_depth() if self.orderbook else 0,
+            # Scenario metadata
+            "scenario_family": self.scenario.truth_family,
+            "belief_family": self.scenario.belief_family,
+            "red_team_only": (self.design == DESIGN_SCALAR),
         }
 
     def run(self) -> dict:

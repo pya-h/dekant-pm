@@ -8,12 +8,16 @@ from config.params import (
     DESIGN_BASELINE_B,
     DESIGN_PIECEWISE,
     DESIGN_CLOB,
+    DESIGN_CRPS,
+    DESIGN_KERNEL,
+    DESIGN_SCALAR,
     FEE_FLAT,
     SCALE,
     AgentMix,
     DEFAULT_NUM_BINS,
     DEFAULT_INITIAL_LIQUIDITY,
 )
+from config.scenarios import TRUTH_FAMILIES
 from engine.simulation import SimulationRun, MarketState
 from agents.lp import PassiveLP, RebalancingLP
 
@@ -152,7 +156,6 @@ class TestSimulationRun:
         deposited_per_agent = 1_000_000
         for agent in sim.agents:
             if isinstance(agent, (PassiveLP, RebalancingLP)):
-                agent.deposited = deposited_per_agent
                 agent.yield_threshold = 1.0
                 agent.loss_tolerance = 1.0
                 sim.agent_states[agent.agent_id].deposited_lp = deposited_per_agent
@@ -195,3 +198,63 @@ class TestSimulationRun:
         counts = Counter(type(agent).__name__ for agent in sim.agents)
         assert counts["PassiveLP"] == 0
         assert counts["RebalancingLP"] == 0
+
+    def test_results_contain_scenario_metadata(self):
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert "scenario_family" in results
+        assert "belief_family" in results
+        assert "red_team_only" in results
+        assert results["scenario_family"] in TRUTH_FAMILIES
+
+
+class TestScenarioIntegration:
+    def test_simulation_accepts_scenario_family(self):
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+            scenario_family="bimodal",
+        )
+        results = sim.run()
+        assert results["scenario_family"] == "bimodal"
+
+    def test_different_scenarios_produce_different_results(self):
+        r1 = SimulationRun(
+            design=DESIGN_BASELINE_B, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+            scenario_family="gaussian_center",
+        ).run()
+        r2 = SimulationRun(
+            design=DESIGN_BASELINE_B, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+            scenario_family="skewed",
+        ).run()
+        assert r1["price_accuracy"] != r2["price_accuracy"]
+
+
+class TestDesignAwareIncentives:
+    def test_different_designs_produce_different_trade_paths(self):
+        designs = [DESIGN_BASELINE_B, DESIGN_PIECEWISE, DESIGN_KERNEL, DESIGN_CRPS]
+        kl_by_design = {}
+        for d in designs:
+            sim = SimulationRun(
+                design=d, fee_model=FEE_FLAT,
+                num_bins=16, initial_liquidity=1_000_000_000, num_rounds=30, seed=42,
+            )
+            results = sim.run()
+            kl_by_design[d] = results["price_accuracy"]
+        values = list(kl_by_design.values())
+        assert len(set(round(v, 6) for v in values)) > 1
+
+
+class TestScalarRedTeam:
+    def test_scalar_marked_red_team(self):
+        sim = SimulationRun(
+            design=DESIGN_SCALAR, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert results.get("red_team_only") is True

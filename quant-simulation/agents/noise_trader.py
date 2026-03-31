@@ -27,7 +27,11 @@ class NoiseTrader:
         n_bins = len(implied_probs)
         bin_idx = int(self.rng.integers(0, n_bins))
         side = "buy" if self.rng.random() > 0.5 else "sell"
-        amount = int(self.rng.integers(self.trade_min, min(self.trade_max, capital) + 1))
+        upper = min(self.trade_max, capital)
+        if upper < self.trade_min:
+            amount = min(capital, self.trade_min)
+        else:
+            amount = int(self.rng.integers(self.trade_min, upper + 1))
         amount = min(amount, capital)
         if amount <= 0:
             return []
