@@ -1,5 +1,5 @@
 """Late-round whale: only acts in final rounds, stress-tests scalar design."""
-from agents.base import TradeAction
+from agents.base import DecisionContext, TradeAction
 
 
 class LateRoundWhale:
@@ -9,14 +9,15 @@ class LateRoundWhale:
         self.spent = 0
         self.target_bin = target_bin
         self.activation_round_pct = activation_round_pct
+        self.red_team_only = True
 
-    def decide(self, implied_probs, total_minted, current_round, total_rounds) -> list[TradeAction]:
-        if current_round < total_rounds * self.activation_round_pct:
+    def decide(self, ctx: DecisionContext) -> list[TradeAction]:
+        if ctx.current_round < ctx.total_rounds * self.activation_round_pct:
             return []
         remaining = self.budget - self.spent
         if remaining <= 0:
             return []
-        rounds_left = max(1, total_rounds - current_round)
+        rounds_left = max(1, ctx.total_rounds - ctx.current_round)
         amount = min(remaining // rounds_left, remaining)
         if amount <= 0:
             return []
