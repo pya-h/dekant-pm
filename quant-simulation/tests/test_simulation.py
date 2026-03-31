@@ -258,3 +258,27 @@ class TestScalarRedTeam:
         )
         results = sim.run()
         assert results.get("red_team_only") is True
+
+
+class TestRevisedMetricOutput:
+    def test_results_contain_revised_metrics(self):
+        sim = SimulationRun(
+            design=DESIGN_PIECEWISE, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert "truthful_incentive_alignment" in results
+        assert "boundary_payout_jump_max" in results
+        assert "boundary_incentive_jump_max" in results
+        assert "convergence_speed_sustained" in results
+        assert "lp_activation_rate" in results
+        assert "price_accuracy_combined" in results
+        assert "manipulation_cost_to_move" in results
+
+    def test_scalar_marked_red_team(self):
+        sim = SimulationRun(
+            design=DESIGN_SCALAR, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert results.get("red_team_only") is True

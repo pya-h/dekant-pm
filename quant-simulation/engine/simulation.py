@@ -82,6 +82,15 @@ from engine.metrics import (
     resolution_fairness,
     boundary_sensitivity,
     exitability,
+    # Revised metrics
+    price_accuracy_revised,
+    convergence_speed_revised,
+    capital_efficiency_revised,
+    manipulation_resistance_revised,
+    boundary_sensitivity_revised,
+    truthful_incentive_alignment,
+    lp_deployability,
+    resolution_fairness_benchmark,
 )
 
 
@@ -1026,8 +1035,8 @@ class SimulationRun:
             lp_profit = 0.0
 
         # Manipulation resistance
+        manip_agents = [a for a in self.agents if isinstance(a, Manipulator)]
         if self.initial_probs is not None:
-            manip_agents = [a for a in self.agents if isinstance(a, Manipulator)]
             target_bin = manip_agents[0].target_bin if manip_agents else resolved_bin
             final_prob = float(amm_probs[target_bin]) / SCALE
             init_prob = float(self.initial_probs[target_bin]) / SCALE
@@ -1128,6 +1137,53 @@ class SimulationRun:
         # Boundary sensitivity
         bs_max, bs_mean = boundary_sensitivity(payouts)
 
+        # --- Revised metrics ---
+
+        # Price Accuracy Revised
+        pa_revised = price_accuracy_revised(price_accuracy, self.kl_series)
+
+        # Convergence Speed Revised
+        conv_speed_sustained = convergence_speed_revised(self.kl_series, sustained_window=3)
+
+        # Capital Efficiency Revised
+        peak_bin = int(np.argmax(self.true_probs))
+        target_bins = [b for b in range(max(0, peak_bin - 2), min(self.num_bins, peak_bin + 3))]
+        cap_eff = capital_efficiency_revised(self.state.reserves.copy(), self.state.total_minted, target_bins)
+
+        # Manipulation Resistance Revised
+        if self.initial_probs is not None and manip_agents:
+            target_bin_manip = manip_agents[0].target_bin
+            final_prob_manip = float(amm_probs[target_bin_manip]) / SCALE
+            init_prob_manip = float(self.initial_probs[target_bin_manip]) / SCALE
+            price_change_manip = abs(final_prob_manip - init_prob_manip) * 100.0
+            payout_improvement = max(0.001, price_change_manip / 100.0)
+            manip_revised = manipulation_resistance_revised(self.manipulator_budget_spent, price_change_manip, payout_improvement)
+        else:
+            manip_revised = {"cost_to_move": float("inf"), "cost_to_profit": float("inf")}
+
+        # Boundary Sensitivity Revised
+        bs_revised = boundary_sensitivity_revised(payouts)
+
+        # Truthful Incentive Alignment
+        use_crps = (self.design == DESIGN_CRPS)
+        tia = truthful_incentive_alignment(
+            self.true_probs, payouts if not use_crps else None,
+            self.num_bins, resolved_bin, use_crps=use_crps,
+        )
+
+        # LP Deployability
+        lp_agents = [a for a in self.agents if isinstance(a, (PassiveLP, RebalancingLP))]
+        lp_deposits = sum(1 for a in lp_agents if self.agent_states[a.agent_id].deposited_lp > 0)
+        lp_activation_rate = lp_deposits / max(1, len(lp_agents))
+        lp_deploy = lp_deployability(
+            activation_rate=lp_activation_rate,
+            median_capital_deployed=total_lp_deposited // max(1, lp_deposits) if lp_deposits > 0 else 0,
+            holding_duration=self.num_rounds if lp_deposits > 0 else 0,
+            realized_return=lp_profit,
+            realized_fees=self.state.lp_fee_accumulated,
+            realized_adverse_selection=max(0.0, -lp_profit) if lp_profit < 0 else 0.0,
+        )
+
         # Exitability
         # Aggregate all agent holdings into a single array
         reference_holdings = np.zeros(self.num_bins, dtype=np.int64)
@@ -1190,6 +1246,24 @@ class SimulationRun:
             "clob_fill_volume": self.clob_total_fill_volume,
             "clob_avg_spread": self._compute_clob_avg_spread() if self.orderbook else 0,
             "clob_total_depth": self._compute_clob_total_depth() if self.orderbook else 0,
+            # Revised metrics
+            "price_accuracy_combined": pa_revised["combined"],
+            "mean_calibration_error": pa_revised["mean_calibration_error"],
+            "convergence_speed_sustained": conv_speed_sustained,
+            "capital_efficiency_local_slippage": cap_eff["mean_local_slippage"],
+            "capital_efficiency_local_depth": cap_eff["mean_local_depth"],
+            "manipulation_cost_to_move": manip_revised["cost_to_move"],
+            "manipulation_cost_to_profit": manip_revised["cost_to_profit"],
+            "boundary_payout_jump_max": bs_revised["max_payout_jump"],
+            "boundary_payout_jump_mean": bs_revised["mean_payout_jump"],
+            "boundary_incentive_jump_max": bs_revised["max_incentive_jump"],
+            "boundary_incentive_jump_mean": bs_revised["mean_incentive_jump"],
+            "truthful_incentive_alignment": tia,
+            "lp_activation_rate": lp_activation_rate,
+            "lp_deploy_status": lp_deploy["status"],
+            "lp_deploy_median_capital": lp_deploy["median_capital_deployed"],
+            "lp_deploy_holding_duration": lp_deploy["holding_duration"],
+            "lp_deploy_realized_return": lp_deploy["realized_return"],
             # Scenario metadata
             "scenario_family": self.scenario.truth_family,
             "belief_family": self.scenario.belief_family,
