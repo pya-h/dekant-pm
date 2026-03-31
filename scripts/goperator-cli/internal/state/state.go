@@ -194,6 +194,50 @@ func (s *SessionState) AddTxLog(action string, sig solana.Signature, success boo
 	})
 }
 
+// logFilePath returns the path to the persistent error log file.
+func logFilePath() string {
+	candidates := []string{
+		filepath.Join("..", ".state", "goperator-cli.log"),
+		filepath.Join("scripts", ".state", "goperator-cli.log"),
+	}
+	for _, c := range candidates {
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		parent := filepath.Dir(abs)
+		if info, err := os.Stat(parent); err == nil && info.IsDir() {
+			return abs
+		}
+	}
+	abs, _ := filepath.Abs(candidates[0])
+	return abs
+}
+
+// LogError appends an error entry to the persistent log file.
+func (s *SessionState) LogError(action string, err error) {
+	path := logFilePath()
+	line := fmt.Sprintf("[%s] [ERROR] %s: %s\n", time.Now().Format(time.RFC3339), action, err.Error())
+	f, ferr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if ferr != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(line)
+}
+
+// LogInfo appends an info entry to the persistent log file.
+func (s *SessionState) LogInfo(action string, detail string) {
+	path := logFilePath()
+	line := fmt.Sprintf("[%s] [INFO]  %s: %s\n", time.Now().Format(time.RFC3339), action, detail)
+	f, ferr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if ferr != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(line)
+}
+
 // FetchProtocolConfig fetches and deserializes the protocol config.
 func (s *SessionState) FetchProtocolConfig() (*ProtocolConfig, error) {
 	addr, _ := chain.FindProtocolConfig(s.ProgramID)

@@ -75,6 +75,7 @@ func (m *resolveScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Resolve Market", msg.err)
 		m.phase = phaseResolveDone
 		return m, nil
 
@@ -291,6 +292,7 @@ func (m *claimScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Claim Payout", msg.err)
 		m.phase = phaseClaimDone
 		return m, nil
 
@@ -467,6 +469,7 @@ func (m *collectFeesScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Collect Fees", msg.err)
 		m.phase = phaseFeesDone
 		return m, nil
 

@@ -152,6 +152,7 @@ async function executeTrade(state, action) {
     );
   } catch (e) {
     showError(e);
+    state.logError("Trade", e);
   }
 
   await pressKey();

@@ -48,6 +48,7 @@ async function airdropSuperuser(state) {
     ]);
   } catch (e) {
     showError(e);
+    state.logError("Superuser Airdrop", e);
   }
 
   await pressKey();

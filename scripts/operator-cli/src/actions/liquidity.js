@@ -80,6 +80,7 @@ async function addLiquidity(state) {
     } catch {}
   } catch (e) {
     showError(e);
+    state.logError("Add Liquidity", e);
   }
 
   await pressKey();
@@ -157,6 +158,7 @@ async function removeLiquidity(state) {
     );
   } catch (e) {
     showError(e);
+    state.logError("Remove Liquidity", e);
   }
 
   await pressKey();

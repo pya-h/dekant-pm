@@ -66,6 +66,7 @@ func (m *pauseUnpauseScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Pause/Unpause", msg.err)
 		m.phase = phasePauseDone
 		return m, nil
 

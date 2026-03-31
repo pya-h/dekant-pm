@@ -1,4 +1,4 @@
-const { writeFileSync, readFileSync, existsSync } = require("fs");
+const { writeFileSync, readFileSync, existsSync, appendFileSync } = require("fs");
 const { resolve } = require("path");
 const {
   createConnection,
@@ -14,6 +14,7 @@ const { RandomGenerator } = require("./random");
 
 // Session file path (in scripts/.state/)
 const SESSION_PATH = resolve(__dirname, "../../.state/operator-session.json");
+const LOG_PATH = resolve(__dirname, "../../.state/operator-cli.log");
 
 class SessionState {
   constructor() {
@@ -83,6 +84,7 @@ class SessionState {
         label: m.label,
         type: m.type,
         mint: m.mint.toBase58(),
+        mintLabel: m.mintLabel || "",
         oracle: m.oracle.toBase58(),
         numOutcomes: m.numOutcomes,
         rangeMin: m.rangeMin,
@@ -114,6 +116,7 @@ class SessionState {
         label: m.label,
         type: m.type,
         mint: new PublicKey(m.mint),
+        mintLabel: m.mintLabel || "",
         oracle: new PublicKey(m.oracle),
         numOutcomes: m.numOutcomes,
         rangeMin: m.rangeMin,
@@ -122,6 +125,27 @@ class SessionState {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /** Log an error to the persistent log file. */
+  logError(action, err) {
+    const msg = err && err.message ? err.message : String(err);
+    const line = `[${new Date().toISOString()}] [ERROR] ${action}: ${msg}\n`;
+    try {
+      appendFileSync(LOG_PATH, line);
+    } catch {
+      // non-critical
+    }
+  }
+
+  /** Log an info entry to the persistent log file. */
+  logInfo(action, detail) {
+    const line = `[${new Date().toISOString()}] [INFO]  ${action}: ${detail}\n`;
+    try {
+      appendFileSync(LOG_PATH, line);
+    } catch {
+      // non-critical
     }
   }
 

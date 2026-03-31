@@ -70,6 +70,7 @@ func (m *createTokenScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Create Token", msg.err)
 		m.phase = phaseTokenDone
 		return m, nil
 

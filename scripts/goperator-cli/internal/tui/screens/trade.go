@@ -96,6 +96,7 @@ func (m *tradeScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Trade", msg.err)
 		m.phase = phaseTradeDone
 		return m, nil
 

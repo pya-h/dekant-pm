@@ -45,6 +45,7 @@ async function addUser(state) {
     showSuccess(`${label} created with 10 SOL`);
   } catch (e) {
     showError(e);
+    state.logError("Add User", e);
     console.log(
       chalk.dim("  User created but airdrop failed. Fund manually.")
     );
@@ -120,6 +121,7 @@ async function assignRole(state) {
     }
   } catch (e) {
     showError(e);
+    state.logError("Assign Role", e);
   }
 
   await pressKey();
@@ -203,6 +205,7 @@ async function fundUser(state) {
       mint = selectedMint;
     } catch (e) {
       showError(e);
+      state.logError("Fund User", e);
       await pressKey();
       return;
     }
@@ -238,6 +241,7 @@ async function fundUser(state) {
       console.log(`  New balance: ${solBalance} SOL`);
     } catch (e) {
       showError(e);
+      state.logError("Fund User", e);
     }
   } else {
     const amountStr = await input({
@@ -269,6 +273,7 @@ async function fundUser(state) {
       console.log(`  New balance: ${formatTokenAmount(balance)} tokens`);
     } catch (e) {
       showError(e);
+      state.logError("Fund User", e);
     }
   }
 
