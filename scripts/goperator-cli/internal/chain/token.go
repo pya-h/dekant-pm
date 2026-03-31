@@ -51,12 +51,7 @@ func (c *Client) CreateMint(ctx context.Context, payer solana.PrivateKey, decima
 		return solana.PublicKey{}, nil, err
 	}
 
-	blockhash, err := c.GetLatestBlockhash(ctx)
-	if err != nil {
-		return solana.PublicKey{}, nil, err
-	}
-
-	tx, err := solana.NewTransaction(
+	_, err = c.SendAndConfirm(ctx,
 		[]solana.Instruction{
 			system.NewCreateAccountInstruction(
 				lamports,
@@ -72,33 +67,11 @@ func (c *Client) CreateMint(ctx context.Context, payer solana.PrivateKey, decima
 				mintKp.PublicKey(),
 			).Build(),
 		},
-		blockhash,
-		solana.TransactionPayer(payer.PublicKey()),
+		[]solana.PrivateKey{payer, mintKp},
+		payer.PublicKey(),
 	)
 	if err != nil {
-		return solana.PublicKey{}, nil, err
-	}
-
-	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		if key == payer.PublicKey() {
-			return &payer
-		}
-		if key == mintKp.PublicKey() {
-			pk := mintKp
-			return &pk
-		}
-		return nil
-	})
-	if err != nil {
-		return solana.PublicKey{}, nil, err
-	}
-
-	sig, err := c.RPC.SendTransaction(ctx, tx)
-	if err != nil {
-		return solana.PublicKey{}, nil, err
-	}
-	if err := c.ConfirmTransaction(ctx, sig); err != nil {
-		return solana.PublicKey{}, nil, err
+		return solana.PublicKey{}, nil, fmt.Errorf("create mint: %w", err)
 	}
 
 	return mintKp.PublicKey(), mintKp, nil
@@ -112,11 +85,6 @@ func (c *Client) CreateATA(ctx context.Context, payer solana.PrivateKey, owner, 
 	_, err := c.GetAccountInfo(ctx, ata)
 	if err == nil {
 		return ata, nil // Already exists
-	}
-
-	blockhash, err := c.GetLatestBlockhash(ctx)
-	if err != nil {
-		return solana.PublicKey{}, err
 	}
 
 	// Create ATA instruction
@@ -133,31 +101,13 @@ func (c *Client) CreateATA(ctx context.Context, payer solana.PrivateKey, owner, 
 		[]byte{}, // No data for create ATA
 	)
 
-	tx, err := solana.NewTransaction(
+	_, err = c.SendAndConfirm(ctx,
 		[]solana.Instruction{createIx},
-		blockhash,
-		solana.TransactionPayer(payer.PublicKey()),
+		[]solana.PrivateKey{payer},
+		payer.PublicKey(),
 	)
 	if err != nil {
-		return solana.PublicKey{}, err
-	}
-
-	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		if key == payer.PublicKey() {
-			return &payer
-		}
-		return nil
-	})
-	if err != nil {
-		return solana.PublicKey{}, err
-	}
-
-	sig, err := c.RPC.SendTransaction(ctx, tx)
-	if err != nil {
-		return solana.PublicKey{}, err
-	}
-	if err := c.ConfirmTransaction(ctx, sig); err != nil {
-		return solana.PublicKey{}, err
+		return solana.PublicKey{}, fmt.Errorf("create ATA: %w", err)
 	}
 
 	return ata, nil
@@ -170,12 +120,7 @@ func (c *Client) GetOrCreateATA(ctx context.Context, payer solana.PrivateKey, ow
 
 // MintTo mints tokens to a destination.
 func (c *Client) MintTo(ctx context.Context, authority solana.PrivateKey, mint, dest solana.PublicKey, amount uint64) error {
-	blockhash, err := c.GetLatestBlockhash(ctx)
-	if err != nil {
-		return err
-	}
-
-	tx, err := solana.NewTransaction(
+	_, err := c.SendAndConfirm(ctx,
 		[]solana.Instruction{
 			token.NewMintToInstruction(
 				amount,
@@ -185,38 +130,18 @@ func (c *Client) MintTo(ctx context.Context, authority solana.PrivateKey, mint, 
 				nil,
 			).Build(),
 		},
-		blockhash,
-		solana.TransactionPayer(authority.PublicKey()),
+		[]solana.PrivateKey{authority},
+		authority.PublicKey(),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("mint to: %w", err)
 	}
-
-	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		if key == authority.PublicKey() {
-			return &authority
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	sig, err := c.RPC.SendTransaction(ctx, tx)
-	if err != nil {
-		return err
-	}
-	return c.ConfirmTransaction(ctx, sig)
+	return nil
 }
 
 // TransferSOL sends SOL (lamports) from one account to another.
 func (c *Client) TransferSOL(ctx context.Context, from solana.PrivateKey, to solana.PublicKey, lamports uint64) (solana.Signature, error) {
-	blockhash, err := c.GetLatestBlockhash(ctx)
-	if err != nil {
-		return solana.Signature{}, err
-	}
-
-	tx, err := solana.NewTransaction(
+	return c.SendAndConfirm(ctx,
 		[]solana.Instruction{
 			system.NewTransferInstruction(
 				lamports,
@@ -224,31 +149,9 @@ func (c *Client) TransferSOL(ctx context.Context, from solana.PrivateKey, to sol
 				to,
 			).Build(),
 		},
-		blockhash,
-		solana.TransactionPayer(from.PublicKey()),
+		[]solana.PrivateKey{from},
+		from.PublicKey(),
 	)
-	if err != nil {
-		return solana.Signature{}, err
-	}
-
-	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		if key == from.PublicKey() {
-			return &from
-		}
-		return nil
-	})
-	if err != nil {
-		return solana.Signature{}, err
-	}
-
-	sig, err := c.RPC.SendTransaction(ctx, tx)
-	if err != nil {
-		return solana.Signature{}, err
-	}
-	if err := c.ConfirmTransaction(ctx, sig); err != nil {
-		return solana.Signature{}, err
-	}
-	return sig, nil
 }
 
 // GetNetworkMints returns all SPL token mint pubkeys on the network.
