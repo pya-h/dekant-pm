@@ -29,6 +29,7 @@ type SessionMarket struct {
 	Label       string
 	Type        uint8
 	Mint        solana.PublicKey
+	MintLabel   string
 	Oracle      solana.PublicKey
 	NumOutcomes int
 	RangeMin    float64
@@ -367,6 +368,7 @@ type savedMarket struct {
 	Label       string  `json:"label"`
 	Type        uint8   `json:"type"`
 	Mint        string  `json:"mint"`
+	MintLabel   string  `json:"mintLabel"`
 	Oracle      string  `json:"oracle"`
 	NumOutcomes int     `json:"numOutcomes"`
 	RangeMin    float64 `json:"rangeMin"`
@@ -410,6 +412,7 @@ func (s *SessionState) SaveSession() {
 			Label:       m.Label,
 			Type:        m.Type,
 			Mint:        m.Mint.String(),
+			MintLabel:   m.MintLabel,
 			Oracle:      m.Oracle.String(),
 			NumOutcomes: m.NumOutcomes,
 			RangeMin:    m.RangeMin,
@@ -453,6 +456,7 @@ func (s *SessionState) LoadSession() bool {
 			Label:       sm.Label,
 			Type:        sm.Type,
 			Mint:        mint,
+			MintLabel:   sm.MintLabel,
 			Oracle:      oracle,
 			NumOutcomes: sm.NumOutcomes,
 			RangeMin:    sm.RangeMin,

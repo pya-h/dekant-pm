@@ -154,6 +154,52 @@ func (c *Client) TransferSOL(ctx context.Context, from solana.PrivateKey, to sol
 	)
 }
 
+// WrapSOL wraps native SOL into a wrapped-SOL ATA for the given owner.
+// The payer sends lamports from their account and the owner's ATA is credited.
+func (c *Client) WrapSOL(ctx context.Context, payer solana.PrivateKey, owner solana.PublicKey, lamports uint64) (solana.PublicKey, error) {
+	ata := DeriveATA(owner, constants.NativeMint)
+
+	ixs := []solana.Instruction{}
+
+	// Create ATA if it doesn't exist
+	_, err := c.GetAccountInfo(ctx, ata)
+	if err != nil {
+		createIx := solana.NewInstruction(
+			constants.AssociatedTokenProgramID,
+			solana.AccountMetaSlice{
+				{PublicKey: payer.PublicKey(), IsSigner: true, IsWritable: true},
+				{PublicKey: ata, IsSigner: false, IsWritable: true},
+				{PublicKey: owner, IsSigner: false, IsWritable: false},
+				{PublicKey: constants.NativeMint, IsSigner: false, IsWritable: false},
+				{PublicKey: constants.SystemProgramID, IsSigner: false, IsWritable: false},
+				{PublicKey: constants.TokenProgramID, IsSigner: false, IsWritable: false},
+			},
+			[]byte{},
+		)
+		ixs = append(ixs, createIx)
+	}
+
+	// Transfer SOL to the ATA
+	ixs = append(ixs, system.NewTransferInstruction(lamports, payer.PublicKey(), ata).Build())
+
+	// SyncNative (Token program instruction variant 17)
+	syncIx := solana.NewInstruction(
+		constants.TokenProgramID,
+		solana.AccountMetaSlice{
+			{PublicKey: ata, IsSigner: false, IsWritable: true},
+		},
+		[]byte{17},
+	)
+	ixs = append(ixs, syncIx)
+
+	_, err = c.SendAndConfirm(ctx, ixs, []solana.PrivateKey{payer}, payer.PublicKey())
+	if err != nil {
+		return solana.PublicKey{}, fmt.Errorf("wrap SOL: %w", err)
+	}
+
+	return ata, nil
+}
+
 // GetNetworkMints returns all SPL token mint pubkeys on the network.
 func (c *Client) GetNetworkMints(ctx context.Context) ([]solana.PublicKey, error) {
 	resp, err := c.RPC.GetProgramAccountsWithOpts(ctx, constants.TokenProgramID, &rpc.GetProgramAccountsOpts{
