@@ -65,7 +65,7 @@ func resolveUserChoice(s *state.SessionState, choice string, includeSuperuser bo
 		return &s.Superuser
 	}
 	for i := range s.Users {
-		if strings.HasPrefix(choice, s.Users[i].Label) {
+		if strings.HasPrefix(choice, s.Users[i].Label+" (") {
 			return &s.Users[i]
 		}
 	}

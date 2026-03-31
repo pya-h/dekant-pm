@@ -496,13 +496,9 @@ func (m *viewBalancesScreen) loadBalances() tea.Cmd {
 				sb.WriteString("    SOL: (error)\n")
 			}
 
-			// Token balances
+			// Token balances (derive ATA address without creating on-chain)
 			for _, mi := range mints {
-				ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, mi.Mint)
-				if err != nil {
-					sb.WriteString(fmt.Sprintf("    %s: 0 USDC\n", mi.Label))
-					continue
-				}
+				ata := chain.DeriveATA(user.Pubkey, mi.Mint)
 				bal, err := m.state.Client.GetTokenBalance(ctx, ata)
 				if err != nil {
 					sb.WriteString(fmt.Sprintf("    %s: 0 USDC\n", mi.Label))

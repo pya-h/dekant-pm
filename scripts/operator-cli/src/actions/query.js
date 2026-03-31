@@ -7,6 +7,7 @@ const {
   findMarket,
   findUserPosition,
   getOrCreateAta,
+  deriveAta,
   getTokenBalance,
   computeProbabilities,
   formatTokenAmount,
@@ -193,10 +194,10 @@ async function viewBalances(state) {
       console.log(chalk.dim("    SOL: (error)"));
     }
 
-    // Token balances
+    // Token balances (derive ATA address without creating on-chain)
     for (const mint of mints) {
       try {
-        const ata = await getOrCreateAta(state.connection, mint, user.pubkey, state.superuser.keypair);
+        const ata = deriveAta(mint, user.pubkey);
         const balance = await getTokenBalance(state.connection, ata);
         console.log(`    ${mintLabels[mint.toBase58()]}: ${formatTokenAmount(balance)} USDC`);
       } catch {

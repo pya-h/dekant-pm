@@ -2,7 +2,7 @@ const { select } = require("@inquirer/prompts");
 const chalk = require("chalk");
 const { pressKey } = require("../ui");
 const {
-  getOrCreateAta,
+  deriveAta,
   getTokenBalance,
   formatTokenAmount,
 } = require("../common");
@@ -42,12 +42,7 @@ async function selectUser(state, opts) {
 
     if (opts.showBalanceForMint) {
       try {
-        const ata = await getOrCreateAta(
-          state.connection,
-          opts.showBalanceForMint,
-          u.pubkey,
-          state.superuser.keypair
-        );
+        const ata = deriveAta(opts.showBalanceForMint, u.pubkey);
         const bal = await getTokenBalance(state.connection, ata);
         suffix += chalk.dim(` (${formatTokenAmount(bal)} USDC)`);
       } catch {

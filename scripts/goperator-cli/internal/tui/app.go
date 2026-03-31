@@ -178,6 +178,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.screen != ScreenMenu {
 				m.screen = ScreenMenu
 				m.activeAction = nil
+				// Save session — state may have been modified by the action
+				m.state.SaveSession()
 				return m, nil
 			}
 
