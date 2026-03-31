@@ -267,15 +267,11 @@ async function createMarket(state) {
     mintLabel = mkt.mintLabel || `Market #${mkt.id} Token`;
   }
 
-  // Step 7: balance check for existing tokens
+  // Step 7: balance check + creator selection
   let needsFunding = isNewMint; // new mints always need funding
   const liquidityAmount = parseTokenAmount(liquidityStr);
 
-  if (!isNewMint && selectedMint) {
-    // Step 7a: pick creator first (need to know who to check balance for)
-  }
-
-  // Step 8: creator selection with retry loop
+  // Creator selection with retry loop
   let created = false;
   while (!created) {
     clear();
@@ -418,7 +414,7 @@ async function executeCreateMarket(state, opts) {
       state.connection,
       state.superuser.keypair
     );
-    mintLabel = `Market#${marketId} Token`;
+    mintLabel = `Market #${marketId} Token`;
     showInfo(
       `  ✓ Created SPL token: ${mintLabel} (${collateralMint.toBase58().slice(0, 12)}...)`
     );

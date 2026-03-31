@@ -189,7 +189,7 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 		if m.market.RangeMin != 0 || m.market.RangeMax != 0 {
 			rangeStr = fmt.Sprintf(" (range: %.0f–%.0f)", m.market.RangeMin, m.market.RangeMax)
 		}
-		amountLabel := "Amount (USDC) to buy"
+		amountLabel := "Amount (tokens) to buy"
 		if !m.isBuy {
 			amountLabel = "Token amount to sell"
 		}
@@ -227,9 +227,9 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 
 		inverseLabel := "by shares"
 		if !m.isBuy {
-			inverseLabel = "by USDC"
+			inverseLabel = "by collateral"
 		}
-		amountLabel := "Amount (USDC) to buy"
+		amountLabel := "Amount (tokens) to buy"
 		if !m.isBuy {
 			amountLabel = "Token amount to sell"
 		}
@@ -267,7 +267,7 @@ func (m *tradeScreen) advanceToUser() tea.Cmd {
 		if m.isBuy {
 			label = "Number of shares to buy"
 		} else {
-			label = "USDC to receive"
+			label = "Collateral to receive"
 		}
 		m.form = huh.NewForm(
 			huh.NewGroup(
@@ -369,7 +369,7 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 				disc = constants.DiscBuy
 				args = append(chain.EncodeU16LE(uint16(outcome)), chain.EncodeU64LE(grossCollateral.Uint64())...)
 			} else {
-				// User wants to receive a target USDC amount
+				// User wants to receive a target collateral amount
 				targetCollateral := new(big.Int).SetUint64(util.ParseTokenAmount(m.amount))
 				tokensToSell, invErr := amm.FindTokensForCollateral(
 					bigReserves, m.marketData.TotalMinted, outcome, targetCollateral, pc.TradeFeeBps,
@@ -473,7 +473,7 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 			diffLabel = "Received"
 		}
 
-		m.result = fmt.Sprintf("%s %s USDC (balance: %s → %s)",
+		m.result = fmt.Sprintf("%s %s tokens (balance: %s → %s)",
 			diffLabel, util.FormatTokenAmount(diff),
 			util.FormatTokenAmount(balanceBefore), util.FormatTokenAmount(balanceAfter))
 
