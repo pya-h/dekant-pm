@@ -1,4 +1,4 @@
-"""Tests for the 8 simulation metrics."""
+"""Tests for all simulation metrics — original 8 plus revised versions."""
 import numpy as np
 import pytest
 from config.params import SCALE
@@ -6,7 +6,12 @@ from engine.metrics import (
     kl_divergence, convergence_speed, compute_slippage,
     lp_profitability, manipulation_cost, resolution_fairness,
     boundary_sensitivity, exitability, composite_score,
+    lp_deployability, resolution_fairness_benchmark,
+    price_accuracy_revised, convergence_speed_revised,
+    capital_efficiency_revised, manipulation_resistance_revised,
+    boundary_sensitivity_revised, truthful_incentive_alignment,
 )
+from agents.base import ActionType, AMM_ACTIONS
 from models.math_engine import init_reserves, compute_probabilities, compute_buy
 from models.settlement_baseline import compute_payout_wta
 from models.settlement_kernel import compute_payout_kernel
@@ -68,6 +73,98 @@ class TestResolutionFairness:
             max_distance=5,
         )
         assert fairness == 0.0
+
+
+class TestRevisedExitability:
+    def test_returns_all_components(self):
+        reserves, total_minted = init_reserves(16, 1_000_000_000)
+        holdings = np.zeros(16, dtype=np.int64)
+        holdings[8] = 10_000
+        result = exitability(reserves, total_minted, holdings, 16, AMM_ACTIONS)
+        assert "unwindable_fraction" in result
+        assert "transaction_count" in result
+        assert "slippage" in result
+        assert "reposition_cost" in result
+        assert "failure_rate" in result
+
+    def test_bundle_only_worse_for_non_gaussian(self):
+        reserves, total_minted = init_reserves(16, 1_000_000_000)
+        holdings = np.zeros(16, dtype=np.int64)
+        holdings[0] = 50_000
+        holdings[15] = 50_000  # bimodal position
+        bundle_only = frozenset({ActionType.BUNDLE_BUY, ActionType.BUNDLE_SELL})
+        r_bundle = exitability(reserves.copy(), total_minted, holdings, 16, bundle_only)
+        r_full = exitability(reserves.copy(), total_minted, holdings, 16, AMM_ACTIONS)
+        assert r_bundle["unwindable_fraction"] <= r_full["unwindable_fraction"]
+
+
+class TestLPDeployability:
+    def test_not_activated(self):
+        r = lp_deployability(0.0, 0, 0, 0.0)
+        assert r["status"] == "not_activated"
+
+    def test_activated(self):
+        r = lp_deployability(0.5, 1_000_000, 50, 0.02, 20_000, 0.01)
+        assert r["status"] == "activated"
+        assert r["activation_rate"] == 0.5
+
+
+class TestRevisedFairness:
+    def test_benchmark_peak_at_resolved(self):
+        b = resolution_fairness_benchmark(16, 8, max_distance=5)
+        assert b[8] == pytest.approx(1.0)
+        assert b[9] < b[8]
+        assert b[14] == 0.0
+
+
+class TestRevisedPriceAccuracy:
+    def test_includes_time_series(self):
+        r = price_accuracy_revised(0.02, [0.5, 0.3, 0.1, 0.05, 0.02])
+        assert "combined" in r and r["combined"] > 0
+
+
+class TestRevisedConvergence:
+    def test_requires_sustained_window(self):
+        # One-off dip should NOT count
+        kl = [0.5, 0.3, 0.008, 0.2, 0.1, 0.05]
+        r = convergence_speed_revised(kl, threshold=0.01, sustained_window=3)
+        assert r > 20  # one-off at index 2 doesn't count
+
+
+class TestRevisedCapitalEfficiency:
+    def test_measures_local_depth(self):
+        reserves, total_minted = init_reserves(16, 1_000_000_000)
+        r = capital_efficiency_revised(reserves, total_minted, [7, 8, 9])
+        assert "mean_local_slippage" in r and r["mean_local_slippage"] >= 0
+
+
+class TestRevisedManipulationResistance:
+    def test_both_costs(self):
+        r = manipulation_resistance_revised(5000, 2.0, 0.5)
+        assert r["cost_to_move"] > 0 and r["cost_to_profit"] > 0
+
+
+class TestRevisedBoundarySensitivity:
+    def test_wta_worse_than_kernel(self):
+        r_wta = boundary_sensitivity_revised(compute_payout_wta(64, 32))
+        r_kernel = boundary_sensitivity_revised(compute_payout_kernel(64, 32, 5))
+        assert r_wta["max_payout_jump"] > r_kernel["max_payout_jump"]
+
+
+class TestTruthfulIncentiveAlignment:
+    def test_proper_scoring_rule_higher(self):
+        true_dist = np.zeros(16, dtype=np.float64)
+        true_dist[7:10] = [0.2, 0.6, 0.2]
+        payouts_wta = compute_payout_wta(16, 8)
+        score_wta = truthful_incentive_alignment(true_dist, payouts_wta, 16, 8)
+        score_crps = truthful_incentive_alignment(true_dist, None, 16, 8, use_crps=True)
+        assert score_crps >= score_wta
+
+    def test_bounded_0_to_1(self):
+        true_dist = np.zeros(16, dtype=np.float64)
+        true_dist[8] = 1.0
+        score = truthful_incentive_alignment(true_dist, compute_payout_wta(16, 8), 16, 8)
+        assert 0.0 <= score <= 1.0
 
 
 class TestCompositeScore:

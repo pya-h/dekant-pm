@@ -1146,16 +1146,13 @@ class SimulationRun:
                 if tokens > 0:
                     reference_holdings[idx] = tokens
 
+        allowed = CLOB_ACTIONS if self.design == DESIGN_CLOB else AMM_ACTIONS
         exit_result = exitability(
             self.state.reserves.copy(),
             self.state.total_minted,
             reference_holdings,
-            self.weight_fn,
-            self.range_min,
-            self.range_max,
             self.num_bins,
-            self.true_mu,
-            self.true_sigma,
+            allowed,
         )
 
         # Flatten slippages into individual columns + compute mean
@@ -1178,8 +1175,8 @@ class SimulationRun:
             "payout_by_distance": payout_by_distance,
             "boundary_sensitivity_max": bs_max,
             "boundary_sensitivity_mean": bs_mean,
-            "exitability_unwind": exit_result["max_unwind_fraction"],
-            "exitability_slippage": exit_result["unwind_slippage"],
+            "exitability_unwind": exit_result["unwindable_fraction"],
+            "exitability_slippage": exit_result["slippage"],
             "exitability_reposition_cost": exit_result["reposition_cost"],
             "num_rounds": self.num_rounds,
             "design": self.design,
