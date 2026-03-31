@@ -10,7 +10,7 @@ Tracking file for known bugs, their analysis, and fix status.
 - **Severity:** High
 - **Affects:** Continuous markets only (distribution buy trades)
 - **Discovered:** 2026-03-20
-- **Last validated:** 2026-03-27 — all code references verified against current `amm.rs` (unchanged since d8875a1)
+- **Last validated:** 2026-03-31 — all code references verified against current `amm.rs` (unchanged since d8875a1). Reviewed: overflow thresholds confirmed numerically, affected-operations table corrected, two new fix approaches (E, F) added.
 - **Reported by:** User report ("market with initial liquidity >10M fails")
 
 ### Summary
@@ -95,11 +95,11 @@ This explains why the user report says "10M" — the threshold is state-dependen
 | Operation              | Market Type     | Affected? | Notes                                     |
 |------------------------|-----------------|-----------|--------------------------------------------|
 | `buy_distribution`     | Continuous      | **YES**   | The overflow point                         |
-| `sell_distribution`    | Continuous      | No        | Doesn't compute xw^2                      |
-| `buy` (discrete)       | Binary/Multi    | No        | Safe to ~$580M+ (binary), ~$33M+ (32-out) |
-| `sell` (discrete)      | Binary/Multi    | No        | Same as discrete buy                       |
-| `buy_to_price`         | Binary/Multi    | No        | Uses sum_others * SCALE, not xw^2          |
-| `sell_to_price`        | Binary/Multi    | No        | Same as buy_to_price                       |
+| `sell_distribution`    | Continuous      | No        | Doesn't compute xw^2; Σx² safe to ~$1.15T |
+| `buy` (discrete)       | Binary/Multi    | No        | k_new² safe to ~$18.4T (all outcome counts)|
+| `sell` (discrete)      | Binary/Multi    | No        | Same as discrete buy (~$18.4T)             |
+| `buy_to_price`         | Binary/Multi    | No        | x²·SCALE overflows at ~$583M (all n)      |
+| `sell_to_price`        | Binary/Multi    | No        | Same as buy_to_price (~$583M)              |
 | `add_liquidity`        | All             | No        | Uses scale_reserves, safe at 10M+          |
 | `remove_liquidity`     | All             | No        | Uses scale_reserves, safe at 10M+          |
 | `create_market`        | All             | No        | liq^2 fits u128 for any u64 input          |
@@ -130,6 +130,10 @@ The quadratic formula requires squaring `xw`, which already contains a `SCALE` (
 ### Safety note: overflow-checks = true
 
 The workspace `Cargo.toml` has `overflow-checks = true` in `[profile.release]`. This means **all** arithmetic (including the "unchecked" `+=` and `*` in the accumulation loop at lines 193–194) will **panic** on overflow rather than silently wrapping. The checked_mul at line 215 returns a clean `MathOverflow` error; if it weren't there, the unchecked xw accumulation would panic at a much higher threshold (~$10^20). Bottom line: **no silent corruption is possible** — the transaction always fails cleanly.
+
+### Related (non-BUG-001): `buy_to_price` / `sell_to_price` overflow at ~$583M
+
+`compute_collateral_for_target_prob` and `compute_tokens_for_target_prob` (used by discrete markets) compute `x_i^2 * SCALE` and `sum_others_x_sq * SCALE` (lines 361, 377-380, 421-422 in amm.rs). These overflow u128 when `total_minted > ~5.83 * 10^14` raw (~$583M USDC), regardless of outcome count. This is a separate, much higher threshold than BUG-001 and unlikely to be hit in practice, but worth noting for completeness. The overflow produces `MathOverflow` — no silent corruption.
 
 ### Proposed Fixes
 
@@ -196,7 +200,8 @@ Each iteration: `lambda_next = lambda - f(lambda) / f'(lambda)`
 Only needs to compute `SUM (x + lw)^2` per iteration, which is `n` multiply-accumulates — no squaring of the full dot product.
 
 **Pros:** Avoids xw^2 entirely. Each iteration stays within u128. Mathematically elegant.
-**Cons:** Multiple iterations needed (typically 5-10 for convergence). Higher compute cost per trade. Must handle convergence criteria carefully (tolerance, max iterations). Risk of non-convergence in edge cases.
+**Cons:** Multiple iterations needed (typically 2-3 for convergence — quadratic convergence from λ₀=0 on this convex quadratic). Higher compute cost per trade. Must handle convergence criteria carefully (tolerance, max iterations).
+**Note on convergence safety:** Starting from λ₀=0, f(0) = k_old² - k_new² < 0. Since f is a convex quadratic with positive leading coefficient (w2), Newton produces monotonically increasing iterates that stay below the root. So all intermediate values of `x[b] + λ·w[b]` are bounded by their values at the solution, where `Σ(x+λw)² = k_new²`. This means each term fits u128 as long as k_new² fits (~$18.4T threshold). **No divergence risk.**
 
 #### Approach D: Algebraic reformulation using normalized quantities
 
@@ -214,11 +219,84 @@ then scale the result back.
 **Pros:** All intermediate products bounded by ~1 in real terms. Can use fixed-point with full SCALE precision.
 **Cons:** Requires careful algebraic rework. Multiple divisions introduce cumulative rounding. Most complex to implement correctly.
 
+#### Approach E: Binary search with term-by-term evaluation
+
+Instead of solving the quadratic algebraically, find `lambda` via binary search on `g(lambda) = SUM (x[b] + lambda * w[b])^2`. We need `g(lambda) = k_new^2`.
+
+```rust
+// Upper bound: lambda <= sqrt(excess) / isqrt(w2) + 1  (derived from quadratic formula)
+let lambda_hi = isqrt(excess)
+    .checked_mul(isqrt(SCALE))  // sqrt(SCALE) to compensate for sqrt(w2) ~ SCALE/sqrt(n)
+    .unwrap_or(u128::MAX)
+    / isqrt(w2).max(1)
+    + 1;
+let mut lo: u128 = 0;
+let mut hi: u128 = lambda_hi;
+
+for _ in 0..64 {
+    if lo + 1 >= hi { break; }
+    let mid = lo + (hi - lo) / 2;
+    // Evaluate g(mid) = SUM (x[b] + mid * w[b])^2, term by term
+    let g = reserves.iter().zip(weights.iter()).try_fold(0u128, |acc, (&h, &w)| {
+        let x = total_minted.saturating_sub(h as u128);
+        let xw = x.checked_add(mid.checked_mul(w as u128)?)?;
+        acc.checked_add(xw.checked_mul(xw)?)
+    });
+    match g {
+        Some(val) if val <= k_new_sq => lo = mid,
+        _ => hi = mid,  // overflow or g > k_new^2 → lambda too high
+    }
+}
+let numerator_approx = lo;
+// tokens_out[b] = numerator_approx * w[b] / SCALE (approximately)
+```
+
+**Overflow analysis:** At the solution, `g(lambda) = k_new^2 = (T+C)^2`. Each term `(x + lambda*w)^2` sums to `(T+C)^2`, which fits u128 for `T+C < 1.84*10^19` (~$18.4T). During binary search, if `mid` overshoots, `checked_mul` returns `None` and the search moves `hi` down. **Safe to ~$18.4T.**
+
+**Iteration count:** With a tight upper bound, `log2(lambda_hi)` iterations suffice. For typical trades, `lambda_hi < 10^7` → ~23 iterations. Worst case: 64 iterations.
+
+**CU cost:** ~25 iterations × n bins × 5 ops ≈ 32K CU (n=256). Fits within 200K budget.
+
+**Pros:** No algebraic overflow. Exact integer arithmetic (no precision loss). Guaranteed convergence. Simple to implement. Safe to ~$18.4T.
+**Cons:** More CU than Newton (~3x). Binary search gives the integer-floor result, may need a final check of `lo` vs `lo+1`.
+
+#### Approach F: Tiered exact/approximate (pragmatic hybrid)
+
+Try the original exact computation first. If any `checked_mul` fails, fall back to the scale-down path. This preserves exact behavior for all existing tests and small/medium markets, and only uses the approximation for large markets where precision loss is proportionally negligible.
+
+```rust
+let sqrt_disc = if let Some(disc) = xw.checked_mul(xw)
+    .and_then(|xw_sq| w2.checked_mul(excess)
+        .and_then(|we| xw_sq.checked_add(we)))
+{
+    // Exact path — no precision loss
+    isqrt(disc)
+} else {
+    // Scale-down fallback — only reached for large markets
+    let s: u128 = 1_000_000; // or isqrt(SCALE) for even more headroom
+    let xw_s = xw / s;
+    let disc_s = xw_s * xw_s + (w2 / s) * (excess / s);
+    isqrt(disc_s) * s
+};
+```
+
+**Precision analysis of the fallback path (S = 10^6):**
+- The fallback triggers when `xw^2 > u128::MAX`, i.e., `xw > ~1.84*10^19`.
+- At that point, `numerator = sqrt(disc) - xw` is at least ~10^6 (since the market holds ~$26K+ for n=2).
+- The scale-down error in `isqrt(disc_s) * S` is at most ±S = ±10^6.
+- Relative error: at most `10^6 / 10^6 = 100%` for the smallest possible numerator at the threshold.
+- **Improvement:** Use `S = isqrt(SCALE) ≈ 31623` instead. This gives ±31623 error (~$0.03 USDC). The fallback triggers at the same threshold (xw^2 overflow), and numerator at that point is ~$26K+, so relative error is ~0.1%. The threshold of the fallback path itself increases to ~$820M (n=2).
+
+**Pros:** Zero behavior change for existing markets. No precision loss below overflow threshold. Minimal code change (~10 lines). No dependencies. No CU overhead for normal markets.
+**Cons:** Two code paths to test. Precision loss in fallback path for trades near the overflow boundary (mitigated by choosing S carefully). Still has a (much higher) overflow ceiling in the fallback path.
+
 ### Recommendation
 
-**Approach A** (factor out SCALE) is the pragmatic choice — minimal code change, massive threshold improvement, acceptable precision for a financial protocol. Should be validated with edge-case unit tests comparing results against the current implementation at small values where both work.
+**Approach F** (tiered exact/approximate) is the safest pragmatic choice — zero behavior change for all current markets, minimal code, no dependencies. Combined with `S = isqrt(SCALE)`, it raises the ceiling from ~$300K to ~$820M with negligible precision loss.
 
-**Approach B** (u256) is the "correct" choice if precision matters and CU budget permits. The `ethnum` crate is lightweight and no_std compatible.
+**Approach B** (u256) is the "correct" choice if exact precision is required at all scales and CU budget permits. The `ethnum` crate is lightweight and no_std compatible.
+
+**Approach E** (binary search) is the best choice if zero-dependency AND exact precision are both required — at the cost of higher CU usage (~32K for 256 bins).
 
 ### Reproduction
 
