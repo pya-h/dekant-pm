@@ -293,12 +293,11 @@ func (m *createMarketScreen) execCreateMarket() tea.Cmd {
 
 		// Derive creator role PDA: use Creator role by default.
 		// If the user has Admin role but not Creator role, use Admin role PDA instead.
-		// For superuser, send program ID as null placeholder (role check is bypassed).
-		var creatorRolePda solana.PublicKey
-		if creator.Pubkey == m.state.Superuser.Pubkey {
-			creatorRolePda = m.state.ProgramID
-		} else {
-			roleType := constants.RoleCreator
+		// For superuser, the on-chain handler bypasses the role check, but we still
+		// derive a real PDA (matching the Node CLI) to avoid transaction compilation
+		// issues with the program ID appearing as both program and account.
+		roleType := constants.RoleCreator
+		if creator.Pubkey != m.state.Superuser.Pubkey {
 			hasCreator := false
 			for _, r := range creator.Roles {
 				if r == "Creator" {
@@ -314,8 +313,8 @@ func (m *createMarketScreen) execCreateMarket() tea.Cmd {
 					}
 				}
 			}
-			creatorRolePda, _ = chain.FindUserRole(creator.Pubkey, roleType, m.state.ProgramID)
 		}
+		creatorRolePda, _ := chain.FindUserRole(creator.Pubkey, roleType, m.state.ProgramID)
 		creatorLpPos, _ := chain.FindLpPosition(marketPda, creator.Pubkey, m.state.ProgramID)
 
 		// Create collateral mint (superuser as authority)
