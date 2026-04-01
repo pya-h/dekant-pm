@@ -191,8 +191,12 @@ pub fn compute_distribution_buy(
     let mut w2: u128 = 0;
     for (&h, &w) in reserves.iter().zip(weights.iter()) {
         let x = total_minted.saturating_sub(h as u128);
-        xw += x * (w as u128);
-        w2 += (w as u128) * (w as u128);
+        xw = xw
+            .checked_add(x.checked_mul(w as u128).ok_or_else(|| error!(DekantPmError::MathOverflow))?)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        w2 = w2
+            .checked_add((w as u128).checked_mul(w as u128).ok_or_else(|| error!(DekantPmError::MathOverflow))?)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     }
 
     require!(w2 > 0, DekantPmError::DivisionByZero);
@@ -264,7 +268,8 @@ pub fn compute_distribution_sell(
     require!(weights.len() == n, DekantPmError::InvalidNumOutcomes);
     require!(total_tokens > 0, DekantPmError::TradeTooSmall);
 
-    let mut k_new_sq: u128 = 0;
+    // Accumulate Σ x_new² in U256 to avoid overflow at extreme pool sizes.
+    let mut k_new_sq = U256::ZERO;
     for (i, &w) in weights.iter().enumerate() {
         let tokens_for_bin = (total_tokens as u128)
             .checked_mul(w as u128)
@@ -274,11 +279,11 @@ pub fn compute_distribution_sell(
             .checked_add(tokens_for_bin as u64)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-        let x_new = total_minted.saturating_sub(reserves[i] as u128);
+        let x_new = U256::from(total_minted.saturating_sub(reserves[i] as u128));
         k_new_sq += x_new * x_new;
     }
 
-    let k_new = isqrt(k_new_sq);
+    let k_new: u128 = isqrt_u256(k_new_sq);
     require!(
         total_minted >= k_new,
         DekantPmError::InsufficientLiquidity

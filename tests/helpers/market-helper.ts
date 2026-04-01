@@ -171,11 +171,12 @@ export async function createContinuousMarket(opts?: {
     ctx.creatorKp.publicKey,
     ctx.creatorKp
   );
+  const mintAmount = BigInt(liquidity.toString()) + BigInt(100_000_000);
   await mintTokens(
     ctx.collateralMint,
     creatorAta,
     (ctx.superadmin as any).payer,
-    BigInt(100_000_000)
+    mintAmount
   );
 
   const [oracleRolePda] = findUserRole(ctx.oracleKp.publicKey, ROLE_ORACLE, ctx.program.programId);
