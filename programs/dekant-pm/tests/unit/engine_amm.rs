@@ -1076,9 +1076,10 @@ fn uniform_weights(n: usize) -> Vec<u64> {
 /// Currently returns MathOverflow; after fix should succeed.
 #[test]
 fn test_bug001_overflow_2_bins_30k_usd() {
+    let n: usize = 2;
     let total_minted: u128 = 30_000_000_000; // $30K USDC (6 decimals)
-    let mut reserves = init_reserves(2, total_minted);
-    let weights = uniform_weights(2);
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
     let trade = 1_000_000u64; // $1 USDC
 
     let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
@@ -1094,7 +1095,27 @@ fn test_bug001_overflow_2_bins_30k_usd() {
     let total_tokens: u64 = tokens.iter().sum();
     assert!(total_tokens > 0, "should receive tokens");
 
-    // Uniform weights → equal token distribution
+    // Invariant: Σ(k_new - reserves[i])² ≈ k_new² (proportional tolerance
+    // because init_reserves uses isqrt which introduces small rounding)
+    let k_new = total_minted + trade as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_new);
+    let expected_sq = k_new * k_new;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant relative error {} too large (expected_sq={})",
+        actual_sq.abs_diff(expected_sq), expected_sq
+    );
+
+    // L2-norm AMM with uniform weights: total_tokens ≈ trade * sqrt(n).
+    // For n=2, sqrt(2) ≈ 1.414, so $1 trade yields ~$1.41 in tokens.
+    let expected_total = isqrt((trade as u128) * (trade as u128) * n as u128);
+    assert!(
+        (total_tokens as u128).abs_diff(expected_total) <= expected_total / 20,
+        "total_tokens ({total_tokens}) not within 5% of expected ({expected_total})"
+    );
+
+    // Uniform weights → equal distribution, all bins > 0
+    assert!(tokens[0] > 0 && tokens[1] > 0, "all bins should get tokens: {:?}", tokens);
     let diff = tokens[0].abs_diff(tokens[1]);
     assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
 }
@@ -1105,9 +1126,10 @@ fn test_bug001_overflow_2_bins_30k_usd() {
 /// This is the maximum-bins worst case from the bug report.
 #[test]
 fn test_bug001_overflow_256_bins_300k_usd() {
+    let n: usize = 256;
     let total_minted: u128 = 300_000_000_000; // $300K USDC
-    let mut reserves = init_reserves(256, total_minted);
-    let weights = uniform_weights(256);
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
     let trade = 1_000_000u64; // $1 USDC
 
     let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
@@ -1122,15 +1144,42 @@ fn test_bug001_overflow_256_bins_300k_usd() {
     let tokens = result.unwrap();
     let total_tokens: u64 = tokens.iter().sum();
     assert!(total_tokens > 0, "should receive tokens");
+
+    // Invariant check (proportional tolerance)
+    let k_new = total_minted + trade as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_new);
+    let expected_sq = k_new * k_new;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant relative error {} too large (expected_sq={})",
+        actual_sq.abs_diff(expected_sq), expected_sq
+    );
+
+    // L2-norm: total ≈ trade * sqrt(256) = trade * 16
+    let expected_total = isqrt((trade as u128) * (trade as u128) * n as u128);
+    assert!(
+        (total_tokens as u128).abs_diff(expected_total) <= expected_total / 20,
+        "total_tokens ({total_tokens}) not within 5% of expected ({expected_total})"
+    );
+
+    // Uniform weights → all bins should get roughly equal tokens
+    let per_bin = total_tokens / n as u64;
+    for (i, &t) in tokens.iter().enumerate() {
+        assert!(
+            t.abs_diff(per_bin) <= 1,
+            "bin {i}: expected ~{per_bin}, got {t}"
+        );
+    }
 }
 
 /// BUG-001 extended: 64 bins, $1M USDC — verifies the fix raises
 /// the ceiling well above practical liquidity levels.
 #[test]
 fn test_bug001_overflow_64_bins_1m_usd() {
+    let n: usize = 64;
     let total_minted: u128 = 1_000_000_000_000; // $1M USDC
-    let mut reserves = init_reserves(64, total_minted);
-    let weights = uniform_weights(64);
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
     let trade = 10_000_000u64; // $10 USDC
 
     let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
@@ -1145,6 +1194,32 @@ fn test_bug001_overflow_64_bins_1m_usd() {
     let tokens = result.unwrap();
     let total_tokens: u64 = tokens.iter().sum();
     assert!(total_tokens > 0, "should receive tokens");
+
+    // Invariant check (proportional tolerance)
+    let k_new = total_minted + trade as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_new);
+    let expected_sq = k_new * k_new;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant relative error {} too large (expected_sq={})",
+        actual_sq.abs_diff(expected_sq), expected_sq
+    );
+
+    // L2-norm: total ≈ trade * sqrt(64) = trade * 8
+    let expected_total = isqrt((trade as u128) * (trade as u128) * n as u128);
+    assert!(
+        (total_tokens as u128).abs_diff(expected_total) <= expected_total / 20,
+        "total_tokens ({total_tokens}) not within 5% of expected ({expected_total})"
+    );
+
+    // Uniform weights → roughly equal per-bin distribution
+    let per_bin = total_tokens / n as u64;
+    for (i, &t) in tokens.iter().enumerate() {
+        assert!(
+            t.abs_diff(per_bin) <= 1,
+            "bin {i}: expected ~{per_bin}, got {t}"
+        );
+    }
 }
 
 /// BUG-001 secondary overflow: w2 * excess overflows for large trades
@@ -1155,9 +1230,10 @@ fn test_bug001_overflow_64_bins_1m_usd() {
 /// w2*excess ≈ 3.4e38 → overflows u128.
 #[test]
 fn test_bug001_w2_excess_overflow_doubling_trade() {
+    let n: usize = 2;
     let total_minted: u128 = 15_000_000_000; // $15K USDC
-    let mut reserves = init_reserves(2, total_minted);
-    let weights = uniform_weights(2);
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
     let trade = 15_000_000_000u64; // $15K — doubling the pool
 
     let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
@@ -1172,15 +1248,44 @@ fn test_bug001_w2_excess_overflow_doubling_trade() {
     let tokens = result.unwrap();
     let total_tokens: u64 = tokens.iter().sum();
     assert!(total_tokens > 0, "should receive tokens");
+
+    // Invariant check (proportional tolerance)
+    let k_new = total_minted + trade as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_new);
+    let expected_sq = k_new * k_new;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant relative error {} too large (expected_sq={})",
+        actual_sq.abs_diff(expected_sq), expected_sq
+    );
+
+    // Doubling trade on 2-bin uniform pool: analytically total ≈ 1.162 * trade
+    // λ = (sqrt(5/2) - 1) * T * SCALE, tokens_per_bin = λ/SCALE,
+    // total = 2 * λ/SCALE ≈ 1.162 * T
+    // So total_tokens > trade — the pool expansion creates extra capacity.
+    assert!(
+        total_tokens > trade,
+        "doubling trade: total_tokens ({total_tokens}) should exceed trade ({trade})"
+    );
+    assert!(
+        total_tokens < trade * 3 / 2,
+        "doubling trade: total_tokens ({total_tokens}) should be < 1.5 * trade"
+    );
+
+    // Uniform weights → equal distribution, all bins > 0
+    assert!(tokens[0] > 0 && tokens[1] > 0, "all bins should get tokens: {:?}", tokens);
+    let diff = tokens[0].abs_diff(tokens[1]);
+    assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
 }
 
 /// Regression: $20K with 2 bins is below the current overflow threshold
 /// (~$26K). This should pass both before AND after the fix.
 #[test]
 fn test_bug001_regression_below_threshold() {
+    let n: usize = 2;
     let total_minted: u128 = 20_000_000_000; // $20K USDC — below $26K threshold
-    let mut reserves = init_reserves(2, total_minted);
-    let weights = uniform_weights(2);
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
     let trade = 1_000_000u64; // $1 USDC
 
     let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
@@ -1195,7 +1300,25 @@ fn test_bug001_regression_below_threshold() {
     let total_tokens: u64 = tokens.iter().sum();
     assert!(total_tokens > 0, "should receive tokens");
 
-    // Uniform weights → equal distribution
+    // Invariant check (proportional tolerance)
+    let k_new = total_minted + trade as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_new);
+    let expected_sq = k_new * k_new;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant relative error {} too large (expected_sq={})",
+        actual_sq.abs_diff(expected_sq), expected_sq
+    );
+
+    // L2-norm: total ≈ trade * sqrt(2) ≈ 1.414 * trade
+    let expected_total = isqrt((trade as u128) * (trade as u128) * n as u128);
+    assert!(
+        (total_tokens as u128).abs_diff(expected_total) <= expected_total / 20,
+        "total_tokens ({total_tokens}) not within 5% of expected ({expected_total})"
+    );
+
+    // Uniform weights → equal distribution, all bins > 0
+    assert!(tokens[0] > 0 && tokens[1] > 0, "all bins should get tokens: {:?}", tokens);
     let diff = tokens[0].abs_diff(tokens[1]);
     assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
 }
