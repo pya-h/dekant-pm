@@ -22,6 +22,7 @@ idl-build = [
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
+ethnum = { version = "1", default-features = false }
 
 [dev-dependencies]
 anchor-lang = "0.32.1"
