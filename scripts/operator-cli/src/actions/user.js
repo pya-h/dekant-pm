@@ -13,7 +13,9 @@ const {
   mintTokens,
   getTokenBalance,
   transferSol,
+  wrapSol,
   getNetworkMints,
+  NATIVE_MINT,
   findProtocolConfig,
   findUserRole,
   parseTokenAmount,
@@ -244,33 +246,51 @@ async function fundUser(state) {
       state.logError("Fund User", e);
     }
   } else {
+    const isWSol = mint.equals(NATIVE_MINT);
     const amountStr = await input({
-      message: "Amount (tokens):",
+      message: isWSol ? "Amount (SOL to wrap):" : "Amount (tokens):",
       default: state.randomMode ? state.rand.fundAmount() : "100",
     });
 
     console.log(
-      chalk.dim(`\n  Minting ${amountStr} tokens to ${selected.label}...`)
+      chalk.dim(
+        isWSol
+          ? `\n  Wrapping ${amountStr} SOL to ${selected.label}...`
+          : `\n  Minting ${amountStr} tokens to ${selected.label}...`
+      )
     );
 
     try {
       const amount = parseTokenAmount(amountStr);
-      const ata = await getOrCreateAta(
-        state.connection,
-        mint,
-        selected.pubkey,
-        state.superuser.keypair
-      );
-      await mintTokens(
-        state.connection,
-        mint,
-        ata,
-        state.superuser.keypair,
-        BigInt(amount.toString())
-      );
-      const balance = await getTokenBalance(state.connection, ata);
-      showSuccess(`Funded ${selected.label} with ${amountStr} tokens`);
-      console.log(`  New balance: ${formatTokenAmount(balance)} tokens`);
+      if (isWSol) {
+        const lamports = Number(BigInt(amount.toString()) * BigInt(1000));
+        const ata = await wrapSol(
+          state.connection,
+          state.superuser.keypair,
+          selected.pubkey,
+          lamports
+        );
+        const balance = await getTokenBalance(state.connection, ata);
+        showSuccess(`Wrapped ${amountStr} SOL to ${selected.label}`);
+        console.log(`  WSOL balance: ${formatTokenAmount(balance)}`);
+      } else {
+        const ata = await getOrCreateAta(
+          state.connection,
+          mint,
+          selected.pubkey,
+          state.superuser.keypair
+        );
+        await mintTokens(
+          state.connection,
+          mint,
+          ata,
+          state.superuser.keypair,
+          BigInt(amount.toString())
+        );
+        const balance = await getTokenBalance(state.connection, ata);
+        showSuccess(`Funded ${selected.label} with ${amountStr} tokens`);
+        console.log(`  New balance: ${formatTokenAmount(balance)} tokens`);
+      }
     } catch (e) {
       showError(e);
       state.logError("Fund User", e);

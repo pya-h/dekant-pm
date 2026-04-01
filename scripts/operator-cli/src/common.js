@@ -19,6 +19,7 @@ const {
   mintTo,
   createMint,
   getAccount,
+  NATIVE_MINT,
 } = require("@solana/spl-token");
 const { readFileSync, existsSync } = require("fs");
 const { resolve } = require("path");
@@ -212,6 +213,28 @@ async function transferSol(connection, fromKeypair, toPubkey, lamports) {
   return sig;
 }
 
+async function wrapSol(connection, payer, owner, lamports) {
+  const ata = await getOrCreateAta(connection, NATIVE_MINT, owner, payer);
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: payer.publicKey,
+      toPubkey: ata,
+      lamports,
+    }),
+    {
+      keys: [{ pubkey: ata, isSigner: false, isWritable: true }],
+      programId: TOKEN_PROGRAM_ID,
+      data: Buffer.from([17]), // SyncNative
+    }
+  );
+  const sig = await connection.sendTransaction(tx, [payer], {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+  await connection.confirmTransaction(sig, "confirmed");
+  return ata;
+}
+
 async function getNetworkMints(connection) {
   const accounts = await connection.getProgramAccounts(TOKEN_PROGRAM_ID, {
     filters: [{ dataSize: 82 }],
@@ -327,7 +350,9 @@ module.exports = {
   createCollateralMint,
   getTokenBalance,
   transferSol,
+  wrapSol,
   getNetworkMints,
+  NATIVE_MINT,
   // Format
   formatTokenAmount,
   parseTokenAmount,
