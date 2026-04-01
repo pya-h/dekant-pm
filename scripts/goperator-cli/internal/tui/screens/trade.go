@@ -197,9 +197,9 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 		if m.market.RangeMin != 0 || m.market.RangeMax != 0 {
 			rangeStr = fmt.Sprintf(" (range: %.0f–%.0f)", m.market.RangeMin, m.market.RangeMax)
 		}
-		amountLabel := "Amount (tokens) to buy"
+		amountLabel := "Collateral amount to spend"
 		if !m.isBuy {
-			amountLabel = "Token amount to sell"
+			amountLabel = "Outcome tokens to sell"
 		}
 
 		m.form = huh.NewForm(
@@ -233,9 +233,9 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 			outcomeOpts[i] = huh.NewOption(label, strconv.Itoa(i))
 		}
 
-		inverseLabel := "by shares"
+		inverseLabel := "by outcome tokens"
 		if !m.isBuy {
-			inverseLabel = "by collateral"
+			inverseLabel = "by collateral received"
 		}
 
 		m.form = huh.NewForm(
@@ -270,7 +270,7 @@ func (m *tradeScreen) advanceToUser() tea.Cmd {
 	if m.tradeType == "inverse" {
 		var label string
 		if m.isBuy {
-			label = "Number of shares to buy"
+			label = "Outcome tokens to buy"
 		} else {
 			label = "Collateral to receive"
 		}
@@ -309,9 +309,9 @@ func (m *tradeScreen) advanceToUser() tea.Cmd {
 	}
 
 	// "fixed" — ask for amount
-	amountLabel := "Amount (tokens) to buy"
+	amountLabel := "Collateral amount to spend"
 	if !m.isBuy {
-		amountLabel = "Token amount to sell"
+		amountLabel = "Outcome tokens to sell"
 	}
 	m.form = huh.NewForm(
 		huh.NewGroup(
@@ -359,13 +359,13 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 		balanceBefore, _ := m.state.Client.GetTokenBalance(ctx, traderAta)
 
 		// Build balance info line
-		balanceLine := fmt.Sprintf("  Collateral balance: %s tokens", util.FormatTokenAmount(balanceBefore))
+		balanceLine := fmt.Sprintf("  Collateral balance: %s", util.FormatTokenAmount(balanceBefore))
 		if !m.isBuy && m.tradeType != "distribution" {
 			outcomeIdx, _ := strconv.Atoi(m.outcomeStr)
 			pos, _, posErr := m.state.FetchUserPosition(marketPda, user.Pubkey)
 			if posErr == nil && outcomeIdx < len(pos.Holdings) {
 				label := util.OutcomeLabel(m.market.Type, outcomeIdx)
-				balanceLine += fmt.Sprintf("\n  %s token balance: %s", label, util.FormatTokenAmount(pos.Holdings[outcomeIdx]))
+				balanceLine += fmt.Sprintf("\n  %s holdings: %s outcome tokens", label, util.FormatTokenAmount(pos.Holdings[outcomeIdx]))
 			}
 		}
 
@@ -514,7 +514,7 @@ func (m *tradeScreen) doTradeExec(user *state.User, marketPda, traderAta solana.
 			diffLabel = "Received"
 		}
 
-		m.result = fmt.Sprintf("%s %s tokens (balance: %s → %s)",
+		m.result = fmt.Sprintf("%s %s collateral (balance: %s → %s)",
 			diffLabel, util.FormatTokenAmount(diff),
 			util.FormatTokenAmount(balanceBefore), util.FormatTokenAmount(balanceAfter))
 

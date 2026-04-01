@@ -82,8 +82,8 @@ func (m *addLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case doneMsg:
-		m.state.AddTxLog("Add LP", msg.sig, true, m.amount+" tokens")
-		m.result = fmt.Sprintf("Added %s tokens liquidity", m.amount)
+		m.state.AddTxLog("Add LP", msg.sig, true, m.amount+" collateral")
+		m.result = fmt.Sprintf("Added %s collateral as liquidity", m.amount)
 		m.phase = phaseAddLPDone
 		return m, nil
 	}
@@ -103,7 +103,7 @@ func (m *addLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = huh.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title("Amount (tokens) to add").
+						Title("Collateral amount to add").
 						Value(&m.amount).
 						Placeholder("50"),
 				),
@@ -194,7 +194,7 @@ func (m *addLPScreen) execAddLP() tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		return doneMsg{result: m.amount + " tokens", sig: sig}
+		return doneMsg{result: m.amount + " collateral", sig: sig}
 	}
 }
 
@@ -279,6 +279,7 @@ func (m *removeLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case doneMsg:
+		m.result = msg.result
 		m.state.AddTxLog("Remove LP", msg.sig, true, m.result)
 		m.phase = phaseRemoveLPDone
 		return m, nil
@@ -406,7 +407,7 @@ func (m *removeLPScreen) execRemoveLP() tea.Cmd {
 		balanceAfter, _ := m.state.Client.GetTokenBalance(ctx, providerAta)
 		returned := balanceAfter - balanceBefore
 
-		m.result = fmt.Sprintf("Removed LP — collateral returned: %s tokens", util.FormatTokenAmount(returned))
+		m.result = fmt.Sprintf("Removed LP — collateral returned: %s", util.FormatTokenAmount(returned))
 		return doneMsg{result: m.result, sig: sig}
 	}
 }

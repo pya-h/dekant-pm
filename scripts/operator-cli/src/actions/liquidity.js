@@ -23,7 +23,7 @@ async function addLiquidity(state) {
   if (!sm || sm === "cancel") return;
 
   const amountStr = await input({
-    message: "Amount (tokens) to add:",
+    message: "Collateral amount to add:",
     default: state.randomMode ? state.rand.liquidity() : "50",
   });
 
@@ -69,13 +69,13 @@ async function addLiquidity(state) {
       })
       .rpc();
 
-    showSuccess(`Added ${amountStr} tokens liquidity to Market #${sm.id}`);
+    showSuccess(`Added ${amountStr} collateral as liquidity to Market #${sm.id}`);
 
     try {
       const lp = await program.account.lpPosition.fetch(lpPosition);
       printKV([
         ["LP shares", lp.shares.toString()],
-        ["Deposited", formatTokenAmount(lp.depositedCollateral)],
+        ["Deposited (collateral)", formatTokenAmount(lp.depositedCollateral)],
       ]);
     } catch {}
   } catch (e) {
@@ -154,7 +154,7 @@ async function removeLiquidity(state) {
 
     showSuccess(`Removed liquidity from Market #${sm.id}`);
     console.log(
-      `  Collateral returned: ${formatTokenAmount(balanceAfter - balanceBefore)} tokens`
+      `  Collateral returned: ${formatTokenAmount(balanceAfter - balanceBefore)}`
     );
   } catch (e) {
     showError(e);

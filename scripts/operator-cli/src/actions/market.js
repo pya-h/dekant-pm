@@ -59,7 +59,7 @@ async function createMarket(state) {
 
   // Step 2: common params
   const liquidityStr = await input({
-    message: "Initial liquidity (tokens):",
+    message: "Initial collateral for liquidity:",
     default: state.randomMode ? state.rand.liquidity() : "100",
   });
   const deadlineStr = await input({

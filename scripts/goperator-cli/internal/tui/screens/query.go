@@ -135,14 +135,14 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Creator"), md.Creator.String()),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Oracle"), md.Oracle.String()),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Collateral mint"), md.CollateralMint.String()),
-			fmt.Sprintf("  %-24s  %s tokens", styles.StyleKey.Render("Vault balance"), util.FormatTokenAmount(vaultBalance)),
+			fmt.Sprintf("  %-24s  %s (collateral)", styles.StyleKey.Render("Vault balance"), util.FormatTokenAmount(vaultBalance)),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Deadline"), util.FormatTimestamp(md.Deadline)),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Created"), util.FormatTimestamp(md.CreatedAt)),
 			fmt.Sprintf("  %-24s  %d", styles.StyleKey.Render("Outcomes/bins"), md.NumOutcomes),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Total minted"), md.TotalMinted.String()),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("LP shares total"), md.LpSharesTotal.String()),
 			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("LP fee accumulated"), md.LpFeeAccumulated.String()),
-			fmt.Sprintf("  %-24s  %s tokens", styles.StyleKey.Render("Protocol fee"), util.FormatTokenAmount(md.ProtocolFeeAccumulated)),
+			fmt.Sprintf("  %-24s  %s (collateral)", styles.StyleKey.Render("Protocol fee"), util.FormatTokenAmount(md.ProtocolFeeAccumulated)),
 		}
 		lines = append(lines, kv...)
 
@@ -360,8 +360,8 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 		// Trading position
 		if posErr == nil {
 			lines = append(lines, "")
-			lines = append(lines, fmt.Sprintf("  %-20s  %s tokens", styles.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
-			lines = append(lines, fmt.Sprintf("  %-20s  %s tokens", styles.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
+			lines = append(lines, fmt.Sprintf("  %-20s  %s (collateral)", styles.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
+			lines = append(lines, fmt.Sprintf("  %-20s  %s (collateral)", styles.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
 			claimed := "No"
 			if pos.Claimed {
 				claimed = "Yes"
@@ -369,7 +369,7 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 			lines = append(lines, fmt.Sprintf("  %-20s  %s", styles.StyleKey.Render("Claimed"), claimed))
 
 			lines = append(lines, "")
-			lines = append(lines, styles.StyleDim.Render("  Holdings:"))
+			lines = append(lines, styles.StyleDim.Render("  Holdings (outcome tokens):"))
 			hasHoldings := false
 			for i, h := range pos.Holdings {
 				if h > 0 {
@@ -393,7 +393,7 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 			lines = append(lines, "")
 			lines = append(lines, styles.StyleDim.Render("  LP Position:"))
 			lines = append(lines, fmt.Sprintf("    %-20s  %s", styles.StyleKey.Render("Shares"), lp.Shares.String()))
-			lines = append(lines, fmt.Sprintf("    %-20s  %s tokens", styles.StyleKey.Render("Deposited"), util.FormatTokenAmount(lp.DepositedCollateral)))
+			lines = append(lines, fmt.Sprintf("    %-20s  %s (collateral)", styles.StyleKey.Render("Deposited"), util.FormatTokenAmount(lp.DepositedCollateral)))
 		}
 
 		lines = append(lines, "")
@@ -503,19 +503,45 @@ func (m *viewBalancesScreen) loadBalances() tea.Cmd {
 				sb.WriteString("    SOL: (error)\n")
 			}
 
-			// Token balances (derive ATA address without creating on-chain)
+			// Collateral token balances (derive ATA address without creating on-chain)
 			for _, mi := range mints {
 				ata := chain.DeriveATA(user.Pubkey, mi.Mint)
 				bal, err := m.state.Client.GetTokenBalance(ctx, ata)
 				if err != nil {
-					sb.WriteString(fmt.Sprintf("    %s: 0 (%s)\n", mi.Label, util.FormatPubkey(mi.Mint)))
+					sb.WriteString(fmt.Sprintf("    %s (collateral): 0 (%s)\n", mi.Label, util.FormatPubkey(mi.Mint)))
 					continue
 				}
-				sb.WriteString(fmt.Sprintf("    %s: %s (%s)\n", mi.Label, util.FormatTokenAmount(bal), util.FormatPubkey(mi.Mint)))
+				sb.WriteString(fmt.Sprintf("    %s (collateral): %s (%s)\n", mi.Label, util.FormatTokenAmount(bal), util.FormatPubkey(mi.Mint)))
 			}
 
-			if len(mints) == 0 {
-				sb.WriteString("    No markets -- no token balances to show\n")
+			// Outcome token holdings per market
+			for _, mkt := range m.state.Markets {
+				marketPda, _ := chain.FindMarket(mkt.ID, m.state.ProgramID)
+				pos, _, posErr := m.state.FetchUserPosition(marketPda, user.Pubkey)
+				if posErr != nil {
+					continue
+				}
+				hasHoldings := false
+				for _, h := range pos.Holdings {
+					if h > 0 {
+						hasHoldings = true
+						break
+					}
+				}
+				if !hasHoldings {
+					continue
+				}
+				sb.WriteString(fmt.Sprintf("    Market #%d (%s) holdings:\n", mkt.ID, mkt.Label))
+				for i, h := range pos.Holdings {
+					if h > 0 {
+						label := util.OutcomeLabel(mkt.Type, i)
+						sb.WriteString(fmt.Sprintf("      %-10s %s outcome tokens\n", label, util.FormatTokenAmount(h)))
+					}
+				}
+			}
+
+			if len(mints) == 0 && len(m.state.Markets) == 0 {
+				sb.WriteString("    No markets — no balances to show\n")
 			}
 			sb.WriteString("\n")
 		}

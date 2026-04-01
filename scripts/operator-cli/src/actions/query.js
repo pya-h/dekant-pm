@@ -41,7 +41,7 @@ async function queryMarketInfo(state) {
     ["Creator", market.creator.toBase58()],
     ["Oracle", market.oracle.toBase58()],
     ["Collateral mint", market.collateralMint.toBase58()],
-    ["Vault balance", `${formatTokenAmount(vaultBalance)} tokens`],
+    ["Vault balance (collateral)", formatTokenAmount(vaultBalance)],
     ["Deadline", formatTimestamp(market.deadline.toNumber())],
     ["Created", formatTimestamp(market.createdAt.toNumber())],
     ["Outcomes/bins", market.numOutcomes.toString()],
@@ -130,15 +130,15 @@ async function viewPosition(state) {
     console.log();
 
     printKV([
-      ["Total deposited", `${formatTokenAmount(position.totalDeposited)} tokens`],
+      ["Total deposited (collateral)", formatTokenAmount(position.totalDeposited)],
       [
-        "Total withdrawn",
-        `${formatTokenAmount(position.totalWithdrawn)} tokens`,
+        "Total withdrawn (collateral)",
+        formatTokenAmount(position.totalWithdrawn),
       ],
       ["Claimed", position.claimed ? "Yes" : "No"],
     ]);
 
-    console.log(chalk.dim("\n  Holdings:"));
+    console.log(chalk.dim("\n  Holdings (outcome tokens):"));
     let hasHoldings = false;
     for (let i = 0; i < position.holdings.length; i++) {
       const h = position.holdings[i];
@@ -194,7 +194,7 @@ async function viewBalances(state) {
       console.log(chalk.dim("    SOL: (error)"));
     }
 
-    // Token balances (derive ATA address without creating on-chain)
+    // Collateral token balances (derive ATA address without creating on-chain)
     for (const mint of mints) {
       const mintAddr = mint.toBase58();
       const label = mintLabels[mintAddr];
@@ -202,14 +202,35 @@ async function viewBalances(state) {
       try {
         const ata = deriveAta(mint, user.pubkey);
         const balance = await getTokenBalance(state.connection, ata);
-        console.log(`    ${label}: ${formatTokenAmount(balance)} (${shortAddr})`);
+        console.log(`    ${label} (collateral): ${formatTokenAmount(balance)} (${shortAddr})`);
       } catch {
-        console.log(chalk.dim(`    ${label}: 0 (${shortAddr})`));
+        console.log(chalk.dim(`    ${label} (collateral): 0 (${shortAddr})`));
       }
     }
 
-    if (mints.length === 0) {
-      console.log(chalk.dim("    No markets — no token balances to show"));
+    // Outcome token holdings per market
+    for (const m of state.markets) {
+      const [marketPda] = findMarket(m.id, state.programId);
+      const [userPos] = findUserPosition(marketPda, user.pubkey, state.programId);
+      try {
+        const position = await state.superProgram.account.userPosition.fetch(userPos);
+        const hasHoldings = position.holdings.some((h) => h.toNumber() > 0);
+        if (!hasHoldings) continue;
+        console.log(`    Market #${m.id} (${m.label}) holdings:`);
+        for (let i = 0; i < position.holdings.length; i++) {
+          const h = position.holdings[i];
+          if (h.toNumber() > 0) {
+            const label = outcomeLabel(m.type, i);
+            console.log(`      ${label.padEnd(10)} ${formatTokenAmount(h)} outcome tokens`);
+          }
+        }
+      } catch {
+        // No position — skip
+      }
+    }
+
+    if (mints.length === 0 && state.markets.length === 0) {
+      console.log(chalk.dim("    No markets — no balances to show"));
     }
     console.log();
   }
