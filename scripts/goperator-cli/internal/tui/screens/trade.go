@@ -40,6 +40,7 @@ type tradeScreen struct {
 	marketData *state.MarketAccount
 	result     string
 	err        error
+	execLog    []string
 }
 
 const (
@@ -103,6 +104,13 @@ func (m *tradeScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		m.state.AddTxLog(m.actionLabel(), msg.sig, true, m.result)
 		m.phase = phaseTradeDone
+		return m, nil
+
+	case stepMsg:
+		m.execLog = append(m.execLog, msg.line)
+		if msg.next != nil {
+			return m, msg.next
+		}
 		return m, nil
 
 	case dataMsg:
@@ -229,10 +237,6 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 		if !m.isBuy {
 			inverseLabel = "by collateral"
 		}
-		amountLabel := "Amount (tokens) to buy"
-		if !m.isBuy {
-			amountLabel = "Token amount to sell"
-		}
 
 		m.form = huh.NewForm(
 			huh.NewGroup(
@@ -248,10 +252,6 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 					Title("Select outcome").
 					Options(outcomeOpts...).
 					Value(&m.outcomeStr),
-				huh.NewInput().
-					Title(amountLabel).
-					Value(&m.amount).
-					Placeholder("10"),
 			),
 		)
 	}
@@ -261,6 +261,11 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 }
 
 func (m *tradeScreen) advanceToUser() tea.Cmd {
+	// Distribution already collected all params (mu, sigma, amount) in the form
+	if m.tradeType == "distribution" {
+		return m.showUserSelection()
+	}
+
 	// If inverse, ask for the target amount with the correct label
 	if m.tradeType == "inverse" {
 		var label string
@@ -303,7 +308,21 @@ func (m *tradeScreen) advanceToUser() tea.Cmd {
 		return m.form.Init()
 	}
 
-	return m.showUserSelection()
+	// "fixed" — ask for amount
+	amountLabel := "Amount (tokens) to buy"
+	if !m.isBuy {
+		amountLabel = "Token amount to sell"
+	}
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title(amountLabel).
+				Value(&m.amount).
+				Placeholder("10"),
+		),
+	)
+	m.phase = phaseTradeToPriceParams
+	return m.form.Init()
 }
 
 func (m *tradeScreen) showUserSelection() tea.Cmd {
@@ -329,9 +348,6 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 		}
 
 		marketPda, _ := chain.FindMarket(m.market.ID, m.state.ProgramID)
-		protocolConfig, _ := chain.FindProtocolConfig(m.state.ProgramID)
-		vaultAuthority, _ := chain.FindVaultAuthority(marketPda, m.state.ProgramID)
-		userPosition, _ := chain.FindUserPosition(marketPda, user.Pubkey, m.state.ProgramID)
 
 		// Get or create trader ATA
 		traderAta, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, m.marketData.CollateralMint)
@@ -341,6 +357,31 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 
 		// Get balance before
 		balanceBefore, _ := m.state.Client.GetTokenBalance(ctx, traderAta)
+
+		// Build balance info line
+		balanceLine := fmt.Sprintf("  Collateral balance: %s tokens", util.FormatTokenAmount(balanceBefore))
+		if !m.isBuy && m.tradeType != "distribution" {
+			outcomeIdx, _ := strconv.Atoi(m.outcomeStr)
+			pos, _, posErr := m.state.FetchUserPosition(marketPda, user.Pubkey)
+			if posErr == nil && outcomeIdx < len(pos.Holdings) {
+				label := util.OutcomeLabel(m.market.Type, outcomeIdx)
+				balanceLine += fmt.Sprintf("\n  %s token balance: %s", label, util.FormatTokenAmount(pos.Holdings[outcomeIdx]))
+			}
+		}
+
+		return stepMsg{
+			line: balanceLine,
+			next: m.doTradeExec(user, marketPda, traderAta, balanceBefore),
+		}
+	}
+}
+
+func (m *tradeScreen) doTradeExec(user *state.User, marketPda, traderAta solana.PublicKey, balanceBefore uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		protocolConfig, _ := chain.FindProtocolConfig(m.state.ProgramID)
+		vaultAuthority, _ := chain.FindVaultAuthority(marketPda, m.state.ProgramID)
+		userPosition, _ := chain.FindUserPosition(marketPda, user.Pubkey, m.state.ProgramID)
 
 		var disc [8]byte
 		var args []byte
@@ -508,7 +549,12 @@ func (m *tradeScreen) View() string {
 	case phaseTradeMarket, phaseTradeParams, phaseTradeToPriceParams, phaseTradeUser:
 		return title + probView + m.form.View()
 	case phaseTradeExec:
-		return title + probView + styles.StyleDim.Render("  Executing trade...")
+		lines := title + probView
+		for _, line := range m.execLog {
+			lines += styles.StyleDim.Render(line) + "\n"
+		}
+		lines += styles.StyleDim.Render("  Executing trade...")
+		return lines
 	case phaseTradeDone:
 		if m.err != nil {
 			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +

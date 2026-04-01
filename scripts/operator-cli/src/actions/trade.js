@@ -20,8 +20,10 @@ const {
   findUserPosition,
   getOrCreateAta,
   getTokenBalance,
+  deriveAta,
   parseTokenAmount,
   formatTokenAmount,
+  outcomeLabel,
   SCALE,
   MARKET_TYPE_NAMES,
   MARKET_STATE_NAMES,
@@ -83,6 +85,25 @@ async function executeTrade(state, action) {
     showBalanceForMint: sm.mint,
   });
   if (!user || user === "cancel") return;
+
+  // Show pre-trade balance
+  try {
+    const preAta = deriveAta(marketData.collateralMint, user.pubkey);
+    const preBal = await getTokenBalance(state.connection, preAta);
+    console.log(chalk.dim(`  Collateral balance: ${formatTokenAmount(preBal)} tokens`));
+
+    if (action === "sell" && params.kind !== "distribution") {
+      const [userPos] = findUserPosition(marketPda, user.pubkey, state.programId);
+      try {
+        const position = await state.superProgram.account.userPosition.fetch(userPos);
+        if (params.outcome < position.holdings.length) {
+          const label = outcomeLabel(sm.type, params.outcome);
+          console.log(chalk.dim(`  ${label} token balance: ${formatTokenAmount(position.holdings[params.outcome])}`));
+        }
+      } catch {}
+    }
+    console.log();
+  } catch {}
 
   // Step 5: execute
   try {

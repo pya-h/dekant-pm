@@ -38,9 +38,11 @@ func LoadKeypair(path string) (solana.PrivateKey, error) {
 	return solana.PrivateKey(raw), nil
 }
 
-// GetAccountInfo fetches raw account data.
+// GetAccountInfo fetches raw account data using confirmed commitment.
 func (c *Client) GetAccountInfo(ctx context.Context, addr solana.PublicKey) ([]byte, error) {
-	resp, err := c.RPC.GetAccountInfo(ctx, addr)
+	resp, err := c.RPC.GetAccountInfoWithOpts(ctx, addr, &rpc.GetAccountInfoOpts{
+		Commitment: rpc.CommitmentConfirmed,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("rpc: %w", err)
 	}
@@ -53,7 +55,9 @@ func (c *Client) GetAccountInfo(ctx context.Context, addr solana.PublicKey) ([]b
 // AccountExists checks whether an on-chain account exists.
 // Returns (true, nil) if found, (false, nil) if absent, (false, err) on RPC failure.
 func (c *Client) AccountExists(ctx context.Context, addr solana.PublicKey) (bool, error) {
-	resp, err := c.RPC.GetAccountInfo(ctx, addr)
+	resp, err := c.RPC.GetAccountInfoWithOpts(ctx, addr, &rpc.GetAccountInfoOpts{
+		Commitment: rpc.CommitmentConfirmed,
+	})
 	if err != nil {
 		return false, err
 	}
