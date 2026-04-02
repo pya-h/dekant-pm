@@ -1,7 +1,7 @@
 # Bug Tracker
 
 Discovered via a systematic review of all commits from the last 24 hours (15 commits, 2026-03-25).
-Updated 2026-04-02 with full project review fixes and new findings.
+Updated 2026-04-02 with full project review fixes, new findings, and remaining bug fixes.
 Organized by severity. Check off items as they are resolved.
 
 ---
@@ -64,21 +64,21 @@ Incorrect behavior or missing safeguards that should be addressed.
   - **Impact:** After LP add/remove operations, `kSquared != totalMinted^2`. The estimate methods compute wrong current probabilities and wrong collateral requirements for markets that have had LP operations.
   - **Fix:** Used `market.kSquared` (with fallback to `totalMinted * totalMinted`) in both estimate methods.
 
-- [ ] **M2: Sell-to-price has no frontend holdings validation**
+- [x] **M2: Sell-to-price has no frontend holdings validation** *(fixed 2026-04-02)*
   - **Commit:** `848859b`
   - **Impact:** Users can submit sell-to-price transactions without holding enough tokens. The on-chain tx fails, wasting SOL.
-  - **Fix:** Check user position balance before enabling the submit button, similar to the regular sell flow.
+  - **Fix:** Removed `!isTargetPrice` exclusion from `exceedsHoldings` check. For sell-to-price, validates user holds > 0 tokens for the selected outcome.
 
-- [ ] **M3: `MoreThan('0')` string comparison with `as any` cast on numeric column**
+- [x] **M3: `MoreThan('0')` string comparison with `as any` cast on numeric column** *(fixed 2026-04-02)*
   - **File:** `backend/src/fee-collection/fee-collection.service.ts:110`
   - **Commit:** `6d492a7`
   - **Impact:** TypeScript type safety bypassed. Works due to PostgreSQL implicit coercion but is fragile and could break with ORM upgrades.
-  - **Fix:** Use query builder: `qb.where('market.protocol_fee_accumulated > :zero', { zero: 0 })`.
+  - **Fix:** Replaced with query builder: `.createQueryBuilder('market').where('market.protocol_fee_accumulated > :zero', { zero: '0' })`.
 
-- [ ] **M4: `estimatedShares` returns null for first LP deposit (totalMinted === 0)**
+- [x] **M4: `estimatedShares` returns null for first LP deposit (totalMinted === 0)** *(fixed 2026-04-02)*
   - **Commit:** `54296f6`
   - **Impact:** First LP depositor sees no share preview. The first deposit should show shares = deposit amount.
-  - **Fix:** Handle the `totalMinted === 0` case explicitly: `estimatedShares = depositAmount`.
+  - **Fix:** Separated `totalMinted === 0` check from the early-return guard; now returns `depositBase` (1:1 shares) when `totalMinted === 0`.
 
 - [ ] **M5: `Number()` precision loss on large u128 LP share values**
   - **Commit:** `54296f6`
@@ -97,11 +97,11 @@ Incorrect behavior or missing safeguards that should be addressed.
   - **Impact:** Documents `0 = Admin, 1 = Superadmin` but on-chain enum is `Admin = 1, Oracle = 2, Creator = 3`. Superadmin is env-based, not an on-chain role. Could mislead future developers.
   - **Fix:** Correct the role mapping in the task description.
 
-- [ ] **M8: Fee collection interval test asserts correct result for wrong reason**
+- [x] **M8: Fee collection interval test asserts correct result for wrong reason** *(fixed 2026-04-02)*
   - **File:** `backend/src/fee-collection/fee-collection.service.spec.ts`
   - **Commit:** `6076469`
   - **Impact:** Test "should skip when not enough time has elapsed" passes because `this.program` is null (early return at line 89), NOT because of the interval check. The interval-gating logic is untested.
-  - **Fix:** Set `program` and `authority` on the service instance before testing the interval skip path.
+  - **Fix:** Set `program` and `authority` on the service instance before testing. Now asserts `getFeeCollectionInterval` was called (reached interval check) while `marketRepo.find` was not.
 
 ---
 
@@ -109,20 +109,23 @@ Incorrect behavior or missing safeguards that should be addressed.
 
 Minor issues, cleanup, or non-critical improvements.
 
-- [ ] **L1: Dead export `DEADLINE_CRON` in settings.service.ts**
+- [x] **L1: Dead export `DEADLINE_CRON` in settings.service.ts** *(fixed 2026-04-02)*
   - **File:** `backend/src/settings/settings.service.ts:13-19`
   - **Commit:** `9e24d96`
   - **Impact:** Exported but never imported anywhere. Dead code.
+  - **Fix:** Removed the dead export.
 
-- [ ] **L2: `remove()` silently no-ops if row is active**
+- [x] **L2: `remove()` silently no-ops if row is active** *(fixed 2026-04-02)*
   - **File:** `backend/src/settings/settings.service.ts:106-108`
   - **Commit:** `9e24d96`
   - **Impact:** The controller guards against this, but `remove()` itself silently deletes nothing if called on an active row from other code paths.
+  - **Fix:** Now checks `result.affected` and throws if row wasn't deleted.
 
-- [ ] **L3: No unique constraint on settings `name` column**
+- [x] **L3: No unique constraint on settings `name` column** *(fixed 2026-04-02)*
   - **File:** `backend/src/settings/setting.entity.ts`
   - **Commit:** `9e24d96`
   - **Impact:** Multiple presets can share the same name, making the UI confusing.
+  - **Fix:** Added `unique: true` to the `name` column definition.
 
 - [ ] **L4: Frontend settings UI has no error state when settings fetch fails**
   - **Commit:** `cec389b`
@@ -151,19 +154,21 @@ Minor issues, cleanup, or non-critical improvements.
   - **Commit:** `f4593ce`
   - **Impact:** These transaction builders involve SCALE multiplication and `toBaseUnits` conversion but have no dedicated tests.
 
-- [ ] **L10: Stray Arabic character in TASKS.md**
-  - **File:** `plans/TASKS.md` (line ~1053)
+- [x] **L10: Stray Arabic character in TASKS.md** *(fixed 2026-04-02)*
+  - **File:** `specs/TASKS.md` (line ~1654)
   - **Commit:** `9e24d96`
   - **Impact:** Cosmetic — `ثmarket` should be `market`.
+  - **Fix:** Removed the stray character.
 
 - [ ] **L11: E2e tests all run as superadmin — no test verifies 403 for non-superadmin on settings**
   - **Commit:** `6076469`
   - **Impact:** Settings endpoints are guarded by `@Roles('superadmin')` but no e2e test verifies that a non-superadmin gets rejected.
 
-- [ ] **L12: Expired markets closed one-by-one (no batch UPDATE)**
+- [x] **L12: Expired markets closed one-by-one (no batch UPDATE)** *(fixed 2026-04-02)*
   - **File:** `backend/src/market/market-deadline.service.ts:72-79`
   - **Commit:** `9d5bbd6`
   - **Impact:** N queries instead of 1 for N expired markets. Fine for small numbers, inefficient at scale.
+  - **Fix:** Replaced per-market UPDATE loop with `createQueryBuilder().update().whereInIds(ids).execute()`.
 
 - [ ] **L13: No `@Max` validator on buy/sell-to-price DTO `targetProbability`**
   - **Commit:** `848859b`
@@ -181,4 +186,9 @@ Minor issues, cleanup, or non-critical improvements.
 - [x] **N2: Continuous market negative bin index when `resolved < rangeMin`** *(fixed 2026-04-02)*
   - **Files:** `frontend/app/portfolio/page.tsx:350`, `frontend/components/trading/user-position-display.tsx:133`
   - **Impact:** `Math.floor((resolved - rMin) / binWidth)` can be negative, causing `holdings[-1]` to return `undefined`. Caught by `?? 0` but accidental, not defensive.
-  - **Fix:** Added `Math.max(0, ...)` to clamp negative indices. On-chain code prevents this case, but frontend should be robust.
+  - **Fix:** Added `Math.max(0, ...)` to clamp negative indices.
+
+- [x] **N3: Dark mode select/combobox elements invisible due to missing `color-scheme`** *(fixed 2026-04-02)*
+  - **Files:** `frontend/app/globals.css`, `frontend/components/admin/role-manager.tsx`, `frontend/components/admin/protocol-settings.tsx`, `frontend/components/admin/settings-presets-modal.tsx`, `frontend/components/create-market/step-question-details.tsx`
+  - **Impact:** Native `<select>` dropdown options use OS-level light-mode rendering in dark mode (black text on white). The select elements themselves used `bg-transparent` or `bg-background` with no explicit text color, making them hard to see in dark mode.
+  - **Fix:** Added `color-scheme: dark` to `.dark` CSS block (tells browser to render native controls in dark mode). Changed all `<select>` to use `bg-card text-foreground` for consistent contrast.

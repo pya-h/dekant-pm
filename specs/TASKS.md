@@ -1651,7 +1651,7 @@ Endpoint groups to cover:
 - Try to buy with more USDC than wallet holds → clear "insufficient balance" message, no wallet popup
 - Try to sell more shares than held → clear "insufficient holdings" message
 - Try to trade on a paused/resolved market → clear status message
-- Try to claim on a ثmarket where user has no position → clear message
+- Try to claim on a market where user has no position → clear message
 - Actual on-chain error (e.g., stale reserves race condition) → still shows fallback error with mapped message
 
 **Depends on:** F-8

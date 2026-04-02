@@ -11,7 +11,7 @@ export class SettingEntity {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'varchar', length: 64, default: 'default' })
+  @Column({ type: 'varchar', length: 64, default: 'default', unique: true })
   name!: string;
 
   @Column({ type: 'boolean', default: false, name: 'is_active' })

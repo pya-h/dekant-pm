@@ -9,15 +9,6 @@ export type FeeCollectionInterval = (typeof VALID_FEE_INTERVALS)[number];
 export const VALID_DEADLINE_INTERVALS = ['30s', '1m', '2m', '5m', '10m'] as const;
 export type DeadlineCheckInterval = (typeof VALID_DEADLINE_INTERVALS)[number];
 
-/** Map deadline interval setting to cron expression. */
-export const DEADLINE_CRON: Record<DeadlineCheckInterval, string> = {
-  '30s': '*/30 * * * * *',
-  '1m': '0 */1 * * * *',
-  '2m': '0 */2 * * * *',
-  '5m': '0 */5 * * * *',
-  '10m': '0 */10 * * * *',
-};
-
 /** Map deadline interval setting to milliseconds (for polling comparison). */
 export const DEADLINE_INTERVAL_MS: Record<DeadlineCheckInterval, number> = {
   '30s': 30_000,
@@ -116,7 +107,10 @@ export class SettingsService implements OnModuleInit {
 
   /** Delete a settings row. Cannot delete the active row. */
   async remove(id: number): Promise<void> {
-    await this.repo.delete({ id, isActive: false });
+    const result = await this.repo.delete({ id, isActive: false });
+    if (!result.affected) {
+      throw new Error('Cannot delete active settings row or row not found');
+    }
   }
 
   /** Typed getter for fee collection interval. */

@@ -233,7 +233,7 @@ export function SettingsPresetsModal({
                   value={newFeeInterval}
                   onChange={(e) => setNewFeeInterval(e.target.value)}
                   disabled={creating}
-                  className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-primary"
+                  className="h-8 w-full rounded-md border border-border/60 bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
                 >
                   <option value="none">None</option>
                   <option value="6h">Every 6h</option>
@@ -250,7 +250,7 @@ export function SettingsPresetsModal({
                   value={newDeadlineInterval}
                   onChange={(e) => setNewDeadlineInterval(e.target.value)}
                   disabled={creating}
-                  className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-primary"
+                  className="h-8 w-full rounded-md border border-border/60 bg-card px-2 text-xs text-foreground outline-none focus:border-primary"
                 >
                   <option value="30s">30s</option>
                   <option value="1m">1m</option>

@@ -24,6 +24,11 @@ describe('FeeCollectionService', () => {
 
     marketRepo = {
       find: jest.fn().mockResolvedValue([]),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -60,22 +65,24 @@ describe('FeeCollectionService', () => {
     });
 
     it('should skip when not enough time has elapsed since last collection', async () => {
-      // Simulate program initialized but no keypair → program is null
-      // The running+program check prevents reaching interval check in this setup,
-      // so we test the lastCollectionTime check indirectly:
-      // Set lastCollectionTime to now, which means interval hasn't elapsed
+      // Set program and authority so tick() reaches the interval check
+      (service as any).program = { account: {} };
+      (service as any).authority = { publicKey: 'test' };
+      // Set lastCollectionTime to now so the interval hasn't elapsed
       (service as any).lastCollectionTime = Date.now();
-      // Even if program were initialized, we'd skip due to time
-      // Since program is null, we skip earlier; this confirms ordering
       settingsService.getFeeCollectionInterval.mockResolvedValue('6h');
       await service.tick();
+      // Should have checked the interval (called getFeeCollectionInterval)
+      // but NOT proceeded to collectAll (no marketRepo.find)
+      expect(settingsService.getFeeCollectionInterval).toHaveBeenCalled();
       expect(marketRepo.find).not.toHaveBeenCalled();
     });
   });
 
   describe('collectAll', () => {
     it('should return zeros when no markets have fees', async () => {
-      marketRepo.find.mockResolvedValue([]);
+      const qb = marketRepo.createQueryBuilder();
+      qb.getMany.mockResolvedValue([]);
       const result = await service.collectAll();
       expect(result).toEqual({ collected: 0, failed: 0 });
     });

@@ -150,7 +150,7 @@ export function ProtocolSettings({ token }: ProtocolSettingsProps) {
             <select
               value={feeInterval}
               onChange={(e) => setFeeInterval(e.target.value)}
-              className="h-9 w-full rounded-md border border-border/60 bg-background px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              className="h-9 w-full rounded-md border border-border/60 bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             >
               {FEE_INTERVAL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -171,7 +171,7 @@ export function ProtocolSettings({ token }: ProtocolSettingsProps) {
             <select
               value={deadlineInterval}
               onChange={(e) => setDeadlineInterval(e.target.value)}
-              className="h-9 w-full rounded-md border border-border/60 bg-background px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              className="h-9 w-full rounded-md border border-border/60 bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             >
               {DEADLINE_INTERVAL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>

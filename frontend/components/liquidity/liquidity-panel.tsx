@@ -74,7 +74,8 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
 
   // Estimate LP shares for deposit
   const estimatedShares = useMemo(() => {
-    if (tab !== "add" || !hasValidAmount || totalMinted === 0) return null;
+    if (tab !== "add" || !hasValidAmount) return null;
+    if (totalMinted === 0) return numAmount * 10 ** USDC_DECIMALS;
     const depositBase = numAmount * 10 ** USDC_DECIMALS;
     if (totalShares === 0) return depositBase;
     return (totalShares * depositBase) / totalMinted;
