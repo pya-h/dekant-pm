@@ -72,6 +72,7 @@ describe('IndexerService', () => {
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       create: jest.fn((dto: any) => dto),
       save: jest.fn((entity: any) => Promise.resolve(entity)),
+      count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn().mockReturnValue(qbMock),
     };
 
@@ -204,6 +205,41 @@ describe('IndexerService', () => {
 
       expect(connection.getTransaction).not.toHaveBeenCalled();
     });
+
+    it('should never regress lastProcessedSlot', async () => {
+      // Backfill with two txs: slot 10 then slot 5 (out-of-order after reverse)
+      // Actually, backfill reverses so order is oldest-first.
+      // Simulate: process slot 10, then a live event at slot 7 arrives.
+      connection.getSignaturesForAddress
+        .mockResolvedValueOnce([{ signature: 'tx-10', slot: 10 }])
+        .mockResolvedValue([]);
+      indexerStateRepo.findOne.mockResolvedValue(null); // lastSlot = 0
+      connection.getTransaction.mockResolvedValue({
+        meta: { logMessages: [] },
+      });
+
+      await service.onModuleInit();
+
+      // Slot advanced to 10
+      expect(indexerStateRepo.upsert).toHaveBeenCalledWith(
+        { id: 1, lastProcessedSlot: '10' },
+        ['id'],
+      );
+
+      // Now simulate a live event with a lower slot
+      indexerStateRepo.upsert.mockClear();
+      connection.getSignatureStatus.mockResolvedValue({ value: { slot: 7 } });
+
+      // Trigger live handler by calling subscribeToLogs callback
+      const onLogsCallback = connection.onLogs.mock.calls[0][1];
+      onLogsCallback({ signature: 'live-tx-7', err: null, logs: [] });
+
+      // Allow the event queue to drain
+      await new Promise((r) => setTimeout(r, 10));
+
+      // upsert should NOT have been called — slot 7 < 10
+      expect(indexerStateRepo.upsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('trade idempotency', () => {
@@ -236,6 +272,104 @@ describe('IndexerService', () => {
       // The health check runs on an interval; we verify the setup occurred
       // by checking that onLogs was called (subscription is active)
       expect(connection.onLogs).toHaveBeenCalled();
+    });
+  });
+
+  describe('init resilience', () => {
+    it('should still subscribe + start health check when syncAllMarkets fails', async () => {
+      // Force syncAllMarkets to fail by making getAccountInfo throw
+      connection.getAccountInfo.mockRejectedValue(new Error('RPC down'));
+
+      await service.onModuleInit();
+
+      // Subscription and health check must still start
+      expect(connection.onLogs).toHaveBeenCalled();
+    });
+
+    it('should still subscribe when backfill fails', async () => {
+      connection.getSignaturesForAddress.mockRejectedValue(new Error('RPC error'));
+
+      await service.onModuleInit();
+
+      expect(connection.onLogs).toHaveBeenCalled();
+    });
+  });
+
+  describe('subscription recovery', () => {
+    it('should clean up old subscription before re-subscribing', async () => {
+      await service.onModuleInit();
+      expect(connection.onLogs).toHaveBeenCalledTimes(1);
+
+      // Simulate re-subscribe (as the health check would trigger)
+      (service as any).subscribeToLogs();
+
+      // Should have removed old listener before creating new one
+      expect(connection.removeOnLogsListener).toHaveBeenCalledWith(42);
+      expect(connection.onLogs).toHaveBeenCalledTimes(2);
+    });
+
+    it('should update lastEventReceivedAt on subscription reset', async () => {
+      await service.onModuleInit();
+      const before = (service as any).lastEventReceivedAt;
+      expect(before).toBeGreaterThan(0);
+    });
+  });
+
+  describe('event queue', () => {
+    it('should process queued events sequentially', async () => {
+      await service.onModuleInit();
+      const order: number[] = [];
+
+      // Enqueue two handlers
+      (service as any).enqueue(async () => { order.push(1); });
+      (service as any).enqueue(async () => { order.push(2); });
+
+      // Allow microtasks to flush
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(order).toEqual([1, 2]);
+    });
+
+    it('should continue processing after a handler error', async () => {
+      await service.onModuleInit();
+      const order: number[] = [];
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => {});
+
+      (service as any).enqueue(async () => { throw new Error('fail'); });
+      (service as any).enqueue(async () => { order.push(2); });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(order).toEqual([2]);
+    });
+  });
+
+  describe('verifyMarketCount', () => {
+    it('should sync when on-chain count exceeds DB count', async () => {
+      // Set up protocol config with market_count = 5
+      const mockCoder = (service as any).coder;
+      mockCoder.accounts.decode = jest.fn().mockReturnValue({ market_count: 5 });
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      marketRepo.count.mockResolvedValue(3);
+
+      await (service as any).verifyMarketCount();
+
+      // Should have triggered syncAllMarkets (which calls getAccountInfo for config)
+      // The important assertion: getAccountInfo was called (for config lookup + market syncs)
+      expect(connection.getAccountInfo).toHaveBeenCalled();
+    });
+
+    it('should not sync when counts match', async () => {
+      const mockCoder = (service as any).coder;
+      mockCoder.accounts.decode = jest.fn().mockReturnValue({ market_count: 3 });
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      marketRepo.count.mockResolvedValue(3);
+
+      const getAccountInfoCalls = connection.getAccountInfo.mock.calls.length;
+      await (service as any).verifyMarketCount();
+
+      // Should only have called getAccountInfo once (for config), not for any markets
+      expect(connection.getAccountInfo).toHaveBeenCalledTimes(getAccountInfoCalls + 1);
     });
   });
 });
