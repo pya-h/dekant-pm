@@ -29,6 +29,7 @@ class TradeAction:
 class DistributionTradeAction(TradeAction):
     mu: int = 0
     sigma: int = 0
+    weights: np.ndarray | None = None
 
 
 @dataclass

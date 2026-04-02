@@ -309,7 +309,13 @@ def _belief_shifter(
     range_min: int,
     range_max: int,
 ) -> dict:
-    """Initial belief that will change (post-shift handled by scenario metadata)."""
+    """Initial belief that will change (post-shift handled by scenario metadata).
+
+    Returns a ``shift_round_frac`` so the belief shift is scheduled even when
+    the truth family is *not* ``regime_shift``.  This allows belief shifters to
+    be paired with any truth family and still trigger an unwind-and-re-enter
+    cycle at a well-defined point during trading.
+    """
     span = range_max - range_min
     mu = int(range_min + span * rng.uniform(0.2, 0.8))
     sigma = int(span * rng.uniform(0.08, 0.18))
@@ -320,6 +326,8 @@ def _belief_shifter(
     post_mu = int(np.clip(mu + direction * shift, range_min, range_max))
     post_sigma = int(span * rng.uniform(0.08, 0.18))
     post_weights = _gaussian_weights(num_bins, post_mu, post_sigma, range_min, range_max)
+    # Own shift timing so the belief shift fires independently of truth shift
+    shift_round_frac = float(rng.uniform(0.2, 0.8))
     return {
         "weights": weights,
         "mu": mu,
@@ -327,6 +335,7 @@ def _belief_shifter(
         "post_shift_weights": post_weights,
         "post_shift_mu": post_mu,
         "post_shift_sigma": post_sigma,
+        "shift_round_frac": shift_round_frac,
     }
 
 
@@ -367,6 +376,10 @@ class Scenario:
     post_shift_weights: Optional[np.ndarray] = None
     post_shift_mu: Optional[int] = None
     post_shift_sigma: Optional[int] = None
+    belief_post_shift_weights: Optional[np.ndarray] = None
+    belief_post_shift_mu: Optional[int] = None
+    belief_post_shift_sigma: Optional[int] = None
+    belief_shift_round_frac: Optional[float] = None
     adversarial_bin: Optional[int] = None
 
 
@@ -426,5 +439,9 @@ def sample_scenario(
         post_shift_weights=truth_data.get("post_shift_weights"),
         post_shift_mu=truth_data.get("post_shift_mu"),
         post_shift_sigma=truth_data.get("post_shift_sigma"),
+        belief_post_shift_weights=belief_data.get("post_shift_weights"),
+        belief_post_shift_mu=belief_data.get("post_shift_mu"),
+        belief_post_shift_sigma=belief_data.get("post_shift_sigma"),
+        belief_shift_round_frac=belief_data.get("shift_round_frac"),
         adversarial_bin=truth_data.get("adversarial_bin"),
     )

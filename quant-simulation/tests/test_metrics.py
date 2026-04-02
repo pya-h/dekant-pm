@@ -10,6 +10,7 @@ from engine.metrics import (
     price_accuracy_revised, convergence_speed_revised,
     capital_efficiency_revised, manipulation_resistance_revised,
     boundary_sensitivity_revised, truthful_incentive_alignment,
+    _expected_utility,
 )
 from agents.base import ActionType, AMM_ACTIONS
 from models.math_engine import init_reserves, compute_probabilities, compute_buy
@@ -87,6 +88,29 @@ class TestRevisedExitability:
         assert "reposition_cost" in result
         assert "failure_rate" in result
 
+    def test_transaction_count_nonzero_for_single_sell(self):
+        """When single-bin sell is allowed and holdings span multiple bins,
+        transaction_count must equal the number of bins actually sold."""
+        reserves, total_minted = init_reserves(16, 1_000_000_000)
+        holdings = np.zeros(16, dtype=np.int64)
+        holdings[4] = 5_000
+        holdings[8] = 5_000
+        holdings[12] = 5_000
+        result = exitability(reserves, total_minted, holdings, 16, AMM_ACTIONS)
+        # We held 3 bins, so transaction_count should be between 1 and 3
+        assert result["transaction_count"] >= 1
+        assert result["transaction_count"] <= 3
+
+    def test_failure_rate_with_no_sell_actions(self):
+        """When no sell actions are allowed, failure_rate must be 1.0."""
+        reserves, total_minted = init_reserves(16, 1_000_000_000)
+        holdings = np.zeros(16, dtype=np.int64)
+        holdings[8] = 10_000
+        no_sell = frozenset({ActionType.SINGLE_BIN_BUY, ActionType.BUNDLE_BUY})
+        result = exitability(reserves, total_minted, holdings, 16, no_sell)
+        assert result["failure_rate"] == 1.0
+        assert result["unwindable_fraction"] == 0.0
+
     def test_bundle_only_worse_for_non_gaussian(self):
         reserves, total_minted = init_reserves(16, 1_000_000_000)
         holdings = np.zeros(16, dtype=np.int64)
@@ -143,6 +167,32 @@ class TestRevisedManipulationResistance:
         r = manipulation_resistance_revised(5000, 2.0, 0.5)
         assert r["cost_to_move"] > 0 and r["cost_to_profit"] > 0
 
+    def test_cosmetic_manipulation_has_infinite_cost_to_profit(self):
+        """When the attacker moved the price but made no profit (payout <= budget),
+        payout_improvement is 0, so cost_to_profit should be inf."""
+        # Budget spent 5000, price changed 2%, but no actual profit
+        r = manipulation_resistance_revised(5000, 2.0, 0.0)
+        assert r["cost_to_move"] == pytest.approx(2500.0)  # 5000 / 2.0
+        assert r["cost_to_profit"] == float("inf")
+
+    def test_profitable_manipulation_has_finite_cost_to_profit(self):
+        """When the attacker actually profited, cost_to_profit should be finite."""
+        # Budget spent 5000, price changed 2%, and profit of 1000
+        r = manipulation_resistance_revised(5000, 2.0, 1000.0)
+        assert r["cost_to_move"] == pytest.approx(2500.0)  # 5000 / 2.0
+        assert r["cost_to_profit"] == pytest.approx(5.0)   # 5000 / 1000
+
+    def test_cost_to_profit_independent_of_price_change(self):
+        """cost_to_profit depends on actual profit, not on price movement.
+        This validates the spec's 'cosmetic vs profitable' distinction."""
+        # Same budget and profit, but different price changes
+        r_big_move = manipulation_resistance_revised(5000, 10.0, 500.0)
+        r_small_move = manipulation_resistance_revised(5000, 1.0, 500.0)
+        # cost_to_move differs (different price movement)
+        assert r_big_move["cost_to_move"] != r_small_move["cost_to_move"]
+        # cost_to_profit is the same (same profit)
+        assert r_big_move["cost_to_profit"] == pytest.approx(r_small_move["cost_to_profit"])
+
 
 class TestRevisedBoundarySensitivity:
     def test_wta_worse_than_kernel(self):
@@ -166,6 +216,57 @@ class TestTruthfulIncentiveAlignment:
         score = truthful_incentive_alignment(true_dist, compute_payout_wta(16, 8), 16, 8)
         assert 0.0 <= score <= 1.0
 
+    def test_ex_ante_eu_with_payout_fn_wta(self):
+        """With payout_fn, EU is computed over all outcomes (ex-ante), not one."""
+        true_dist = np.zeros(16, dtype=np.float64)
+        true_dist[7:10] = [0.2, 0.6, 0.2]
+        # WTA payout_fn: bin b gets SCALE only when outcome == b
+        def wta_fn(outcome):
+            return compute_payout_wta(16, outcome)
+        score = truthful_incentive_alignment(
+            true_dist, None, 16, 8, payout_fn=wta_fn,
+        )
+        # Under WTA, EU(b) = true_probs[b]. Truthful bin=8 has prob 0.6,
+        # which beats all others, so score should be 1.0.
+        assert score == pytest.approx(1.0)
+
+    def test_ex_ante_eu_wta_not_dependent_on_resolved_bin(self):
+        """Ex-ante EU for WTA should be the same regardless of resolved_bin."""
+        true_dist = np.zeros(16, dtype=np.float64)
+        true_dist[7:10] = [0.2, 0.6, 0.2]
+        def wta_fn(outcome):
+            return compute_payout_wta(16, outcome)
+        # With payout_fn the resolved_bin should not matter
+        score_a = truthful_incentive_alignment(
+            true_dist, None, 16, 0, payout_fn=wta_fn,
+        )
+        score_b = truthful_incentive_alignment(
+            true_dist, None, 16, 15, payout_fn=wta_fn,
+        )
+        assert score_a == score_b
+
+    def test_expected_utility_wta_equals_true_prob(self):
+        """For WTA, EU(b) should equal true_probs[b]."""
+        true_probs = np.array([0.1, 0.2, 0.3, 0.4])
+        def wta_fn(outcome):
+            return compute_payout_wta(4, outcome)
+        for b in range(4):
+            eu = _expected_utility(b, true_probs, 4, payout_fn=wta_fn)
+            assert eu == pytest.approx(true_probs[b], abs=1e-10)
+
+    def test_kernel_smoothed_properness_with_payout_fn(self):
+        """Kernel-smoothed settlement: truthful bin should have highest EU
+        when beliefs are concentrated, demonstrating properness via payout_fn."""
+        true_dist = np.zeros(16, dtype=np.float64)
+        true_dist[8] = 1.0  # point belief at bin 8
+        def kernel_fn(outcome):
+            return compute_payout_kernel(16, outcome, bandwidth=3)
+        score = truthful_incentive_alignment(
+            true_dist, None, 16, 8, payout_fn=kernel_fn,
+        )
+        # With point belief, truthful bin should dominate all alternatives
+        assert score == pytest.approx(1.0)
+
 
 class TestCompositeScore:
     def test_weighted_sum(self):
@@ -178,6 +279,30 @@ class TestCompositeScore:
             "resolution_fairness": 0.8,
             "boundary_sensitivity": 0.9,
             "exitability": 0.5,
+            "truthful_incentive_alignment": 0.7,
         }
         score = composite_score(metrics)
         assert 0 <= score <= 1
+
+    def test_includes_tia_weight(self):
+        """composite_score must include truthful_incentive_alignment in its weight dict."""
+        from config.params import MetricWeights
+        w = MetricWeights()
+        # TIA weight should be non-zero
+        assert w.truthful_incentive_alignment > 0
+        # Score with TIA=1 should be higher than with TIA=0 (all else equal)
+        base = {
+            "price_accuracy": 0.5,
+            "convergence_speed": 0.5,
+            "capital_efficiency": 0.5,
+            "lp_profitability": 0.5,
+            "manipulation_resistance": 0.5,
+            "resolution_fairness": 0.5,
+            "boundary_sensitivity": 0.5,
+            "exitability": 0.5,
+            "truthful_incentive_alignment": 0.0,
+        }
+        score_without_tia = composite_score(base)
+        base["truthful_incentive_alignment"] = 1.0
+        score_with_tia = composite_score(base)
+        assert score_with_tia > score_without_tia

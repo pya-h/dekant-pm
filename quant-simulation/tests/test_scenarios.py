@@ -343,3 +343,64 @@ class TestSampleScenario:
         assert isinstance(scenario.truth_sigma, (int, np.integer))
         assert isinstance(scenario.belief_mu, (int, np.integer))
         assert isinstance(scenario.belief_sigma, (int, np.integer))
+
+    def test_belief_shifter_has_belief_post_shift_weights(self):
+        """When belief_family='shifter', the Scenario should carry belief post-shift data."""
+        rng = _rng(50)
+        scenario = sample_scenario(
+            rng, NUM_BINS, RANGE_MIN, RANGE_MAX, belief_family="shifter",
+        )
+        assert scenario.belief_post_shift_weights is not None
+        assert len(scenario.belief_post_shift_weights) == NUM_BINS
+        assert abs(int(np.sum(scenario.belief_post_shift_weights)) - SCALE) <= 1
+        assert scenario.belief_post_shift_mu is not None
+        assert scenario.belief_post_shift_sigma is not None
+
+    def test_belief_shifter_has_own_shift_round_frac(self):
+        """When belief_family='shifter', the Scenario must carry a belief_shift_round_frac
+        so the belief shift fires even when the truth family is not regime_shift."""
+        rng = _rng(52)
+        scenario = sample_scenario(
+            rng, NUM_BINS, RANGE_MIN, RANGE_MAX,
+            truth_family="gaussian_center", belief_family="shifter",
+        )
+        # Truth is gaussian_center, so truth shift_round_frac should be None
+        assert scenario.shift_round_frac is None, (
+            "gaussian_center truth should not produce a shift_round_frac"
+        )
+        # But belief_shift_round_frac must be set so the belief shift has a trigger
+        assert scenario.belief_shift_round_frac is not None, (
+            "belief shifter must carry its own belief_shift_round_frac"
+        )
+        assert 0.2 <= scenario.belief_shift_round_frac <= 0.8
+
+    def test_belief_shifter_shift_round_frac_across_truth_families(self):
+        """Belief shifter must carry belief_shift_round_frac regardless of truth family."""
+        for truth_fam in TRUTH_FAMILIES:
+            rng = _rng(60)
+            scenario = sample_scenario(
+                rng, NUM_BINS, RANGE_MIN, RANGE_MAX,
+                truth_family=truth_fam, belief_family="shifter",
+            )
+            assert scenario.belief_shift_round_frac is not None, (
+                f"belief_shift_round_frac is None when truth_family={truth_fam!r}"
+            )
+            assert 0.2 <= scenario.belief_shift_round_frac <= 0.8
+
+    def test_non_shifter_belief_has_no_belief_post_shift(self):
+        """When belief_family is not 'shifter', belief post-shift fields should be None."""
+        rng = _rng(51)
+        scenario = sample_scenario(
+            rng, NUM_BINS, RANGE_MIN, RANGE_MAX, belief_family="gaussian",
+        )
+        assert scenario.belief_post_shift_weights is None
+        assert scenario.belief_post_shift_mu is None
+        assert scenario.belief_post_shift_sigma is None
+
+    def test_non_shifter_belief_has_no_belief_shift_round_frac(self):
+        """When belief_family is not 'shifter', belief_shift_round_frac should be None."""
+        rng = _rng(53)
+        scenario = sample_scenario(
+            rng, NUM_BINS, RANGE_MIN, RANGE_MAX, belief_family="gaussian",
+        )
+        assert scenario.belief_shift_round_frac is None

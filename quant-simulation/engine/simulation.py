@@ -134,6 +134,7 @@ class SimulationRun:
         agent_mix: AgentMix | None = None,
         scenario_family: str | None = None,
         belief_family: str | None = None,
+        adversarial_order: bool = False,
     ):
         self.design = design
         self.fee_model = fee_model
@@ -144,6 +145,7 @@ class SimulationRun:
         self.range_min = range_min
         self.range_max = range_max
         self.agent_mix = agent_mix or AgentMix()
+        self.adversarial_order = adversarial_order
         self.rng = np.random.default_rng(seed)
 
         # Select weight function
@@ -171,6 +173,7 @@ class SimulationRun:
         self.true_weights = scenario.truth_weights
         self.true_mu = scenario.truth_mu
         self.true_sigma = scenario.truth_sigma
+        self.belief_weights = scenario.belief_weights
         # True distribution as float probabilities for KL divergence
         tw_sum = float(np.sum(self.true_weights))
         self.true_probs = self.true_weights / tw_sum if tw_sum > 0 else np.ones(num_bins) / num_bins
@@ -191,6 +194,9 @@ class SimulationRun:
 
         # Tracking
         self.kl_series: list[float] = []
+        self.lp_activation_series: list[float] = []
+        self.lp_capital_series: list[int] = []
+        self.exitability_probe_series: list[float] = []
         self.manipulator_budget_spent = 0
         self.initial_probs: np.ndarray | None = None
         self.mid_run_slippages: dict[str, float] | None = None
@@ -403,16 +409,19 @@ class SimulationRun:
             )
             agent_id += 1
 
-        # Manipulators
+        # Manipulators — cycle through strategies so each gets a different one
         n_manip = counts["manipulator"]
         manip_params = ManipulatorParams()
         target_bin = self._scale_config_bin(manip_params.target_bin)
         manip_budget = manip_params.budget // max(1, n_manip) if n_manip > 0 else 0
-        for _ in range(n_manip):
+        from agents.manipulator import STRATEGIES as _MANIP_STRATEGIES
+        for i in range(n_manip):
+            strategy = _MANIP_STRATEGIES[i % len(_MANIP_STRATEGIES)]
             agent = Manipulator(
                 agent_id=agent_id,
                 budget=manip_budget,
                 target_bin=int(target_bin),
+                strategy=strategy,
             )
             self.agents.append(agent)
             self.agent_states[agent_id] = AgentState(
@@ -499,13 +508,16 @@ class SimulationRun:
         if agent_state is None or action.amount <= 0:
             return
 
-        weights = self.weight_fn(
-            self.range_min,
-            self.range_max,
-            self.num_bins,
-            action.mu,
-            action.sigma,
-        )
+        if action.weights is not None:
+            weights = self._normalize_probabilities(action.weights)
+        else:
+            weights = self.weight_fn(
+                self.range_min,
+                self.range_max,
+                self.num_bins,
+                action.mu,
+                action.sigma,
+            )
         if int(np.sum(weights)) <= 0:
             return
 
@@ -808,7 +820,7 @@ class SimulationRun:
         allowed = CLOB_ACTIONS if self.design == DESIGN_CLOB else AMM_ACTIONS
         settlement_rule = SETTLEMENT_RULES.get(self.design, "wta")
 
-        # Handle regime shift
+        # Handle truth regime shift
         if (self.scenario.shift_round_frac is not None
                 and self.scenario.post_shift_weights is not None
                 and round_num == int(self.num_rounds * self.scenario.shift_round_frac)):
@@ -817,11 +829,26 @@ class SimulationRun:
             self.true_sigma = self.scenario.post_shift_sigma or self.true_sigma
             tw_sum = float(np.sum(self.true_weights))
             self.true_probs = self.true_weights / tw_sum if tw_sum > 0 else np.ones(self.num_bins) / self.num_bins
+            # When truth and belief share the same shift timing, also shift beliefs
+            if (self.scenario.belief_post_shift_weights is not None
+                    and self.scenario.belief_shift_round_frac is None):
+                self.belief_weights = self.scenario.belief_post_shift_weights
+
+        # Handle independent belief shift (belief_shift_round_frac set by
+        # the belief-shifter sampler so it fires even when the truth family
+        # is not regime_shift)
+        if (self.scenario.belief_shift_round_frac is not None
+                and self.scenario.belief_post_shift_weights is not None
+                and round_num == int(self.num_rounds * self.scenario.belief_shift_round_frac)):
+            self.belief_weights = self.scenario.belief_post_shift_weights
 
         # Collect all actions from trading agents
         all_actions: list[TradeAction] = []
         for agent in self.agents:
             if isinstance(agent, (PassiveLP, RebalancingLP)):
+                continue
+            # Gate late-round whales: skip in non-red-team designs
+            if isinstance(agent, LateRoundWhale) and agent.red_team_only and self.design != DESIGN_SCALAR:
                 continue
             agent_state = self.agent_states[agent.agent_id]
             ctx = DecisionContext(
@@ -839,17 +866,33 @@ class SimulationRun:
                 settlement_rule=settlement_rule,
             )
             if isinstance(agent, InformedTrader):
-                actions = agent.decide(ctx, self.true_weights)
+                actions = agent.decide(ctx, self.belief_weights)
             else:
                 actions = agent.decide(ctx)
             all_actions.extend(actions)
 
-        # Shuffle actions to avoid ordering bias
-        self.rng.shuffle(all_actions)
+        # Order actions: adversarial puts manipulators/whales first, default shuffles
+        if self.adversarial_order:
+            adversarial_ids = {
+                a.agent_id for a in self.agents
+                if isinstance(a, (Manipulator, LateRoundWhale))
+            }
+            adversarial_actions = [a for a in all_actions if a.agent_id in adversarial_ids]
+            other_actions = [a for a in all_actions if a.agent_id not in adversarial_ids]
+            self.rng.shuffle(adversarial_actions)
+            self.rng.shuffle(other_actions)
+            all_actions = adversarial_actions + other_actions
+        else:
+            self.rng.shuffle(all_actions)
 
         # Fill in mu/sigma for DistributionTradeActions that have defaults
         for action in all_actions:
-            if isinstance(action, DistributionTradeAction) and action.mu == 0 and action.sigma == 0:
+            if (
+                isinstance(action, DistributionTradeAction)
+                and action.weights is None
+                and action.mu == 0
+                and action.sigma == 0
+            ):
                 action.mu = self.scenario.belief_mu
                 action.sigma = self.scenario.belief_sigma
 
@@ -868,14 +911,57 @@ class SimulationRun:
         # Process LP deposit/withdraw decisions after trading
         self._process_lp_agents(round_num, self.trade_activity.copy())
 
-        # Snapshot KL divergence every 10 rounds
+        # Periodic snapshots every 10 rounds
         if round_num % 10 == 0:
+            # KL divergence
             amm_probs = self._current_implied_probs()
             amm_probs_float = amm_probs.astype(np.float64) / SCALE
             amm_probs_float = np.clip(amm_probs_float, 1e-12, None)
             amm_probs_float /= amm_probs_float.sum()  # renormalize
             kl = kl_divergence(self.true_probs, amm_probs_float)
             self.kl_series.append(kl)
+
+            # LP activation rate and total LP capital deployed
+            lp_agents = [a for a in self.agents if isinstance(a, (PassiveLP, RebalancingLP))]
+            lp_active = sum(1 for a in lp_agents if self.agent_states[a.agent_id].deposited_lp > 0)
+            lp_activation_rate = lp_active / max(1, len(lp_agents))
+            total_lp_capital = self.state.passive_lp_deposited + self.state.rebalancing_lp_deposited
+            self.lp_activation_series.append(lp_activation_rate)
+            self.lp_capital_series.append(total_lp_capital)
+
+            # Lightweight exitability probe: unwindable fraction for a tiny position
+            probe_total = max(1, self.state.total_minted // 100)  # 1% of total minted
+            probe_holdings = np.zeros(self.num_bins, dtype=np.int64)
+            # Distribute probe across bins with informed trader holdings
+            informed_ids = {a.agent_id for a in self.agents if isinstance(a, InformedTrader)}
+            has_holdings = False
+            for aid in informed_ids:
+                for bin_idx, tokens in self.agent_states[aid].holdings.items():
+                    if tokens > 0:
+                        probe_holdings[bin_idx] += tokens
+                        has_holdings = True
+            if has_holdings:
+                # Scale down to probe_total
+                held = int(np.sum(probe_holdings))
+                if held > 0:
+                    probe_holdings = (probe_holdings.astype(np.float64) / held * probe_total).astype(np.int64)
+                    # Ensure at least 1 token somewhere
+                    if int(np.sum(probe_holdings)) == 0:
+                        probe_holdings[int(np.argmax(probe_holdings))] = 1
+            else:
+                # Synthetic small position spread across bins
+                per_bin = max(1, probe_total // self.num_bins)
+                probe_holdings = np.full(self.num_bins, per_bin, dtype=np.int64)
+
+            probe_allowed = CLOB_ACTIONS if self.design == DESIGN_CLOB else AMM_ACTIONS
+            probe_result = exitability(
+                self.state.reserves.copy(),
+                self.state.total_minted,
+                probe_holdings,
+                self.num_bins,
+                probe_allowed,
+            )
+            self.exitability_probe_series.append(probe_result["unwindable_fraction"])
 
         # Snapshot slippage at mid-run
         if round_num == self.num_rounds // 2 and self.mid_run_slippages is None:
@@ -899,14 +985,13 @@ class SimulationRun:
             self.mid_run_slippages = mid_slippages
 
     def _resolve(self) -> int:
-        """Sample resolved value and map to bin."""
-        resolved_value = self.rng.normal(self.true_mu, self.true_sigma)
-        # Clamp to range
-        resolved_value = max(self.range_min, min(self.range_max - 1, resolved_value))
-        resolved_bin = value_to_bin(
-            int(resolved_value), self.range_min, self.range_max, self.num_bins
-        )
-        return resolved_bin
+        """Sample the resolved bin directly from the active truth distribution."""
+        probs = np.clip(self.true_probs.astype(np.float64), 0.0, None)
+        total = float(np.sum(probs))
+        if total <= 0.0:
+            return self.num_bins // 2
+        probs /= total
+        return int(self.rng.choice(self.num_bins, p=probs))
 
     def _compute_payouts(self, resolved_bin: int) -> np.ndarray:
         """Dispatch to the appropriate settlement function based on design."""
@@ -1052,7 +1137,10 @@ class SimulationRun:
         whale_agents = [a for a in self.agents if isinstance(a, LateRoundWhale)]
         if whale_agents and self.design == DESIGN_SCALAR:
             whale_ids = {a.agent_id for a in whale_agents}
-            whale_budget_spent = sum(a.spent for a in whale_agents)
+            whale_budget_spent = sum(
+                max(0, a.budget - self.agent_states[a.agent_id].capital)
+                for a in whale_agents
+            )
             total_payout = 0
             whale_payout = 0
             for aid, astate in self.agent_states.items():
@@ -1151,12 +1239,40 @@ class SimulationRun:
         cap_eff = capital_efficiency_revised(self.state.reserves.copy(), self.state.total_minted, target_bins)
 
         # Manipulation Resistance Revised
+        # Spec: "Cost to move market state AND cost to improve attacker payout
+        # under the active settlement rule" — distinguish cosmetic vs profitable.
         if self.initial_probs is not None and manip_agents:
             target_bin_manip = manip_agents[0].target_bin
             final_prob_manip = float(amm_probs[target_bin_manip]) / SCALE
             init_prob_manip = float(self.initial_probs[target_bin_manip]) / SCALE
             price_change_manip = abs(final_prob_manip - init_prob_manip) * 100.0
-            payout_improvement = max(0.001, price_change_manip / 100.0)
+
+            # Compute actual attacker settlement payout under the active design
+            manip_ids = {a.agent_id for a in manip_agents}
+            manip_settlement_payout = 0
+            for aid in manip_ids:
+                astate = self.agent_states[aid]
+                total_agent_tokens = int(sum(astate.holdings.values()))
+                if total_agent_tokens <= 0:
+                    continue
+                if self.design == DESIGN_CRPS:
+                    holdings_arr = np.zeros(self.num_bins, dtype=np.int64)
+                    for b, t in astate.holdings.items():
+                        holdings_arr[b] = t
+                    manip_settlement_payout += compute_payout_crps(
+                        holdings_arr, resolved_bin, self.num_bins
+                    )
+                else:
+                    for bin_idx, tokens in astate.holdings.items():
+                        if tokens > 0:
+                            payout_per_token = int(payouts[bin_idx])
+                            manip_settlement_payout += tokens * payout_per_token // SCALE
+
+            # payout_improvement = actual profit (settlement payout minus cost),
+            # normalised by budget spent so that cost_to_profit = budget / (profit / budget) = budget^2 / profit.
+            # When the attacker loses money the improvement is 0 → cost_to_profit = inf (cosmetic-only).
+            payout_improvement = float(max(0, manip_settlement_payout - self.manipulator_budget_spent))
+
             manip_revised = manipulation_resistance_revised(self.manipulator_budget_spent, price_change_manip, payout_improvement)
         else:
             manip_revised = {"cost_to_move": float("inf"), "cost_to_profit": float("inf")}
@@ -1169,15 +1285,22 @@ class SimulationRun:
         tia = truthful_incentive_alignment(
             self.true_probs, payouts if not use_crps else None,
             self.num_bins, resolved_bin, use_crps=use_crps,
+            payout_fn=self._compute_payouts,
         )
 
         # LP Deployability
         lp_agents = [a for a in self.agents if isinstance(a, (PassiveLP, RebalancingLP))]
-        lp_deposits = sum(1 for a in lp_agents if self.agent_states[a.agent_id].deposited_lp > 0)
+        active_lp_capitals = [
+            self.agent_states[a.agent_id].deposited_lp
+            for a in lp_agents
+            if self.agent_states[a.agent_id].deposited_lp > 0
+        ]
+        lp_deposits = len(active_lp_capitals)
         lp_activation_rate = lp_deposits / max(1, len(lp_agents))
+        median_capital = int(np.median(active_lp_capitals)) if active_lp_capitals else 0
         lp_deploy = lp_deployability(
             activation_rate=lp_activation_rate,
-            median_capital_deployed=total_lp_deposited // max(1, lp_deposits) if lp_deposits > 0 else 0,
+            median_capital_deployed=median_capital,
             holding_duration=self.num_rounds if lp_deposits > 0 else 0,
             realized_return=lp_profit,
             realized_fees=self.state.lp_fee_accumulated,
@@ -1232,8 +1355,10 @@ class SimulationRun:
             "boundary_sensitivity_max": bs_max,
             "boundary_sensitivity_mean": bs_mean,
             "exitability_unwind": exit_result["unwindable_fraction"],
+            "exitability_transaction_count": exit_result["transaction_count"],
             "exitability_slippage": exit_result["slippage"],
             "exitability_reposition_cost": exit_result["reposition_cost"],
+            "exitability_failure_rate": exit_result["failure_rate"],
             "num_rounds": self.num_rounds,
             "design": self.design,
             "fee_model": self.fee_model,
@@ -1268,6 +1393,7 @@ class SimulationRun:
             "scenario_family": self.scenario.truth_family,
             "belief_family": self.scenario.belief_family,
             "red_team_only": (self.design == DESIGN_SCALAR),
+            "excluded": (self.design in (DESIGN_SCALAR, DESIGN_CLOB)),
         }
 
     def run(self) -> dict:
@@ -1275,17 +1401,17 @@ class SimulationRun:
         # Record initial state for manipulation resistance metric
         self.initial_probs = self._current_implied_probs().copy()
 
-        # Track manipulator spending
+        # Track manipulator spending via live AgentState capital
         manip_agents = [a for a in self.agents if isinstance(a, Manipulator)]
-        initial_spent = sum(a.spent for a in manip_agents)
+        initial_manip_capital = sum(self.agent_states[a.agent_id].capital for a in manip_agents)
 
         # Trade rounds
         for round_num in range(self.num_rounds):
             self._run_trade_round(round_num)
 
-        # Track manipulator spending after all rounds
-        final_spent = sum(a.spent for a in manip_agents)
-        self.manipulator_budget_spent = final_spent - initial_spent
+        # Compute manipulator spending from capital consumed (initial - remaining)
+        final_manip_capital = sum(self.agent_states[a.agent_id].capital for a in manip_agents)
+        self.manipulator_budget_spent = max(0, initial_manip_capital - final_manip_capital)
 
         # Resolve
         resolved_bin = self._resolve()

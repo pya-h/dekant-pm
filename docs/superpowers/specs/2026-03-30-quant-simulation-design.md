@@ -4,182 +4,297 @@
 
 DekantPM's continuous market AMM has fundamental bin-related issues that block commercial viability:
 
-1. **Winner-take-all resolution** — a single bin wins 100%, adjacent bins get nothing, creating discontinuous payoff cliffs
-2. **Coarse granularity** — MAX_BINS = 256 yields ~0.4% range resolution per bin
-3. **Normal PDF approximation is severely wrong** — Taylor degree-4 is ~3.9% high at |z|=1.5, ~146% high at |z|=2, and explodes past |z|=2.5 (3644% error). The clamped polynomial effectively saturates by z~2.5, systematically overpricing near-center bins and destroying tail accuracy
-4. **Liquidity fragmentation** — uniform reserves across 256 bins means ~1/256th depth per bin
-5. **LPs can't concentrate liquidity** — forced uniform exposure causes adverse selection losses
-6. **Bin boundary arbitrage** — hard boundaries create exploitable edge effects
-7. **Forced Gaussian sell** — traders cannot unwind arbitrary bin positions; selling requires specifying a fresh Normal(mu, sigma) vector
+1. **Winner-take-all resolution** - a single bin wins 100%, adjacent bins get nothing, creating discontinuous payoff cliffs
+2. **Coarse granularity** - MAX_BINS = 256 yields about 0.4% range resolution per bin
+3. **Normal PDF approximation is severely wrong** - Taylor degree-4 is materially inaccurate in the tails and systematically distorts weights
+4. **Liquidity fragmentation** - uniform reserves across 256 bins means about 1/256th depth per bin
+5. **LPs cannot concentrate liquidity** - forced uniform exposure creates adverse selection
+6. **Bin boundary arbitrage** - hard boundaries create exploitable edge effects
+7. **Forced Gaussian sell** - traders cannot unwind arbitrary inventories; the current mechanism requires a fresh Normal(mu, sigma) vector
+
+## Simulator Validity Findings
+
+The first simulator version is not sufficient for mechanism down-selection because it mostly compares ex post payout surfaces on top of a shared trading process.
+
+The revised simulator must correct these issues before design ranking is trusted:
+
+1. **Settlement-only comparisons are not enough** - if two designs share the same trading microstructure and agent objective during rounds, then differences seen only at resolution do not explain how incentives change during trading.
+2. **Gaussian-only worlds are too forgiving** - a simulator that only samples Gaussian truths and Gaussian informed flow cannot expose the forced-Gaussian expression problem.
+3. **Agents must use live portfolio state** - decisions must depend on current capital, holdings, and P&L, not static initialization parameters.
+4. **Exitability must reflect allowed actions** - unwind quality must include legal execution primitives, transaction count, path dependence, and reposition cost.
+5. **LP conclusions require real deployability** - if LPs never activate, or concentrated liquidity is represented only as fee-share weighting, then LP profitability is not an informative output.
+6. **Stress-test designs must not pollute optimization** - Scalar remains a red-team design and is excluded from the candidate leaderboard even though it stays in the scenario suite.
 
 ## Goal
 
-Build a quantitative simulation framework (pure numpy math engine + cadCAD orchestration) that isolates whether improvements come from fixing the Gaussian weight approximation vs changing the settlement design. Two-phase approach: Phase 1 down-selects AMM designs under flat fee, Phase 2 sweeps fee mechanisms on the top designs.
+Build a quantitative simulation framework that can distinguish:
 
-Output: a standalone HTML report with comparison charts and structured data for MiroFish behavioral simulation.
+1. whether improvements come from fixing the Gaussian weight approximation,
+2. whether improvements come from changing settlement,
+3. whether improvements come from changing agent incentives and market microstructure,
+4. whether fee changes improve a valid design rather than masking a broken one.
 
-## Simulation Phases
+Output: a standalone HTML report plus CSV/JSON exports that are suitable for design down-selection before MiroFish behavioral simulation.
 
-### Phase 1: Design Down-Selection (flat fee only)
+## Research Questions
 
-**7 designs x 1 fee mechanism x 1000 Monte Carlo = 7,000 runs.**
+The simulator must answer these questions directly:
 
-Goal: isolate which settlement/payoff design actually fixes the commercial blockers.
+1. How much of the current failure is caused by the Taylor-4 weight bug versus winner-take-all settlement?
+2. Which designs improve truth-tracking under non-Gaussian, boundary-heavy, and adversarial flows?
+3. Which designs remain tradable when beliefs change and inventories must be unwound using actual supported actions?
+4. Which designs can support LP participation without fake concentration assumptions?
+5. Which fee models improve already-credible designs, instead of just distorting the metric bundle?
 
-### Phase 2: Fee Sweep (top 3 designs from Phase 1)
+## Simulation Stages
 
-**3 designs x 5 fee mechanisms x 1000 Monte Carlo = 15,000 runs.**
+### Stage 0: Validity Gates
 
-Goal: find optimal fee mechanism for each surviving design.
+Before running large sweeps, the simulator must pass these gates:
 
-### Total: ~22,000 runs (down from 25,000), more focused.
+1. Settlement variants produce different trading behavior when incentives differ.
+2. Agents consume live `AgentState` and portfolio information.
+3. Non-Gaussian scenario families are present.
+4. LP activation is observable in at least some baseline scenarios.
+5. Exitability metrics penalize unsupported unwind paths.
 
-## AMM Designs
+No composite ranking is published until these gates pass.
 
-Two baselines to isolate the Gaussian approximation effect from settlement design changes:
+### Stage 1: Mechanism Down-Selection
 
-| Design | Gaussian Weights | Resolution Payout | Purpose |
-|--------|-----------------|-------------------|---------|
-| **Baseline A** (current on-chain) | Taylor-4 approximation (as implemented in `normal_pdf.rs`) | Winner-take-all | Control: current behavior exactly as deployed |
-| **Baseline B** (fixed Gaussian) | Exact Gaussian via `scipy.stats.norm` | Winner-take-all | Isolates: how much does fixing the weight bug alone improve things? |
-| **Piecewise-Linear** | Exact Gaussian | Triangular: `max(0, 1 - distance/W)` with dynamic bandwidth. `W = max(1, ceil(num_bins * target_payout_width / range_span))`. Default `target_payout_width` tuned so W=5 at 256 bins. | Smooth-ish settlement, simple to implement on-chain |
-| **Kernel-Smoothed** | Exact Gaussian | `payout[bin] = exp(-distance^2 / (2 * bandwidth^2))`, normalized so winning bin = 1.0. C-infinity decay, same dynamic bandwidth scaling. Naturally extends the Normal PDF paradigm. | Smoothest settlement, elegant but more compute |
-| **Scalar** | Exact Gaussian | Each bin pays proportional to its final implied probability. Pro-rata distribution of payout pool. Vulnerable to late-stage whale attacks (see Agents). | Tests market-driven settlement |
-| **CRPS Scoring Rule** | Exact Gaussian | Discretized Continuous Ranked Probability Score. Each trader's payout is based on the proper scoring rule: `CRPS = E|X - x| - 0.5 * E|X - X'|` where X is the forecast CDF and x is the resolved value. Rewards forecast quality directly rather than approximating it with ad hoc kernels. | Gold standard for continuous forecast evaluation |
-| **CLOB Hybrid** | N/A (orderbook) | Price-time priority limit orderbook. Tick size = 1 bin width. Orders specify bin + price (probability). Matching: incoming orders walk the book at price-time priority. Payout uses same dynamic bandwidth as piecewise-linear. | Fundamentally different microstructure |
+Compare candidate designs under validated agent behavior and scenario families.
 
-**CLOB Hybrid is analyzed separately** — it changes market microstructure so fundamentally that a single composite leaderboard mixing it with AMM variants would be misleading. It gets its own report section with qualitative comparison.
+Optimization set:
+- Baseline A
+- Baseline B
+- Piecewise-Linear
+- Kernel-Smoothed
+- CRPS
 
-## Fee Mechanisms (Phase 2 only)
+Separate analysis sets:
+- Scalar: red-team only
+- CLOB Hybrid: separate microstructure analysis
 
-| Fee Mechanism | Description |
-|---------------|-------------|
-| **Flat fee** (current) | 30 bps on every trade, 50/50 LP/protocol split |
-| **Dynamic fee** | Fee scales with volatility or utilization (higher fee when pool is imbalanced) |
-| **Tiered fee** | Lower fees for larger trades / repeat traders (volume incentives) |
-| **Spread-based fee** | Fee proportional to distance from current consensus — trading against the crowd costs more |
-| **Time-weighted fee** | Fee starts low (e.g., 10 bps) early in market lifecycle and increases toward deadline (e.g., 100 bps). Analogous to theta decay in options. Fee at round t: `base_fee + (max_fee - base_fee) * (t / total_rounds)^2` |
+### Stage 2: Fee Sweep
+
+Run fee sweeps only on the finalist AMM designs that survive Stage 1.
+
+### Stage 3: Sensitivity and Red-Team
+
+Stress the finalists across:
+- bins
+- liquidity
+- agent mix
+- scenario family
+- adversarial sequencing
+
+## Design Set
+
+| Design | Trading Microstructure | Settlement | Role |
+|--------|------------------------|------------|------|
+| **Baseline A** | Current CFAMM, Taylor-4 weights | Winner-take-all | Control: current on-chain behavior |
+| **Baseline B** | Current CFAMM, exact Gaussian weights | Winner-take-all | Isolates weight bug vs settlement |
+| **Piecewise-Linear** | CFAMM, exact weights | Triangular payout around resolution with dynamic bandwidth | Candidate |
+| **Kernel-Smoothed** | CFAMM, exact weights | Gaussian-kernel payout around resolution with dynamic bandwidth | Candidate |
+| **CRPS Scoring Rule** | CFAMM or scoring-rule compatible accounting | Proper scoring rule payout with stake-aware normalization | Candidate, only if payouts remain comparable and budget-consistent |
+| **Scalar** | CFAMM, exact weights | Payout proportional to final market probability | Red-team only, not eligible for top-N |
+| **CLOB Hybrid** | Price-time priority orderbook | Piecewise or kernel settlement | Separate microstructure comparison |
+
+## Scenario Library
+
+The simulator must sample from multiple scenario families. A valid sweep mixes all of them.
+
+### Truth / observation families
+
+1. **Gaussian center** - broad centered normal, mainly for continuity with existing tests
+2. **Gaussian edge** - narrow distribution near range boundaries
+3. **Skewed** - asymmetric distribution with a long tail
+4. **Bimodal** - two local peaks
+5. **Truncated / clipped** - mass pressed against one boundary
+6. **Regime shift** - truth proxy changes during trading
+7. **Adversarial boundary** - resolution intentionally near a bin edge
+
+### Trader belief families
+
+1. Gaussian believers
+2. Skewed believers
+3. Multi-peak believers
+4. Localized one-sided traders
+5. Belief shifters that must unwind and re-enter after a regime change
+
+The simulator must allow belief family to differ from truth family.
+
+## Agent Model Requirements
+
+All agents must decide from live state, not static construction-time capital.
+
+Required inputs per decision:
+- current implied distribution
+- live capital
+- live holdings
+- accumulated fees / P&L
+- design identifier
+- settlement rule
+- allowed action primitives
+- scenario metadata
+
+### Informed Trader
+
+Must optimize expected utility under the active design, not just trade toward a fixed Gaussian mismatch. Truthful behavior should differ across winner-take-all, smoothed settlement, and CRPS-like payout rules.
+
+### Noise Trader
+
+Should include both random singles and random bundles so the simulator can distinguish noise in a forced-Gaussian interface from noise in a freer interface.
+
+### Arbitrageur
+
+Must target:
+- probability-sum deviations
+- local boundary discontinuities
+- cross-bin shape violations
+- design-specific pricing inconsistencies
+
+### Manipulator
+
+Must be able to optimize for:
+- temporary price distortion
+- end-of-market payout capture
+- boundary crossing
+- cheap late-stage payout gaming
+
+### Late-Round Whale
+
+Default scope is red-team suites and Scalar stress tests. It should not be mixed into the optimization leaderboard unless the report explicitly labels that run as adversarial-all-designs.
+
+### LPs
+
+LPs must make deploy / withdraw / rebalance decisions from realized economics.
+
+The model must support:
+- activation rate
+- realized holding period
+- realized fees
+- realized adverse selection
+- actual liquidity placement, not only fee-share adjustments
+
+## Metrics
+
+The simulator keeps per-run metrics, but some previous definitions are replaced.
+
+| Metric | Revised Definition | Purpose |
+|--------|--------------------|---------|
+| **Price Accuracy** | KL divergence and additional calibration error over time, measured during trading and at close | Truth tracking |
+| **Convergence Speed** | First round where calibrated error stays below threshold for a sustained window | Avoid one-off crossings |
+| **Capital Efficiency** | Local slippage and depth around target bins, not only a single representative bin | Detect fragmentation |
+| **LP Deployability** | Activation rate, median live capital deployed, holding duration, and realized return | Separate "LPs never entered" from "LPs entered and lost" |
+| **Manipulation Resistance** | Cost to move market state and cost to improve attacker payout under the active settlement rule | Distinguish cosmetic vs profitable manipulation |
+| **Resolution Fairness** | Payout compared against a common external benchmark utility, not a benchmark derived from one candidate settlement shape | Avoid biasing toward piecewise or kernel by construction |
+| **Boundary Sensitivity** | Payout jump and trading incentive jump around bin boundaries | Measure discontinuity directly |
+| **Exitability** | Fraction unwindable using allowed actions, transaction count, slippage, reposition cost, and failure rate | Measure practical exit quality |
+| **Truthful Incentive Alignment** | Whether truthful moves improve expected utility more than nearby manipulative moves for informed traders | Directly test properness / incentive quality |
+
+### Metric validity rules
+
+1. If a metric is constant or structurally degenerate across designs, it is flagged and excluded from ranking.
+2. If LP activation rate is zero in a scenario family, LP return is reported as "not activated" instead of `0`.
+3. If a design is red-team only, it is excluded from finalist selection even if some metrics score well.
+
+### Selection rules
+
+1. No composite leaderboard is shown until Stage 0 validity gates pass.
+2. Stage 1 uses per-metric tables plus a Pareto frontier.
+3. Finalist selection excludes Scalar.
+4. CLOB remains in a separate comparison section.
+
+## Fee Mechanisms
+
+Fee models remain:
+- Flat
+- Dynamic
+- Tiered
+- Spread-based
+- Time-weighted
+
+But fee sweeps happen only after mechanism validity is established.
 
 ## Architecture
 
 ```
 quant-simulation/
-├── pyproject.toml              # Dependencies: numpy, scipy, pandas, plotly, jinja2
 ├── config/
-│   └── params.py               # All tunable parameters (bins, fees, trader profiles, phases)
+│   ├── params.py
+│   └── scenarios.py            # scenario families, sampling, validity gates
 ├── models/
-│   ├── math_engine.py          # Pure numpy vectorized AMM math (L2-norm, isqrt, probabilities)
-│   ├── weights.py              # Gaussian weight generation: Taylor-4 (baseline A) + exact (baseline B+)
-│   ├── settlement_baseline.py  # Winner-take-all payout
-│   ├── settlement_piecewise.py # Piecewise-linear payout (dynamic bandwidth)
-│   ├── settlement_kernel.py    # Kernel-smoothed Gaussian payout
-│   ├── settlement_scalar.py    # Implied-probability pro-rata payout
-│   ├── settlement_crps.py      # CRPS proper scoring rule payout
-│   ├── orderbook.py            # Price-time priority CLOB matching engine
-│   └── fee_models.py           # All 5 fee mechanisms
+│   ├── math_engine.py
+│   ├── weights.py
+│   ├── settlement_*.py
+│   ├── orderbook.py
+│   └── fee_models.py
 ├── agents/
-│   ├── informed_trader.py      # Trades toward "true" distribution
-│   ├── noise_trader.py         # Random trades (market noise)
-│   ├── arbitrageur.py          # Exploits mispricings between bins
-│   ├── manipulator.py          # Tries to move price with minimal capital
-│   ├── late_round_whale.py     # Last-minute probability manipulation (scalar design stress test)
-│   └── lp.py                   # Passive and rebalancing LP strategies
+│   ├── base.py                 # live decision context + action primitives
+│   ├── informed_trader.py
+│   ├── noise_trader.py
+│   ├── arbitrageur.py
+│   ├── manipulator.py
+│   ├── late_round_whale.py
+│   └── lp.py
 ├── engine/
-│   ├── simulation.py           # SimulationRun: state machine, round loop
-│   ├── metrics.py              # Computes all 8 metrics per run
-│   └── sweeps.py               # Phase 1 + Phase 2 sweep configs
+│   ├── simulation.py
+│   ├── metrics.py
+│   ├── sweeps.py
+│   └── validation.py           # Stage 0 validity checks
 ├── analysis/
-│   ├── report.py               # Generates HTML comparison report with plotly charts
-│   └── export.py               # Exports results as CSV/JSON (for MiroFish ingestion)
-└── run.py                      # Entry point: phase 1 -> down-select -> phase 2 -> report
+│   ├── report.py
+│   └── export.py
+└── run.py
 ```
 
-**Key architectural principle:** the math engine (`math_engine.py`, `weights.py`, settlement modules) is pure numpy vectorized code with no external framework dependency. Orchestration uses simple Python loops with explicit seed management for Monte Carlo scheduling (`engine/sweeps.py`). This keeps the core microstructure math testable and fast independently, with no framework coupling.
+Key principle: math remains pure and testable, but orchestration must explicitly model the causal chain:
 
-## Agent Behavior Models
-
-| Agent | Strategy | Parameters |
-|-------|----------|------------|
-| **Informed Trader** | Knows the "true" distribution (injected). Buys underpriced bins, sells overpriced. Trade size proportional to mispricing magnitude. | `conviction` (0-1), `capital_limit` |
-| **Noise Trader** | Picks random bins, random direction, random size within bounds. Models uninformed retail flow. | `trade_range` (min/max size), `frequency` |
-| **Arbitrageur** | Compares implied probabilities across bins. If sum deviates from 1.0 or adjacent bins have irrational pricing, trades to correct. | `min_edge` (minimum profit threshold) |
-| **Manipulator** | Targets a specific bin. Buys aggressively to inflate price, measures capital needed. Used for manipulation resistance metric. | `target_bin`, `budget` |
-| **Late-Round Whale** | Only acts in the final 10% of rounds. Deposits heavily into a target bin to inflate its implied probability before resolution. Specifically stress-tests the scalar design. | `target_bin`, `budget`, `activation_round_pct` (default 0.9) |
-| **LP (Passive)** | Deposits liquidity when fee yield exceeds threshold, withdraws when adverse selection losses exceed fees. Tracks P&L per round. | `yield_threshold`, `loss_tolerance` |
-| **LP (Rebalancing)** | Same as passive LP but concentrates position toward high-activity bins. Models what LPs would do if concentrated liquidity were available, revealing whether adding that functionality is worth the complexity. Rebalances every R rounds. | `yield_threshold`, `loss_tolerance`, `rebalance_interval`, `concentration_factor` |
-
-Default agent mix: 45% noise, 25% informed, 13% arbitrageur, 5% manipulator, 2% late-round whale, 5% passive LP, 5% rebalancing LP. Configurable in `config/params.py`.
-
-## Metrics
-
-| Metric | Formula / Method | Output |
-|--------|-----------------|--------|
-| **Price Accuracy** | KL divergence: `sum(p_true(i) * log(p_true(i) / p_amm(i)))` measured every 10 rounds. Final KL at resolution. Lower = better. | Time series + final value |
-| **Convergence Speed** | Number of rounds to reach KL < 0.01 (first crossing). If never reached, record total_rounds. | Rounds to convergence |
-| **Capital Efficiency** | Execute test trades at 1%, 5%, 10%, 25% of pool depth. Measure `slippage = (avg_price - mid_price) / mid_price`. | Slippage curve per trade size |
-| **LP Profitability** | `net_return = (fees_earned - impermanent_loss) / capital_deposited` over full lifecycle. Separately report passive LP vs rebalancing LP returns. | Distribution of returns across Monte Carlo paths |
-| **Manipulation Resistance** | Manipulator spends budget B to move target bin price by X%. `cost_per_percent = B / X`. Higher = more resistant. For scalar design, additionally run late-round whale attack: capital needed in final 10% of rounds to capture >50% of payout pool. | Cost curve: capital needed vs distortion achieved |
-| **Resolution Fairness** | For traders within +/-K bins of resolved outcome: `expected_payout_ratio = actual_payout / ideal_payout`. | Payout distribution heat map by distance from resolved bin |
-| **Boundary Sensitivity** | Payout jump for an epsilon move across each bin boundary: `max_b |payout(b + epsilon) - payout(b - epsilon)|`. Measures how discontinuous the payoff function is. Ideal = 0 (smooth). Baseline will show maximum discontinuity (1.0 jump). | Max and mean boundary jump across all bins |
-| **Exitability** | After a trader holds positions, shift their belief (delta_mu, delta_sigma). Measure: max feasible unwind as fraction of position, and slippage cost to reposition. Tests whether traders can exit or adjust without being locked in. | Max unwind fraction + repositioning cost |
-
-**Default metric weights for composite score**: Resolution Fairness 0.20, Price Accuracy 0.15, Convergence Speed 0.15, Capital Efficiency 0.10, LP Profitability 0.10, Manipulation Resistance 0.10, Boundary Sensitivity 0.10, Exitability 0.10. Weights configurable in `config/params.py`.
-
-Aggregation: report **median, p5, p95** for each metric across Monte Carlo paths. Flag combos where metric distributions overlap (inconclusive).
+`scenario -> agent incentives -> actions -> market state -> resolution -> payouts -> metrics`
 
 ## Report Output
 
-The HTML report contains:
+The report should contain:
 
-### AMM Design Comparison (Phase 1)
+### Stage 0
 
-1. **Leaderboard** — Ranked table of 6 AMM designs (excluding CLOB) with weighted composite score under flat fee
-2. **Baseline A vs B analysis** — Isolated chart showing how much fixing the Gaussian approximation alone improves each metric. This answers: "is the weight bug or the settlement design the bigger problem?"
-3. **Per-metric comparison charts** — Plotly charts showing all 6 AMM designs with error bars (p5/p95)
-4. **Boundary sensitivity heatmap** — Visual showing payout continuity across bin boundaries for each design
-5. **Exitability comparison** — How well each design supports position unwinding
+1. Validity gate results
+2. Metrics flagged as degenerate or invalid
+3. Scenario coverage summary
 
-### CLOB Hybrid Analysis (separate section)
+### Stage 1
 
-6. **CLOB vs top AMM designs** — Qualitative comparison on each metric, noting where microstructure differences make direct comparison inappropriate
-7. **CLOB-specific metrics** — Order book depth, fill rates, spread dynamics
+4. Baseline A vs B analysis
+5. Candidate design comparison by metric
+6. Pareto frontier for candidate designs
+7. Scalar red-team section
+8. CLOB separate section
 
-### Fee Mechanism Sweep (Phase 2)
+### Stage 2
 
-8. **Fee heatmaps** — Top 3 designs x 5 fee mechanisms, one heatmap per metric
-9. **Optimal fee per design** — Which fee mechanism works best for each surviving design
+9. Fee heatmaps for finalist AMM designs only
+10. Fee impact decomposition: price quality, LP deployability, manipulation resistance
 
-### Cross-Cutting
+### Cross-cutting
 
-10. **Sensitivity analysis** — Results varying bins (16-256), agent mix, initial liquidity
-11. **MiroFish export** — Top 3 combos with structured JSON for knowledge graph seeding
-12. **Raw data** — CSV download for all Monte Carlo results
+11. Boundary case gallery
+12. Exitability failure cases
+13. LP activation and concentration plots
+14. Structured export for downstream behavioral simulation
 
-## Technical Details
+## Technical Notes
 
-### AMM Math Engine
+### Weight bug measurement
 
-Pure numpy vectorized code, no external framework dependency:
-- L2-norm invariant: `sum((total_minted - reserves[i])^2) = total_minted^2`
-- Integer arithmetic with SCALE = 10^9
-- isqrt via Newton's method
-- Two Gaussian weight implementations:
-  - Taylor-4 approximation (faithful port of `normal_pdf.rs` for Baseline A)
-  - Exact Gaussian via `scipy.stats.norm.pdf` (for Baseline B and all redesigns)
+The simulator must keep a direct A-vs-B comparison so the weight approximation error can be isolated from settlement changes.
 
-### Orchestration
+### CRPS handling
 
-Simple Python loops with explicit seed management (no framework dependency):
-- **SimulationRun class**: encapsulates full market lifecycle (init → trade rounds → resolve → metrics)
-- **Phase 1 sweeps**: iterates designs 0-5 × MC seeds under flat fee
-- **Phase 2 sweeps**: iterates top 3 designs × 5 fee models × MC seeds
-- **Monte Carlo**: 1000 runs per parameter combo, reproducible via sequential seed assignment
-- **Sensitivity sweeps**: additional parameter variations (bins, liquidity, agent mix) on top designs
+CRPS remains a proper scoring rule reference for continuous forecast evaluation. The implementation must use stake-aware normalization and keep payouts comparable across traders and runs. See:
+- [Fortnow & Sami, "Multi-outcome and Multidimensional Market Scoring Rules"](https://arxiv.org/abs/1202.1712)
+- [scoringrules CRPS estimators](https://scoringrules.readthedocs.io/en/latest/crps_estimators.html)
 
-### Dependencies
+### Monte Carlo scale
 
-- numpy >= 1.24
-- scipy >= 1.11
-- pandas >= 2.0
-- plotly >= 5.18
-- jinja2 >= 3.1 (for HTML report templating)
+The eventual target scale can remain around the current order of magnitude, but only after Stage 0 validity checks pass. During remediation, quick suites and adversarial fixtures take priority over large run counts.

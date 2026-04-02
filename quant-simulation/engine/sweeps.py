@@ -3,7 +3,7 @@
 Stage 0: Validity suite — quick sanity checks across all AMM designs.
 Stage 1: Full design sweep across scenario families (AMM 0-5 + CLOB).
 Stage 2: Fee sweep for finalist AMM designs.
-Stage 3: Sensitivity sweep — bins, liquidity, agent mix, scenario family.
+Stage 3: Sensitivity sweep — bins, liquidity, agent mix, scenario family, adversarial sequencing.
 """
 
 from __future__ import annotations
@@ -55,8 +55,11 @@ _ALL_DESIGNS = _AMM_DESIGNS + [DESIGN_CLOB]
 
 _FEE_MODELS = [FEE_FLAT, FEE_DYNAMIC, FEE_TIERED, FEE_SPREAD, FEE_TIME_WEIGHTED]
 
-# Representative subset of scenario families used for Stage 0 and Stage 1
-_STAGE0_FAMILIES = ["gaussian_center", "gaussian_edge", "skewed", "bimodal"]
+# All scenario families used for Stage 0 (must match TRUTH_FAMILIES keys)
+_STAGE0_FAMILIES = [
+    "gaussian_center", "gaussian_edge", "skewed", "bimodal",
+    "truncated", "regime_shift", "adversarial_boundary",
+]
 
 _SENSITIVITY_BINS = [16, 32, 64, 128, 256]
 
@@ -72,7 +75,15 @@ _SENSITIVITY_AGENT_MIXES = {
     "adversarial": AgentMix(noise=0.20, informed=0.30, arbitrageur=0.15, manipulator=0.10, late_round_whale=0.05, lp_passive=0.10, lp_rebalancing=0.10),
 }
 
-_SENSITIVITY_FAMILIES = ["gaussian_center", "gaussian_edge", "skewed", "bimodal"]
+# All scenario families for Stage 3 sensitivity (must match TRUTH_FAMILIES keys).
+_SENSITIVITY_FAMILIES = [
+    "gaussian_center", "gaussian_edge", "skewed", "bimodal",
+    "truncated", "regime_shift", "adversarial_boundary",
+]
+
+# Adversarial sequencing options for Stage 3.
+# False = default random shuffle; True = manipulators/whales execute first.
+_SENSITIVITY_ADVERSARIAL_SEQUENCING = [False, True]
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +170,12 @@ def run_stage0(
         metric_values=metric_values,
     )
 
+    # Compute summary boolean: True only when every gate passed.
+    validity_passed = all(r.passed for r in validity_results)
+
     return {
         "validity_results": validity_results,
+        "validity_passed": validity_passed,
         "kl_by_design": kl_by_design,
         "lp_activation_rates": lp_activation_rates,
         "exit_values": exit_values,
@@ -214,12 +229,17 @@ def run_stage1(
 # Design selection
 # ---------------------------------------------------------------------------
 
-def select_finalists(stage1_df: pd.DataFrame, n: int = 3) -> list[int]:
+def select_finalists(stage1_df: pd.DataFrame, n: int = 3, validity_passed: bool = True) -> list[int]:
     """Rank designs by composite score and return top n design IDs.
 
     MUST exclude DESIGN_SCALAR (4) and DESIGN_CLOB (6) from selection.
     Uses per-metric Pareto normalization and composite_score logic.
+
+    When validity_passed is False (Stage 0 gates failed), returns an empty
+    list so that no composite leaderboard is produced.
     """
+    if not validity_passed:
+        return []
     # Filter out Scalar and CLOB
     filtered_df = stage1_df[
         ~stage1_df["design"].isin([DESIGN_SCALAR, DESIGN_CLOB])
@@ -238,10 +258,15 @@ def select_finalists(stage1_df: pd.DataFrame, n: int = 3) -> list[int]:
         "boundary_sensitivity_max": "median",
         "boundary_sensitivity_mean": "median",
         "exitability_unwind": "median",
+        "exitability_transaction_count": "median",
         "exitability_slippage": "median",
+        "exitability_reposition_cost": "median",
+        "exitability_failure_rate": "median",
     }
     if "mean_slippage" in filtered_df.columns:
         agg_cols["mean_slippage"] = "median"
+    # Only aggregate columns that actually exist in the dataframe
+    agg_cols = {k: v for k, v in agg_cols.items() if k in filtered_df.columns}
     design_medians = filtered_df.groupby("design").agg(agg_cols).reset_index()
 
     if design_medians.empty:
@@ -347,7 +372,7 @@ def run_stage3(
     num_rounds: int = DEFAULT_NUM_ROUNDS,
     mc_runs: int = 100,
 ) -> pd.DataFrame:
-    """Run sensitivity sweeps varying bins, liquidity, agent mix, and scenario family.
+    """Run sensitivity sweeps varying bins, liquidity, agent mix, scenario family, and adversarial sequencing.
 
     Uses reduced mc_runs (default 100) to keep runtime manageable.
     Returns a DataFrame with one row per (design, parameter, value, seed).
@@ -415,6 +440,22 @@ def run_stage3(
                 result["seed"] = seed
                 rows.append(result)
 
+        # --- Adversarial sequencing sweep (default bins, default liquidity, default agents) ---
+        for adv_order in _SENSITIVITY_ADVERSARIAL_SEQUENCING:
+            for seed in range(mc_runs):
+                sim = SimulationRun(
+                    design=design, fee_model=FEE_FLAT,
+                    num_bins=DEFAULT_NUM_BINS, initial_liquidity=DEFAULT_INITIAL_LIQUIDITY,
+                    num_rounds=num_rounds, seed=seed,
+                    adversarial_order=adv_order,
+                )
+                result = sim.run()
+                result["design_name"] = DESIGN_NAMES[design]
+                result["sweep_param"] = "adversarial_sequencing"
+                result["sweep_value"] = adv_order
+                result["seed"] = seed
+                rows.append(result)
+
     return pd.DataFrame(rows)
 
 
@@ -438,10 +479,15 @@ def select_top_designs(phase1_df: pd.DataFrame, n: int = 3) -> list[int]:
         "boundary_sensitivity_max": "median",
         "boundary_sensitivity_mean": "median",
         "exitability_unwind": "median",
+        "exitability_transaction_count": "median",
         "exitability_slippage": "median",
+        "exitability_reposition_cost": "median",
+        "exitability_failure_rate": "median",
     }
     if "mean_slippage" in phase1_df.columns:
         agg_cols["mean_slippage"] = "median"
+    # Only aggregate columns that actually exist in the dataframe
+    agg_cols = {k: v for k, v in agg_cols.items() if k in phase1_df.columns}
     design_medians = phase1_df.groupby("design").agg(agg_cols).reset_index()
 
     if design_medians.empty:

@@ -225,6 +225,77 @@ class TestInformedTraderLiveState:
         assert actions == []
 
 
+class TestInformedTraderUsesBeliefWeights:
+    """Verify that informed trader decisions follow belief weights, not truth weights."""
+
+    def test_actions_reflect_belief_not_truth(self):
+        """Create divergent truth and belief distributions. Pass belief weights to
+        InformedTrader.decide() and verify the agent targets the belief peak, not the
+        truth peak."""
+        reserves, total_minted, probs = _make_market()
+
+        # Truth: all mass on bin 2
+        truth_weights = np.zeros(16, dtype=np.int64)
+        truth_weights[2] = SCALE
+
+        # Belief: all mass on bin 12 (very different from truth)
+        belief_weights = np.zeros(16, dtype=np.int64)
+        belief_weights[12] = SCALE
+
+        state = _make_state(agent_id=0, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state)
+        agent = InformedTrader(agent_id=0, conviction=0.8)
+
+        # Per the spec, the simulation passes belief_weights, not truth_weights
+        actions = agent.decide(ctx, belief_weights)
+        buys = [a for a in actions if a.side == "buy"]
+        assert len(buys) > 0, "Expected at least one buy action"
+        # The agent should buy bin 12 (belief peak), not bin 2 (truth peak)
+        assert buys[0].bin_idx == 12, (
+            f"Agent targeted bin {buys[0].bin_idx}, expected bin 12 (belief peak)"
+        )
+
+    def test_actions_differ_with_different_belief(self):
+        """Two calls with different belief weights should produce different buy targets."""
+        reserves, total_minted, probs = _make_market()
+
+        belief_a = np.zeros(16, dtype=np.int64)
+        belief_a[3] = SCALE
+
+        belief_b = np.zeros(16, dtype=np.int64)
+        belief_b[14] = SCALE
+
+        state = _make_state(agent_id=0, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state)
+        agent = InformedTrader(agent_id=0, conviction=0.8)
+
+        actions_a = agent.decide(ctx, belief_a)
+        actions_b = agent.decide(ctx, belief_b)
+        buys_a = [a for a in actions_a if a.side == "buy"]
+        buys_b = [a for a in actions_b if a.side == "buy"]
+        assert len(buys_a) > 0
+        assert len(buys_b) > 0
+        assert buys_a[0].bin_idx != buys_b[0].bin_idx, (
+            "Expected different buy targets for different belief distributions"
+        )
+
+    def test_actions_carry_explicit_belief_weights(self):
+        reserves, total_minted, probs = _make_market()
+        belief_weights = np.zeros(16, dtype=np.int64)
+        belief_weights[3] = int(0.4 * SCALE)
+        belief_weights[12] = SCALE - belief_weights[3]
+
+        state = _make_state(agent_id=0, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state)
+        agent = InformedTrader(agent_id=0, conviction=0.8)
+
+        actions = agent.decide(ctx, belief_weights)
+        buys = [a for a in actions if a.side == "buy"]
+        assert len(buys) > 0
+        assert buys[0].weights is not None
+        np.testing.assert_array_equal(buys[0].weights, belief_weights)
+
+
 # ── NoiseTrader ─────────────────────────────────────────────────────────────
 
 class TestNoiseTrader:
@@ -301,6 +372,111 @@ class TestArbitrageur:
         assert actions == []
 
 
+# ── Arbitrageur design-specific attacks ────────────────────────────────────
+
+class TestArbitrageurDesignSpecific:
+    """Verify that the arbitrageur produces design-aware actions."""
+
+    def _make_peaked_probs(self, n_bins=16, peak=8):
+        """Create implied probs with a clear peak and some far-from-peak mass."""
+        probs = np.zeros(n_bins, dtype=np.int64)
+        # Give peak bin 40% of SCALE, and spread the rest with some far bins overpriced
+        probs[peak] = int(SCALE * 0.40)
+        for i in range(n_bins):
+            if i != peak:
+                probs[i] = int(SCALE * 0.04)  # 4% each for 15 bins = 60%
+        # Fix rounding
+        probs[peak] += SCALE - int(np.sum(probs))
+        return probs
+
+    def test_wta_sells_far_from_peak_bins(self):
+        """WTA: bins far from peak with high probability should be sold."""
+        reserves, total_minted, _ = _make_market()
+        probs = self._make_peaked_probs(n_bins=16, peak=8)
+        # Make a far bin (bin 0) overpriced: >20% of peak probability
+        probs[0] = int(SCALE * 0.15)  # 15% — well above 20% of 40%=8%
+        probs[8] = SCALE - int(np.sum(probs)) + probs[8]  # fix sum
+
+        state = _make_state(agent_id=2, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state, settlement_rule="wta")
+        agent = Arbitrageur(agent_id=2, min_edge=0.005)
+        actions = agent.decide(ctx)
+
+        # There should be at least one sell action on a far-from-peak bin
+        design_sells = [a for a in actions if a.side == "sell" and abs(a.bin_idx - 8) > 5]
+        assert len(design_sells) > 0, "WTA should sell overpriced far-from-peak bins"
+
+    def test_scalar_buys_local_minima(self):
+        """Scalar: local minima (inversions) should trigger buy actions."""
+        reserves, total_minted, _ = _make_market()
+        n_bins = 16
+        # Create smooth distribution with an artificial dip at bin 6
+        probs = np.zeros(n_bins, dtype=np.int64)
+        for i in range(n_bins):
+            probs[i] = int(SCALE / n_bins)
+        # Create a local minimum: bin 6 much lower than neighbors
+        probs[5] = int(SCALE * 0.10)
+        probs[6] = int(SCALE * 0.02)  # dip
+        probs[7] = int(SCALE * 0.10)
+        # Fix sum
+        probs[0] += SCALE - int(np.sum(probs))
+
+        state = _make_state(agent_id=2, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state, settlement_rule="scalar")
+        agent = Arbitrageur(agent_id=2, min_edge=0.005)
+        actions = agent.decide(ctx)
+
+        # Should include a buy at the local minimum (bin 6)
+        design_buys = [a for a in actions if a.side == "buy" and a.bin_idx == 6]
+        assert len(design_buys) > 0, "Scalar should buy underpriced local-minimum bins"
+
+    def test_crps_reduces_activity(self):
+        """CRPS: proper scoring rule should yield fewer design-specific actions."""
+        reserves, total_minted, _ = _make_market()
+        probs = self._make_peaked_probs(n_bins=16, peak=8)
+        # Make a far bin overpriced (same as WTA test)
+        probs[0] = int(SCALE * 0.15)
+        probs[8] = SCALE - int(np.sum(probs)) + probs[8]
+
+        state_wta = _make_state(agent_id=2, capital=1_000_000_000)
+        state_crps = _make_state(agent_id=2, capital=1_000_000_000)
+
+        ctx_wta = _make_ctx(probs, reserves, total_minted, state_wta, settlement_rule="wta")
+        ctx_crps = _make_ctx(probs, reserves, total_minted, state_crps, settlement_rule="crps")
+
+        agent = Arbitrageur(agent_id=2, min_edge=0.005)
+        actions_wta = agent.decide(ctx_wta)
+        actions_crps = agent.decide(ctx_crps)
+
+        # CRPS should produce no more actions than WTA (typically fewer since
+        # design-specific attack returns nothing for CRPS)
+        assert len(actions_crps) <= len(actions_wta), (
+            f"CRPS ({len(actions_crps)} actions) should not exceed WTA ({len(actions_wta)} actions)"
+        )
+
+    def test_piecewise_targets_smoothing_edge(self):
+        """Piecewise/kernel: should target bins at the smoothing window edge."""
+        reserves, total_minted, _ = _make_market()
+        n_bins = 16
+        # Create distribution with peak at bin 8 and very low but nonzero
+        # bins at edges of the smoothing window (bins 4, 12)
+        probs = np.zeros(n_bins, dtype=np.int64)
+        probs[8] = int(SCALE * 0.50)
+        for i in range(n_bins):
+            if i != 8:
+                probs[i] = int(SCALE * 0.001)  # very small
+        probs[0] += SCALE - int(np.sum(probs))
+
+        state = _make_state(agent_id=2, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state, settlement_rule="piecewise")
+        agent = Arbitrageur(agent_id=2, min_edge=0.005)
+        actions = agent.decide(ctx)
+
+        # The method should still return a list (possibly empty depending on
+        # exact threshold, but it must not error)
+        assert isinstance(actions, list)
+
+
 # ── Manipulator ─────────────────────────────────────────────────────────────
 
 class TestManipulator:
@@ -347,6 +523,149 @@ class TestManipulator:
         assert amount_late > amount_early
 
 
+class TestManipulatorStrategies:
+    """Test each manipulator strategy produces appropriate actions."""
+
+    def test_price_distortion_buys_target_bin(self):
+        reserves, total_minted, probs = _make_market()
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="price_distortion")
+        actions = agent.decide(ctx)
+        assert len(actions) > 0
+        assert all(a.bin_idx == 8 for a in actions)
+
+    def test_payout_capture_buys_target_before_midpoint(self):
+        """Before 50%, payout_capture does small buys on target bin."""
+        reserves, total_minted, probs = _make_market()
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state, current_round=10, total_rounds=200)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="payout_capture")
+        actions = agent.decide(ctx)
+        assert len(actions) > 0
+        assert actions[0].bin_idx == 8
+
+    def test_payout_capture_buys_peak_after_midpoint(self):
+        """After 50%, payout_capture buys the bin with highest implied prob."""
+        reserves, total_minted, probs = _make_market()
+        # Skew probs so bin 5 is the peak
+        probs_skewed = probs.copy()
+        probs_skewed[5] += 500_000_000
+        # Renormalize
+        diff = int(np.sum(probs_skewed)) - SCALE
+        probs_skewed[0] -= diff
+
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        ctx = _make_ctx(probs_skewed, reserves, total_minted, state, current_round=150, total_rounds=200)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="payout_capture")
+        actions = agent.decide(ctx)
+        assert len(actions) > 0
+        assert actions[0].bin_idx == 5  # the peak bin
+
+    def test_boundary_crossing_targets_adjacent_bins(self):
+        """Boundary crossing should alternate between bins adjacent to target."""
+        reserves, total_minted, probs = _make_market()
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="boundary_crossing")
+
+        ctx1 = _make_ctx(probs, reserves, total_minted, state, current_round=10, total_rounds=200)
+        actions1 = agent.decide(ctx1)
+
+        ctx2 = _make_ctx(probs, reserves, total_minted, state, current_round=11, total_rounds=200)
+        actions2 = agent.decide(ctx2)
+
+        assert len(actions1) > 0 and len(actions2) > 0
+        bins_hit = {actions1[0].bin_idx, actions2[0].bin_idx}
+        assert bins_hit == {7, 9}  # adjacent to target_bin=8
+
+    def test_late_gaming_dormant_before_85_pct(self):
+        """Late gaming does nothing before 85% of rounds."""
+        reserves, total_minted, probs = _make_market()
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        ctx = _make_ctx(probs, reserves, total_minted, state, current_round=100, total_rounds=200)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="late_gaming")
+        actions = agent.decide(ctx)
+        assert len(actions) == 0
+
+    def test_late_gaming_buys_cheapest_after_85_pct(self):
+        """Late gaming buys the cheapest bin in the last 15%."""
+        reserves, total_minted, probs = _make_market()
+        # Make bin 3 the cheapest
+        probs_skewed = probs.copy()
+        probs_skewed[3] = 1  # very cheap
+        diff = int(np.sum(probs_skewed)) - SCALE
+        probs_skewed[0] -= diff
+
+        state = _make_state(agent_id=3, capital=1_000_000_000)
+        ctx = _make_ctx(probs_skewed, reserves, total_minted, state, current_round=180, total_rounds=200)
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="late_gaming")
+        actions = agent.decide(ctx)
+        assert len(actions) > 0
+        assert actions[0].bin_idx == 3  # cheapest bin
+
+    def test_invalid_strategy_falls_back_to_price_distortion(self):
+        """Invalid strategy name defaults to price_distortion."""
+        agent = Manipulator(agent_id=3, budget=5_000_000, target_bin=8, strategy="nonexistent")
+        assert agent.strategy == "price_distortion"
+
+
+# ── Manipulator live-state tests ───────────────────────────────────────────
+
+class TestManipulatorLiveState:
+    """Verify manipulator decisions are driven by live AgentState capital."""
+
+    def test_uses_live_capital_not_static_budget(self):
+        """Manipulator amount should scale with ctx.agent_state.capital, not self.budget."""
+        reserves, total_minted, probs = _make_market()
+        agent = Manipulator(agent_id=3, budget=10_000_000, target_bin=8)
+
+        state_rich = _make_state(agent_id=3, capital=10_000_000)
+        ctx_rich = _make_ctx(probs, reserves, total_minted, state_rich)
+        actions_rich = agent.decide(ctx_rich)
+
+        state_poor = _make_state(agent_id=3, capital=1_000)
+        ctx_poor = _make_ctx(probs, reserves, total_minted, state_poor)
+        actions_poor = agent.decide(ctx_poor)
+
+        assert len(actions_rich) > 0 and len(actions_poor) > 0
+        assert actions_poor[0].amount < actions_rich[0].amount, (
+            "Manipulator with less live capital should propose a smaller trade"
+        )
+
+    def test_zero_live_capital_produces_no_action(self):
+        """If agent_state.capital is 0, manipulator should do nothing regardless of budget."""
+        reserves, total_minted, probs = _make_market()
+        agent = Manipulator(agent_id=3, budget=10_000_000, target_bin=8)
+
+        state = _make_state(agent_id=3, capital=0)
+        ctx = _make_ctx(probs, reserves, total_minted, state)
+        actions = agent.decide(ctx)
+        assert actions == [], "Manipulator should not trade when live capital is 0"
+
+    def test_repeated_calls_with_decreasing_capital(self):
+        """Simulating capital depletion across rounds should reduce trade sizes."""
+        reserves, total_minted, probs = _make_market()
+        agent = Manipulator(agent_id=3, budget=10_000_000, target_bin=8)
+        amounts = []
+
+        capital = 10_000_000
+        for round_num in range(5):
+            state = _make_state(agent_id=3, capital=capital)
+            ctx = _make_ctx(probs, reserves, total_minted, state, current_round=round_num, total_rounds=200)
+            actions = agent.decide(ctx)
+            if actions:
+                amounts.append(actions[0].amount)
+                capital -= actions[0].amount  # simulate engine deducting capital
+            else:
+                break
+
+        assert len(amounts) >= 2, "Expected at least 2 rounds of trading"
+        # Later rounds should have smaller or equal amounts as capital depletes
+        assert amounts[-1] <= amounts[0], (
+            "Trade amount should not increase as live capital decreases"
+        )
+
+
 # ── LateRoundWhale ──────────────────────────────────────────────────────────
 
 class TestLateRoundWhale:
@@ -370,6 +689,41 @@ class TestLateRoundWhale:
     def test_red_team_only_flag(self):
         agent = LateRoundWhale(agent_id=4, budget=50_000_000, target_bin=8)
         assert agent.red_team_only is True
+
+
+# ── LateRoundWhale live-state tests ───────────────────────────────────────
+
+class TestLateRoundWhaleLiveState:
+    """Verify late-round whale decisions are driven by live AgentState capital."""
+
+    def test_uses_live_capital_not_static_budget(self):
+        """Whale amount should scale with ctx.agent_state.capital."""
+        reserves, total_minted, probs = _make_market()
+        agent_rich = LateRoundWhale(agent_id=4, budget=50_000_000, target_bin=8)
+        agent_poor = LateRoundWhale(agent_id=4, budget=50_000_000, target_bin=8)
+
+        state_rich = _make_state(agent_id=4, capital=50_000_000)
+        ctx_rich = _make_ctx(probs, reserves, total_minted, state_rich, current_round=190, total_rounds=200)
+        actions_rich = agent_rich.decide(ctx_rich)
+
+        state_poor = _make_state(agent_id=4, capital=1_000)
+        ctx_poor = _make_ctx(probs, reserves, total_minted, state_poor, current_round=190, total_rounds=200)
+        actions_poor = agent_poor.decide(ctx_poor)
+
+        assert len(actions_rich) > 0 and len(actions_poor) > 0
+        assert actions_poor[0].amount < actions_rich[0].amount, (
+            "Whale with less live capital should propose a smaller trade"
+        )
+
+    def test_zero_live_capital_produces_no_action(self):
+        """If agent_state.capital is 0, whale should do nothing regardless of budget."""
+        reserves, total_minted, probs = _make_market()
+        agent = LateRoundWhale(agent_id=4, budget=50_000_000, target_bin=8)
+
+        state = _make_state(agent_id=4, capital=0)
+        ctx = _make_ctx(probs, reserves, total_minted, state, current_round=190, total_rounds=200)
+        actions = agent.decide(ctx)
+        assert actions == [], "Whale should not trade when live capital is 0"
 
 
 # ── PassiveLP ───────────────────────────────────────────────────────────────

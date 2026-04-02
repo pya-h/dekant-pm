@@ -57,6 +57,7 @@ class ArbitrageurParams:
 class ManipulatorParams:
     target_bin: int = 128  # middle bin by default
     budget: int = 5_000 * 1_000_000  # 5k USDC
+    strategy: str = "price_distortion"
 
 @dataclass
 class WhaleParams:
@@ -79,14 +80,15 @@ class LpRebalancingParams:
 # ── Metric weights for composite score ─────────────────────────────
 @dataclass
 class MetricWeights:
-    resolution_fairness: float = 0.20
-    price_accuracy: float = 0.15
-    convergence_speed: float = 0.15
+    resolution_fairness: float = 0.15
+    price_accuracy: float = 0.13
+    convergence_speed: float = 0.13
     capital_efficiency: float = 0.10
     lp_profitability: float = 0.10
     manipulation_resistance: float = 0.10
     boundary_sensitivity: float = 0.10
-    exitability: float = 0.10
+    exitability: float = 0.09
+    truthful_incentive_alignment: float = 0.10
 
 # ── Design and fee enums ───────────────────────────────────────────
 DESIGN_BASELINE_A = 0

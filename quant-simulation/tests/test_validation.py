@@ -2,6 +2,7 @@
 import pytest
 from engine.validation import (
     ValidationResult,
+    check_agent_live_state,
     check_design_differentiation,
     check_exitability_nontrivial,
     check_lp_activation,
@@ -172,6 +173,14 @@ class TestExitabilityNontrivial:
         assert r.passed
 
 
+class TestAgentLiveState:
+    def test_passes_when_agents_react_differently(self):
+        """check_agent_live_state should pass because agents use capital to size trades."""
+        result = check_agent_live_state()
+        assert result.gate == "agent_live_state"
+        assert result.passed, result.detail
+
+
 class TestRunStage0Checks:
     def _make_passing_inputs(self):
         return dict(
@@ -200,13 +209,24 @@ class TestRunStage0Checks:
 
     def test_result_count_scales_with_metrics(self):
         inputs = self._make_passing_inputs()
-        # 4 fixed checks + 3 metric checks = 7 total
+        # 4 fixed checks + 3 metric checks + 1 agent_live_state = 8 total
         inputs["metric_values"] = {
             "a": {0: 1.0, 1: 0.5},
             "b": {0: 2.0, 1: 1.0},
             "c": {0: 3.0, 1: 2.0},
         }
         results = run_stage0_checks(**inputs)
+        assert len(results) == 8
+
+    def test_result_count_without_live_state(self):
+        inputs = self._make_passing_inputs()
+        # 4 fixed checks + 3 metric checks = 7 total (no agent_live_state)
+        inputs["metric_values"] = {
+            "a": {0: 1.0, 1: 0.5},
+            "b": {0: 2.0, 1: 1.0},
+            "c": {0: 3.0, 1: 2.0},
+        }
+        results = run_stage0_checks(**inputs, check_live_state=False)
         assert len(results) == 7
 
     def test_all_results_have_detail(self):

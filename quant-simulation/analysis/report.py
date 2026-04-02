@@ -60,7 +60,10 @@ _METRIC_LABELS = {
     "boundary_incentive_jump_max": "Incentive Jump Max\u2193",
     "boundary_incentive_jump_mean": "Incentive Jump Mean\u2193",
     "exitability_unwind": "Exitability Unwind\u2191",
+    "exitability_transaction_count": "Exitability Txn Count\u2193",
     "exitability_slippage": "Exitability Slippage\u2193",
+    "exitability_reposition_cost": "Exitability Reposition Cost\u2193",
+    "exitability_failure_rate": "Exitability Failure Rate\u2193",
     "truthful_incentive_alignment": "Truthful Incentive Alignment\u2191",
     "lp_activation_rate": "LP Activation Rate\u2191",
 }
@@ -134,6 +137,18 @@ _HTML_TEMPLATE = Template("""\
   <h2>Stage 0: Validity Gates</h2>
   <p class="section-note">Quick sanity checks across all AMM designs before full sweep</p>
   {{ stage0_html }}
+
+  {% if degenerate_metrics_html %}
+  <h3>Degenerate / Invalid Metrics</h3>
+  <p class="section-note">Metrics flagged as degenerate during validation</p>
+  {{ degenerate_metrics_html }}
+  {% endif %}
+
+  {% if scenario_coverage_html %}
+  <h3>Scenario Coverage</h3>
+  <p class="section-note">Scenario families exercised in this run</p>
+  {{ scenario_coverage_html }}
+  {% endif %}
   {% endif %}
 
   <h2>Design Leaderboard (Stage 1)</h2>
@@ -217,6 +232,12 @@ _HTML_TEMPLATE = Template("""\
   {% endfor %}
   {% endif %}
 
+  {% if fee_impact_html %}
+  <h2>Fee Impact Decomposition</h2>
+  <p class="section-note">Change in key metrics relative to flat fee baseline per design &times; fee model</p>
+  {{ fee_impact_html }}
+  {% endif %}
+
   {% if optimal_fee_html %}
   <h2>Optimal Fee per Design</h2>
   <p class="section-note">Best fee mechanism for each surviving design based on composite metric ranking</p>
@@ -231,6 +252,24 @@ _HTML_TEMPLATE = Template("""\
   <h3>{{ title }}</h3>
   <div class="chart-container">{{ chart }}</div>
   {% endfor %}
+  {% endif %}
+
+  {% if boundary_gallery_html %}
+  <h2>Boundary Case Gallery</h2>
+  <p class="section-note">Boundary sensitivity metrics for adversarial_boundary scenario runs</p>
+  {{ boundary_gallery_html }}
+  {% endif %}
+
+  {% if exitability_failures_html %}
+  <h2>Exitability Failure Cases</h2>
+  <p class="section-note">Runs where exitability_unwind &lt; 0.5 indicating partial or failed exits</p>
+  {{ exitability_failures_html }}
+  {% endif %}
+
+  {% if lp_concentration_chart %}
+  <h2>LP Activation Concentration</h2>
+  <p class="section-note">LP activation rate by design and scenario family</p>
+  <div class="chart-container">{{ lp_concentration_chart }}</div>
   {% endif %}
 
   <h2>Raw Data</h2>
@@ -547,7 +586,11 @@ def _make_fairness_heatmap(df: pd.DataFrame) -> str:
 
 def _make_exitability_chart(df: pd.DataFrame) -> str:
     """Boxplot comparing exitability_unwind and exitability_slippage per design."""
-    exit_cols = [c for c in ("exitability_unwind", "exitability_slippage") if c in df.columns]
+    exit_cols = [c for c in (
+        "exitability_unwind", "exitability_transaction_count",
+        "exitability_slippage", "exitability_reposition_cost",
+        "exitability_failure_rate",
+    ) if c in df.columns]
     if not exit_cols:
         return "<p style='color:#888'>No exitability data available.</p>"
 
@@ -690,11 +733,11 @@ def _make_fee_heatmaps(phase2_df: pd.DataFrame) -> list[tuple[str, str]]:
 
 
 def _make_sensitivity_charts(sens_df: pd.DataFrame) -> list[tuple[str, str]]:
-    """Build boxplots for each sensitivity parameter: bins, liquidity, agent_mix."""
+    """Build boxplots for each sensitivity parameter: bins, liquidity, agent_mix, scenario_family."""
     charts = []
     metric = "price_accuracy"  # primary metric to show sensitivity
 
-    for param in ["num_bins", "liquidity", "agent_mix"]:
+    for param in ["num_bins", "liquidity", "agent_mix", "scenario_family"]:
         subset = sens_df[sens_df["sweep_param"] == param]
         if subset.empty or metric not in subset.columns:
             continue
@@ -997,6 +1040,207 @@ def _make_boundary_revised_chart(df: pd.DataFrame) -> str:
     return _fig_to_html(fig)
 
 
+def _make_degenerate_metrics_html(stage0: dict) -> str:
+    """Table of metrics flagged as degenerate from Stage 0 validation results."""
+    results = stage0.get("validity_results", [])
+    degenerate = [r for r in results if r.gate.startswith("metric_degeneracy:") and not r.passed]
+    if not degenerate:
+        return ""
+
+    header_html = "<th>Metric</th><th>Detail</th>"
+    rows_html = ""
+    for r in degenerate:
+        metric_name = r.gate.replace("metric_degeneracy:", "")
+        rows_html += f"<tr><td>{metric_name}</td><td>{r.detail}</td></tr>\n"
+
+    return (
+        f"<table><thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+    )
+
+
+def _make_scenario_coverage_html(stage0: dict) -> str:
+    """Summary of scenario families covered during Stage 0."""
+    families = stage0.get("scenario_families_used")
+    if not families:
+        return ""
+
+    sorted_families = sorted(families)
+    header_html = "<th>#</th><th>Scenario Family</th>"
+    rows_html = ""
+    for i, fam in enumerate(sorted_families, 1):
+        rows_html += f"<tr><td>{i}</td><td>{fam}</td></tr>\n"
+
+    return (
+        f"<p>Scenario families covered: <strong>{len(sorted_families)}</strong></p>"
+        f"<table><thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+    )
+
+
+def _make_fee_impact_decomposition_html(phase2_df: pd.DataFrame) -> str:
+    """Fee impact decomposition: change in key metrics vs flat fee baseline per design."""
+    if phase2_df is None or phase2_df.empty:
+        return ""
+
+    impact_metrics = {
+        "price_accuracy": "Price Quality",
+        "lp_profitability": "LP Deployability",
+        "manipulation_resistance": "Manipulation Resistance",
+    }
+    available = {m: label for m, label in impact_metrics.items() if m in phase2_df.columns}
+    if not available:
+        return ""
+
+    # Get flat fee baseline medians per design
+    flat_df = phase2_df[phase2_df["fee_name"] == "Flat"]
+    if flat_df.empty:
+        return ""
+
+    flat_medians = flat_df.groupby("design_name")[list(available.keys())].median()
+
+    # Get all non-flat fee models
+    other_fees = phase2_df[phase2_df["fee_name"] != "Flat"]
+    if other_fees.empty:
+        return ""
+
+    other_medians = other_fees.groupby(["design_name", "fee_name"])[list(available.keys())].median().reset_index()
+
+    headers = ["Design", "Fee Model"] + list(available.values())
+    header_html = "".join(f"<th>{h}</th>" for h in headers)
+    rows_html = ""
+    for _, row in other_medians.iterrows():
+        dname = row["design_name"]
+        fname = row["fee_name"]
+        cells = f"<td>{dname}</td><td>{fname}</td>"
+        if dname in flat_medians.index:
+            for m in available:
+                baseline = flat_medians.loc[dname, m]
+                current = row[m]
+                delta = current - baseline
+                sign = "+" if delta >= 0 else ""
+                cells += f"<td>{sign}{delta:.4f}</td>"
+        else:
+            for m in available:
+                cells += "<td>N/A</td>"
+        rows_html += f"<tr>{cells}</tr>\n"
+
+    return (
+        f"<table><thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+    )
+
+
+def _make_boundary_gallery_html(stage1_df: pd.DataFrame) -> str:
+    """Boundary case gallery: boundary metrics for adversarial_boundary scenario runs."""
+    if "scenario_family" not in stage1_df.columns:
+        return ""
+
+    boundary_df = stage1_df[stage1_df["scenario_family"] == "adversarial_boundary"].copy()
+    if boundary_df.empty:
+        return ""
+
+    metrics = ["boundary_payout_jump_max", "boundary_incentive_jump_max"]
+    available = [m for m in metrics if m in boundary_df.columns]
+    if not available:
+        return ""
+
+    grouped = boundary_df.groupby("design_name")[available].median().reset_index()
+    headers = ["Design"] + [_METRIC_LABELS.get(m, m) for m in available]
+    header_html = "".join(f"<th>{h}</th>" for h in headers)
+    rows_html = ""
+    for _, row in grouped.iterrows():
+        cells = f"<td>{row['design_name']}</td>"
+        for m in available:
+            cells += f"<td>{row[m]:.4f}</td>"
+        rows_html += f"<tr>{cells}</tr>\n"
+
+    return (
+        f"<table><thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+    )
+
+
+def _make_exitability_failures_html(stage1_df: pd.DataFrame) -> str:
+    """Table of runs where exitability_unwind < 0.5 (partial or failed exits)."""
+    if "exitability_unwind" not in stage1_df.columns:
+        return ""
+
+    failed = stage1_df[stage1_df["exitability_unwind"] < 0.5].copy()
+    if failed.empty:
+        return ""
+
+    cols = ["design_name"]
+    if "scenario_family" in failed.columns:
+        cols.append("scenario_family")
+    cols.append("exitability_unwind")
+    for extra in ("exitability_transaction_count", "exitability_slippage",
+                   "exitability_reposition_cost", "exitability_failure_rate"):
+        if extra in failed.columns:
+            cols.append(extra)
+
+    # Show up to 50 rows to keep the report manageable
+    display_df = failed[cols].head(50)
+
+    headers_map = {
+        "design_name": "Design",
+        "scenario_family": "Scenario Family",
+        "exitability_unwind": "Exitability Unwind",
+        "exitability_transaction_count": "Txn Count",
+        "exitability_slippage": "Exitability Slippage",
+        "exitability_reposition_cost": "Reposition Cost",
+        "exitability_failure_rate": "Failure Rate",
+    }
+    headers = [headers_map.get(c, c) for c in display_df.columns]
+    header_html = "".join(f"<th>{h}</th>" for h in headers)
+    rows_html = ""
+    for _, row in display_df.iterrows():
+        cells = ""
+        for c in display_df.columns:
+            val = row[c]
+            if isinstance(val, float):
+                cells += f"<td>{val:.4f}</td>"
+            else:
+                cells += f"<td>{val}</td>"
+        rows_html += f"<tr>{cells}</tr>\n"
+
+    total = len(failed)
+    note = f"<p class='section-note'>Showing {min(total, 50)} of {total} runs with exitability_unwind &lt; 0.5</p>"
+    return (
+        f"{note}"
+        f"<table><thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{rows_html}</tbody></table>"
+    )
+
+
+def _make_lp_concentration_chart(stage1_df: pd.DataFrame) -> str:
+    """Grouped bar chart of LP activation rate by design and scenario family."""
+    if "lp_activation_rate" not in stage1_df.columns:
+        return ""
+    if "scenario_family" not in stage1_df.columns:
+        return ""
+
+    grouped = stage1_df.groupby(["design_name", "scenario_family"])["lp_activation_rate"].median().reset_index()
+    if grouped.empty:
+        return ""
+
+    fig = px.bar(
+        grouped,
+        x="design_name",
+        y="lp_activation_rate",
+        color="scenario_family",
+        barmode="group",
+        title="LP Activation Rate by Design and Scenario Family",
+        labels={
+            "design_name": "Design",
+            "lp_activation_rate": "Median LP Activation Rate",
+            "scenario_family": "Scenario Family",
+        },
+    )
+    _apply_dark_theme(fig)
+    return _fig_to_html(fig)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1008,6 +1252,7 @@ def generate_report(
     output_dir: str = "output",
     stage0: dict | None = None,
     finalists: list[int] | None = None,
+    validity_passed: bool = True,
     # Backward-compatible aliases (deprecated)
     phase2_df: pd.DataFrame | None = None,
     clob_df: pd.DataFrame | None = None,
@@ -1030,6 +1275,9 @@ def generate_report(
         Optional dict from run_stage0() with validity_results.
     finalists:
         Optional list of finalist design IDs.
+    validity_passed:
+        Whether Stage 0 validity gates passed.  When False the composite
+        leaderboard is replaced with a warning message.
     phase2_df:
         Deprecated alias for stage2_df (backward compatibility).
     clob_df:
@@ -1061,9 +1309,18 @@ def generate_report(
 
     # --- Stage 0: Validity Gates ---
     stage0_html = _make_stage0_html(stage0) if stage0 is not None else ""
+    degenerate_metrics_html = _make_degenerate_metrics_html(stage0) if stage0 is not None else ""
+    scenario_coverage_html = _make_scenario_coverage_html(stage0) if stage0 is not None else ""
 
     # --- Build individual sections ---
-    leaderboard_html = _make_leaderboard(amm_df)
+    if validity_passed:
+        leaderboard_html = _make_leaderboard(amm_df)
+    else:
+        leaderboard_html = (
+            '<p style="color: #f44336; font-weight: bold;">'
+            '&#9888; Composite leaderboard disabled: Stage 0 validity gates did not pass. '
+            'Fix the failing checks before interpreting composite rankings.</p>'
+        )
     pareto_html = _make_pareto_html(amm_df)
     baseline_chart = _make_baseline_chart(amm_df)
 
@@ -1095,13 +1352,21 @@ def generate_report(
 
     phase2_charts = _make_phase2_charts(stage2_df) if stage2_df is not None else []
     fee_heatmaps = _make_fee_heatmaps(stage2_df) if stage2_df is not None else []
+    fee_impact_html = _make_fee_impact_decomposition_html(stage2_df) if stage2_df is not None else ""
     optimal_fee_html = _make_optimal_fee_table(stage2_df) if stage2_df is not None else ""
     sensitivity_charts = _make_sensitivity_charts(stage3_df) if stage3_df is not None else []
+
+    # --- Cross-cutting sections ---
+    boundary_gallery_html = _make_boundary_gallery_html(stage1_df)
+    exitability_failures_html = _make_exitability_failures_html(stage1_df)
+    lp_concentration_chart = _make_lp_concentration_chart(stage1_df)
 
     # --- Render HTML ---
     html = _HTML_TEMPLATE.render(
         plotly_js=_PLOTLY_JS,
         stage0_html=stage0_html,
+        degenerate_metrics_html=degenerate_metrics_html,
+        scenario_coverage_html=scenario_coverage_html,
         leaderboard_html=leaderboard_html,
         pareto_html=pareto_html,
         baseline_chart=baseline_chart,
@@ -1117,8 +1382,12 @@ def generate_report(
         clob_section=clob_section,
         phase2_charts=phase2_charts,
         fee_heatmaps=fee_heatmaps,
+        fee_impact_html=fee_impact_html,
         optimal_fee_html=optimal_fee_html,
         sensitivity_charts=sensitivity_charts,
+        boundary_gallery_html=boundary_gallery_html,
+        exitability_failures_html=exitability_failures_html,
+        lp_concentration_chart=lp_concentration_chart,
         has_sensitivity=stage3_df is not None and not stage3_df.empty,
         has_phase2=stage2_df is not None and not stage2_df.empty,
     )

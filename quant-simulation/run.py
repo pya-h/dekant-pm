@@ -43,14 +43,18 @@ def main():
     # Stage 0: Validity
     print("=== Stage 0: Validity Gates ===")
     stage0 = run_stage0(num_bins=num_bins, initial_liquidity=liquidity, num_rounds=num_rounds, mc_runs=min(mc_runs, 5))
+    validity_passed = stage0.get("validity_passed", False)
     for r in stage0["validity_results"]:
         status = "PASS" if r.passed else "FAIL"
         print(f"  [{status}] {r.gate}: {r.detail}")
+    if not validity_passed:
+        print("  WARNING: Stage 0 validity gates did not all pass. "
+              "Composite leaderboard will be disabled.")
 
     # Stage 1: Mechanism comparison
     print("\n=== Stage 1: Mechanism Comparison ===")
     stage1_df = run_stage1(num_bins=num_bins, initial_liquidity=liquidity, num_rounds=num_rounds, mc_runs=mc_runs)
-    finalists = select_finalists(stage1_df, n=3)
+    finalists = select_finalists(stage1_df, n=3, validity_passed=validity_passed)
     print(f"  Finalists: {[DESIGN_NAMES[d] for d in finalists]}")
 
     stage2_df = None
@@ -88,6 +92,7 @@ def main():
         output_dir=output_dir,
         stage0=stage0,
         finalists=finalists,
+        validity_passed=validity_passed,
     )
 
     mirofish_path = os.path.join(output_dir, "mirofish.json")

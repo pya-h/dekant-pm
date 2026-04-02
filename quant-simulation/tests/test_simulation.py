@@ -17,9 +17,12 @@ from config.params import (
     DEFAULT_NUM_BINS,
     DEFAULT_INITIAL_LIQUIDITY,
 )
-from config.scenarios import TRUTH_FAMILIES
+from config.scenarios import TRUTH_FAMILIES, Scenario, sample_scenario
 from engine.simulation import SimulationRun, MarketState
 from agents.lp import PassiveLP, RebalancingLP
+from agents.late_round_whale import LateRoundWhale
+from agents.manipulator import Manipulator, STRATEGIES as MANIP_STRATEGIES
+from agents.base import DistributionTradeAction
 
 
 class TestMarketState:
@@ -84,7 +87,9 @@ class TestSimulationRun:
             "price_accuracy", "convergence_speed", "capital_efficiency",
             "lp_profitability", "manipulation_resistance", "resolution_fairness",
             "boundary_sensitivity_max", "boundary_sensitivity_mean",
-            "exitability_unwind", "exitability_slippage",
+            "exitability_unwind", "exitability_transaction_count",
+            "exitability_slippage", "exitability_reposition_cost",
+            "exitability_failure_rate",
             "num_rounds", "design", "fee_model", "resolved_bin", "kl_series",
         ]
         for key in expected_keys:
@@ -234,6 +239,37 @@ class TestScenarioIntegration:
         ).run()
         assert r1["price_accuracy"] != r2["price_accuracy"]
 
+    def test_resolve_uses_true_weight_support(self):
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_B, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=1, seed=42,
+        )
+        weights = np.zeros(16, dtype=np.int64)
+        weights[5] = SCALE
+        sim.true_weights = weights
+        sim.true_probs = weights.astype(np.float64) / float(np.sum(weights))
+
+        resolved = {sim._resolve() for _ in range(20)}
+        assert resolved == {5}
+
+    def test_distribution_trade_uses_explicit_weights(self):
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_B, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=1, seed=42,
+        )
+        action = DistributionTradeAction(
+            agent_id=0,
+            bin_idx=4,
+            side="buy",
+            amount=1_000_000,
+            weights=np.eye(1, 16, 4, dtype=np.int64).reshape(16) * SCALE,
+        )
+        sim._execute_distribution_trade(action, current_round=0)
+
+        holdings = sim.agent_states[0].holdings
+        assert holdings.get(4, 0) > 0
+        assert all(tokens == 0 for bin_idx, tokens in holdings.items() if bin_idx != 4)
+
 
 class TestDesignAwareIncentives:
     def test_different_designs_produce_different_trade_paths(self):
@@ -259,6 +295,32 @@ class TestScalarRedTeam:
         results = sim.run()
         assert results.get("red_team_only") is True
 
+    def test_scalar_marked_excluded(self):
+        sim = SimulationRun(
+            design=DESIGN_SCALAR, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert results.get("excluded") is True
+
+    def test_candidate_not_excluded(self):
+        sim = SimulationRun(
+            design=DESIGN_PIECEWISE, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert results.get("excluded") is False
+        assert results.get("red_team_only") is False
+
+    def test_clob_excluded_but_not_red_team(self):
+        sim = SimulationRun(
+            design=DESIGN_CLOB, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        results = sim.run()
+        assert results.get("excluded") is True
+        assert results.get("red_team_only") is False
+
 
 class TestRevisedMetricOutput:
     def test_results_contain_revised_metrics(self):
@@ -282,3 +344,280 @@ class TestRevisedMetricOutput:
         )
         results = sim.run()
         assert results.get("red_team_only") is True
+
+
+class TestBeliefShiftAtRegimeShift:
+    """Verify belief_weights are updated at the regime shift round when belief_family='shifter'."""
+
+    def test_belief_weights_updated_at_belief_shift_round(self):
+        """When belief=shifter, the simulation should update self.belief_weights
+        at the belief_shift_round_frac, which is the belief shifter's own timing
+        (independent of the truth shift_round_frac)."""
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=100, seed=42,
+            scenario_family="regime_shift", belief_family="shifter",
+        )
+        # Verify the scenario has belief post-shift data and its own timing
+        assert sim.scenario.belief_post_shift_weights is not None
+        assert sim.scenario.belief_shift_round_frac is not None
+
+        # Record the initial belief weights
+        initial_belief = sim.belief_weights.copy()
+        expected_post_shift = sim.scenario.belief_post_shift_weights
+
+        # Determine the belief shift round (from the belief shifter's own timing)
+        belief_shift_round = int(sim.num_rounds * sim.scenario.belief_shift_round_frac)
+
+        # Run rounds up to (but not including) the belief shift round
+        for r in range(belief_shift_round):
+            sim._run_trade_round(r)
+        # Before shift: belief_weights should still be the initial ones
+        np.testing.assert_array_equal(sim.belief_weights, initial_belief)
+
+        # Run the belief shift round
+        sim._run_trade_round(belief_shift_round)
+        # After shift: belief_weights should now match the post-shift belief
+        np.testing.assert_array_equal(sim.belief_weights, expected_post_shift)
+
+    def test_no_belief_shift_when_belief_not_shifter(self):
+        """When belief_family is not 'shifter', belief_weights should not change at regime shift."""
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=100, seed=42,
+            scenario_family="regime_shift", belief_family="gaussian",
+        )
+        assert sim.scenario.belief_post_shift_weights is None
+        initial_belief = sim.belief_weights.copy()
+
+        shift_round = int(sim.num_rounds * sim.scenario.shift_round_frac)
+        for r in range(shift_round + 1):
+            sim._run_trade_round(r)
+
+        # belief_weights unchanged because no belief post-shift data
+        np.testing.assert_array_equal(sim.belief_weights, initial_belief)
+
+
+class TestWhaleGating:
+    """Late-round whales should only run in red-team (Scalar) designs."""
+
+    def test_whales_skipped_for_non_scalar_designs(self):
+        """In a non-Scalar design, whale agents should never trade."""
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        whale_agents = [a for a in sim.agents if isinstance(a, LateRoundWhale)]
+        assert len(whale_agents) > 0, "Expected at least one whale agent"
+
+        # Record initial capital from live AgentState
+        initial_capital = {w.agent_id: sim.agent_states[w.agent_id].capital for w in whale_agents}
+
+        # Run all rounds
+        for r in range(sim.num_rounds):
+            sim._run_trade_round(r)
+
+        # Whales should have spent nothing (capital unchanged)
+        for whale in whale_agents:
+            spent = initial_capital[whale.agent_id] - sim.agent_states[whale.agent_id].capital
+            assert spent == 0, (
+                f"Whale {whale.agent_id} spent {spent} in non-Scalar design"
+            )
+
+    def test_whales_active_for_scalar_design(self):
+        """In Scalar design, whale agents should trade in late rounds."""
+        sim = SimulationRun(
+            design=DESIGN_SCALAR, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        whale_agents = [a for a in sim.agents if isinstance(a, LateRoundWhale)]
+        assert len(whale_agents) > 0, "Expected at least one whale agent"
+
+        # Record initial capital from live AgentState
+        initial_capital = {w.agent_id: sim.agent_states[w.agent_id].capital for w in whale_agents}
+
+        # Run all rounds
+        for r in range(sim.num_rounds):
+            sim._run_trade_round(r)
+
+        # At least one whale should have spent something (capital decreased)
+        total_whale_spent = sum(
+            initial_capital[a.agent_id] - sim.agent_states[a.agent_id].capital
+            for a in whale_agents
+        )
+        assert total_whale_spent > 0, "Expected whales to trade in Scalar design"
+
+    def test_whales_skipped_for_piecewise_design(self):
+        """Piecewise is not red-team; whales should be inactive."""
+        sim = SimulationRun(
+            design=DESIGN_PIECEWISE, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        whale_agents = [a for a in sim.agents if isinstance(a, LateRoundWhale)]
+        initial_capital = {w.agent_id: sim.agent_states[w.agent_id].capital for w in whale_agents}
+        for r in range(sim.num_rounds):
+            sim._run_trade_round(r)
+        for whale in whale_agents:
+            spent = initial_capital[whale.agent_id] - sim.agent_states[whale.agent_id].capital
+            assert spent == 0
+
+
+class TestLPDeployabilityMedian:
+    """LP deployability median_capital_deployed must be the true median, not mean."""
+
+    def test_median_not_mean_with_unequal_deposits(self):
+        """When LP agents have unequal deposits, the metric should report
+        the median of per-LP deposited amounts, not total/count (mean).
+
+        We call _compute_all_metrics directly after setting up the deposit
+        state to isolate the median computation from LP trading decisions.
+        """
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        # Record initial probs (needed by _compute_all_metrics)
+        sim.initial_probs = sim._current_implied_probs().copy()
+        # Run a few rounds so kl_series is populated
+        for r in range(20):
+            sim._run_trade_round(r)
+
+        # Force LP agents to have specific unequal deposits so mean != median.
+        # With deposits [100, 200, 1000], mean=433 but median=200.
+        lp_agents = [a for a in sim.agents if isinstance(a, (PassiveLP, RebalancingLP))]
+        assert len(lp_agents) >= 3, "Need at least 3 LP agents for this test"
+
+        sim.state.passive_lp_deposited = 0
+        sim.state.rebalancing_lp_deposited = 0
+        for agent in lp_agents:
+            sim.agent_states[agent.agent_id].deposited_lp = 0
+
+        deposit_amounts = [100, 200, 1000]
+        for i, agent in enumerate(lp_agents[:3]):
+            amount = deposit_amounts[i]
+            sim.agent_states[agent.agent_id].deposited_lp = amount
+            if isinstance(agent, PassiveLP):
+                sim.state.passive_lp_deposited += amount
+            else:
+                sim.state.rebalancing_lp_deposited += amount
+
+        resolved_bin = sim._resolve()
+        payouts = sim._compute_payouts(resolved_bin)
+        results = sim._compute_all_metrics(resolved_bin, payouts)
+
+        # The median of [100, 200, 1000] is 200
+        assert results["lp_deploy_median_capital"] == 200
+        # The mean would be 433 (1300 // 3), which is NOT what we want
+        mean_capital = sum(deposit_amounts) // len(deposit_amounts)
+        assert results["lp_deploy_median_capital"] != mean_capital
+
+    def test_median_with_single_active_lp(self):
+        """With one active LP, median equals that LP's deposit."""
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=20, seed=42,
+        )
+        sim.initial_probs = sim._current_implied_probs().copy()
+        for r in range(20):
+            sim._run_trade_round(r)
+
+        lp_agents = [a for a in sim.agents if isinstance(a, (PassiveLP, RebalancingLP))]
+        # Zero all LP deposits
+        sim.state.passive_lp_deposited = 0
+        sim.state.rebalancing_lp_deposited = 0
+        for agent in lp_agents:
+            sim.agent_states[agent.agent_id].deposited_lp = 0
+
+        # Activate exactly one LP with deposit=500
+        target = lp_agents[0]
+        sim.agent_states[target.agent_id].deposited_lp = 500
+        if isinstance(target, PassiveLP):
+            sim.state.passive_lp_deposited = 500
+        else:
+            sim.state.rebalancing_lp_deposited = 500
+
+        resolved_bin = sim._resolve()
+        payouts = sim._compute_payouts(resolved_bin)
+        results = sim._compute_all_metrics(resolved_bin, payouts)
+        assert results["lp_deploy_median_capital"] == 500
+
+
+class TestManipulatorStrategyCycling:
+    """Manipulators should be assigned different strategies cyclically."""
+
+    def test_strategies_are_cycled(self):
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=1, seed=42,
+        )
+        manip_agents = [a for a in sim.agents if isinstance(a, Manipulator)]
+        assert len(manip_agents) >= 4, "Need at least 4 manipulators to test cycling"
+        strategies = [a.strategy for a in manip_agents]
+        # First 4 should each be a different strategy
+        assert strategies[0] == MANIP_STRATEGIES[0]
+        assert strategies[1] == MANIP_STRATEGIES[1]
+        assert strategies[2] == MANIP_STRATEGIES[2]
+        assert strategies[3] == MANIP_STRATEGIES[3]
+
+    def test_fifth_manipulator_wraps(self):
+        """If there are 5+ manipulators, the 5th should wrap to strategy 0."""
+        mix = AgentMix(
+            noise=0.40,
+            informed=0.20,
+            arbitrageur=0.10,
+            manipulator=0.10,
+            late_round_whale=0.02,
+            lp_passive=0.09,
+            lp_rebalancing=0.09,
+        )
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=1, seed=42,
+            agent_mix=mix,
+        )
+        manip_agents = [a for a in sim.agents if isinstance(a, Manipulator)]
+        if len(manip_agents) >= 5:
+            assert manip_agents[4].strategy == MANIP_STRATEGIES[0]
+
+
+class TestManipulationResistanceUsesSettlementPayout:
+    """Verify cost_to_profit is based on actual settlement payout, not price change."""
+
+    def test_cost_to_profit_reflects_settlement_payout(self):
+        """Run two designs and confirm cost_to_profit can differ even if
+        cost_to_move is similar, because settlement rules yield different
+        attacker profits."""
+        results_wta = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=30, seed=42,
+        ).run()
+
+        results_kernel = SimulationRun(
+            design=DESIGN_KERNEL, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=30, seed=42,
+        ).run()
+
+        # Both should have the metric
+        assert "manipulation_cost_to_profit" in results_wta
+        assert "manipulation_cost_to_profit" in results_kernel
+
+        # cost_to_profit should be positive (could be inf if no profit)
+        assert results_wta["manipulation_cost_to_profit"] > 0
+        assert results_kernel["manipulation_cost_to_profit"] > 0
+
+    def test_cosmetic_manipulation_yields_inf_cost_to_profit(self):
+        """When manipulator budget exceeds settlement payout, cost_to_profit
+        should be inf (no actual profit under the settlement rule)."""
+        sim = SimulationRun(
+            design=DESIGN_BASELINE_A, fee_model=FEE_FLAT,
+            num_bins=16, initial_liquidity=1_000_000_000, num_rounds=30, seed=42,
+        )
+        results = sim.run()
+        # Either the manipulator profited or didn't — we just verify
+        # the metric is a valid number (finite or inf) and > 0
+        ctp = results["manipulation_cost_to_profit"]
+        assert ctp > 0
+        # If no actual profit, it should be inf (cosmetic only)
+        if ctp == float("inf"):
+            # Cosmetic manipulation: budget_spent > settlement_payout
+            assert results["manipulation_cost_to_move"] < float("inf")

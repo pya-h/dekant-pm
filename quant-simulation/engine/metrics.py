@@ -372,17 +372,60 @@ def boundary_sensitivity_revised(payouts: np.ndarray) -> dict:
     }
 
 
+def _expected_utility(
+    bin_idx: int,
+    true_probs: np.ndarray,
+    num_bins: int,
+    payout_fn=None,
+    use_crps: bool = False,
+) -> float:
+    """Compute ex-ante expected utility of buying *bin_idx*.
+
+    EU(b) = sum_o true_probs[o] * payout_of_b_when_outcome_is_o / SCALE
+
+    For non-CRPS settlements *payout_fn(outcome)* returns the full
+    payouts vector for that outcome.  For CRPS the per-trader scoring
+    rule is evaluated directly.
+    """
+    eu = 0.0
+    if use_crps:
+        from models.settlement_crps import compute_payout_crps
+        h = np.zeros(num_bins, dtype=np.int64)
+        h[bin_idx] = 1000
+        for o in range(num_bins):
+            if true_probs[o] <= 0:
+                continue
+            payout = compute_payout_crps(h, o, num_bins) / SCALE
+            eu += true_probs[o] * payout
+    else:
+        for o in range(num_bins):
+            if true_probs[o] <= 0:
+                continue
+            payouts_o = payout_fn(o)
+            eu += true_probs[o] * float(payouts_o[bin_idx]) / SCALE
+    return eu
+
+
 def truthful_incentive_alignment(
     true_dist: np.ndarray,
     payouts: np.ndarray | None,
     num_bins: int,
     resolved_bin: int,
     use_crps: bool = False,
+    payout_fn=None,
 ) -> float:
     """Score = fraction of alternative bins where truthful buy beats manipulative buy.
 
     Measures whether buying the bin with highest true probability yields
     higher expected utility than buying any other bin.
+
+    Expected utility is computed ex-ante: EU(b) = sum_o P(o) * payout(b, o) / SCALE.
+    This requires evaluating the settlement rule for every possible outcome,
+    not just the realized *resolved_bin*.
+
+    *payout_fn*: callable(outcome_bin) -> np.ndarray of per-bin payouts.
+    If not provided for the non-CRPS path, falls back to the single
+    *payouts* vector (legacy path, less accurate).
     """
     true_probs = true_dist.astype(np.float64)
     total = true_probs.sum()
@@ -391,25 +434,29 @@ def truthful_incentive_alignment(
     true_probs = true_probs / total
     truthful_bin = int(np.argmax(true_probs))
 
-    if use_crps:
-        from models.settlement_crps import compute_payout_crps
-        h = np.zeros(num_bins, dtype=np.int64)
-        h[truthful_bin] = 1000
-        truthful_eu = compute_payout_crps(h, resolved_bin, num_bins) / SCALE
+    # Determine whether we can compute ex-ante EU
+    has_full_eu = use_crps or payout_fn is not None
+
+    if has_full_eu:
+        truthful_eu = _expected_utility(truthful_bin, true_probs, num_bins,
+                                        payout_fn=payout_fn, use_crps=use_crps)
     else:
-        truthful_eu = float(payouts[truthful_bin]) / SCALE * true_probs[truthful_bin]
+        # Legacy fallback: use single-outcome payouts vector.
+        # payout[b] is the payout for bin b when outcome = resolved_bin.
+        # Approximate EU(b) ≈ payout(b, resolved_bin) / SCALE (not weighted by
+        # true_probs[b], which was the old incorrect formula).
+        truthful_eu = float(payouts[truthful_bin]) / SCALE
 
     wins = 0
     comparisons = 0
     for alt in range(num_bins):
         if alt == truthful_bin:
             continue
-        if use_crps:
-            h = np.zeros(num_bins, dtype=np.int64)
-            h[alt] = 1000
-            alt_eu = compute_payout_crps(h, resolved_bin, num_bins) / SCALE
+        if has_full_eu:
+            alt_eu = _expected_utility(alt, true_probs, num_bins,
+                                       payout_fn=payout_fn, use_crps=use_crps)
         else:
-            alt_eu = float(payouts[alt]) / SCALE * true_probs[alt]
+            alt_eu = float(payouts[alt]) / SCALE
         comparisons += 1
         if truthful_eu >= alt_eu:
             wins += 1
@@ -429,5 +476,6 @@ def composite_score(normalized_metrics: dict[str, float], weights: MetricWeights
         "resolution_fairness": weights.resolution_fairness,
         "boundary_sensitivity": weights.boundary_sensitivity,
         "exitability": weights.exitability,
+        "truthful_incentive_alignment": weights.truthful_incentive_alignment,
     }
     return sum(normalized_metrics.get(k, 0) * v for k, v in w.items())

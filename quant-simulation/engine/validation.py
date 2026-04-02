@@ -1,5 +1,9 @@
 """Stage 0 validation harness for composite ranking gate checks."""
+from __future__ import annotations
+
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -179,14 +183,142 @@ def check_metric_degeneracy(
     return results
 
 
+def check_agent_live_state() -> ValidationResult:
+    """Check that agent decisions change when capital / holdings change.
+
+    Creates two :class:`DecisionContext` objects with very different capital
+    levels and holdings, then verifies that at least one agent type produces
+    different actions.  This validates the spec requirement that "agents
+    consume live AgentState and portfolio information."
+    """
+    from agents.base import (
+        AgentState,
+        DecisionContext,
+        AMM_ACTIONS,
+    )
+    from agents.noise_trader import NoiseTrader
+    from agents.informed_trader import InformedTrader
+    from config.params import SCALE
+
+    gate = "agent_live_state"
+    num_bins = 16
+    implied_probs = np.ones(num_bins, dtype=np.int64) * (SCALE // num_bins)
+    reserves = np.full(num_bins, 10_000_000, dtype=np.int64)
+    total_minted = int(np.sum(reserves))
+
+    # Context A: wealthy agent, no holdings
+    state_a = AgentState(agent_id=0, capital=1_000_000, holdings={})
+    ctx_a = DecisionContext(
+        implied_probs=implied_probs,
+        total_minted=total_minted,
+        reserves=reserves.copy(),
+        current_round=1,
+        total_rounds=10,
+        design=0,
+        fee_model=0,
+        agent_state=state_a,
+        allowed_actions=AMM_ACTIONS,
+        scenario_family="gaussian_center",
+        belief_family="gaussian_center",
+        settlement_rule="wta",
+    )
+
+    # Context B: nearly broke agent with some holdings
+    state_b = AgentState(agent_id=0, capital=100, holdings={0: 5000, 1: 5000})
+    ctx_b = DecisionContext(
+        implied_probs=implied_probs,
+        total_minted=total_minted,
+        reserves=reserves.copy(),
+        current_round=1,
+        total_rounds=10,
+        design=0,
+        fee_model=0,
+        agent_state=state_b,
+        allowed_actions=AMM_ACTIONS,
+        scenario_family="gaussian_center",
+        belief_family="gaussian_center",
+        settlement_rule="wta",
+    )
+
+    # Use a fixed seed for deterministic comparison
+    rng = np.random.default_rng(42)
+
+    # --- Noise trader ---
+    # Run multiple trials to increase the chance of seeing a difference
+    # (noise trader is stochastic, but capital limits should matter)
+    any_differ = False
+
+    for _ in range(20):
+        seed_val = int(rng.integers(0, 2**31))
+        nt_a = NoiseTrader(agent_id=0, trade_min=1_000, trade_max=100_000, frequency=1.0,
+                           rng=np.random.default_rng(seed_val))
+        nt_b = NoiseTrader(agent_id=0, trade_min=1_000, trade_max=100_000, frequency=1.0,
+                           rng=np.random.default_rng(seed_val))
+        actions_a = nt_a.decide(ctx_a)
+        actions_b = nt_b.decide(ctx_b)
+
+        # Compare: lengths differ or amounts differ
+        if len(actions_a) != len(actions_b):
+            any_differ = True
+            break
+        for aa, ab in zip(actions_a, actions_b):
+            if aa.amount != ab.amount:
+                any_differ = True
+                break
+        if any_differ:
+            break
+
+    if any_differ:
+        return ValidationResult(
+            gate=gate,
+            passed=True,
+            detail="NoiseTrader produces different actions for different capital/holdings states.",
+        )
+
+    # --- Informed trader (deterministic) ---
+    true_dist = np.zeros(num_bins, dtype=np.float64)
+    true_dist[7:10] = [0.2, 0.6, 0.2]
+    it = InformedTrader(agent_id=0, conviction=0.5)
+    informed_a = it.decide(ctx_a, true_dist)
+    informed_b = it.decide(ctx_b, true_dist)
+
+    if len(informed_a) != len(informed_b):
+        return ValidationResult(
+            gate=gate,
+            passed=True,
+            detail="InformedTrader produces different actions for different capital/holdings states.",
+        )
+    for ia, ib in zip(informed_a, informed_b):
+        if ia.amount != ib.amount or ia.side != ib.side:
+            return ValidationResult(
+                gate=gate,
+                passed=True,
+                detail="InformedTrader produces different actions for different capital/holdings states.",
+            )
+
+    return ValidationResult(
+        gate=gate,
+        passed=False,
+        detail="No tested agent type changed its actions when capital/holdings changed; "
+               "agents may not be consuming live AgentState.",
+    )
+
+
 def run_stage0_checks(
     kl_by_design: dict[int, list[float]],
     lp_activation_rates: dict[int, float],
     scenario_families_used: set[str],
     exit_values: dict[int, float],
     metric_values: dict[str, dict[int, float]],
+    check_live_state: bool = True,
 ) -> list[ValidationResult]:
-    """Run all Stage 0 checks and return combined results."""
+    """Run all Stage 0 checks and return combined results.
+
+    Parameters
+    ----------
+    check_live_state:
+        When True (default), include the agent-live-state property test.
+    """
     results: list[ValidationResult] = []
 
     results.append(check_design_differentiation(kl_by_design))
@@ -194,5 +326,7 @@ def run_stage0_checks(
     results.append(check_scenario_coverage(scenario_families_used))
     results.append(check_exitability_nontrivial(exit_values))
     results.extend(check_metric_degeneracy(metric_values))
+    if check_live_state:
+        results.append(check_agent_live_state())
 
     return results

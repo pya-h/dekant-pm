@@ -47,12 +47,14 @@ class InformedTrader:
                 return actions
             if side == "sell" and ActionType.BUNDLE_SELL not in ctx.allowed_actions:
                 return actions
+            explicit_weights = true_distribution.astype(np.int64, copy=True)
             actions.append(
                 DistributionTradeAction(
                     agent_id=self.agent_id,
                     bin_idx=target_bin,
                     side=side,
                     amount=amount,
+                    weights=explicit_weights,
                 )
             )
         return actions

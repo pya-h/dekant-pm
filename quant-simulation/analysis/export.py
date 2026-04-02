@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from engine.metrics import composite_score
+from config.params import DESIGN_SCALAR, DESIGN_CLOB, DESIGN_NAMES
 
 
 def export_csv(df: pd.DataFrame, path: str) -> None:
@@ -93,9 +94,25 @@ def export_mirofish_json(
         else:
             design_name = group_key
             fee_name = subset["fee_name"].iloc[0] if "fee_name" in subset.columns else "Flat"
+        # Determine red_team_only and excluded flags from design metadata.
+        # red_team_only: True if the design is Scalar (red-team stress-test only).
+        # excluded: True if the design should not appear in finalist selection
+        #           (red-team-only designs and CLOB which has separate analysis).
+        is_red_team = False
+        if "red_team_only" in subset.columns:
+            is_red_team = bool(subset["red_team_only"].iloc[0])
+        else:
+            # Fallback: infer from design name
+            is_red_team = design_name == DESIGN_NAMES[DESIGN_SCALAR]
+
+        is_clob = design_name == DESIGN_NAMES[DESIGN_CLOB]
+        is_excluded = is_red_team or is_clob
+
         entry = {
             "design": design_name,
             "fee_model": fee_name,
+            "red_team_only": is_red_team,
+            "excluded": is_excluded,
             "metrics": {
                 "price_accuracy": {
                     "p5": float(subset["price_accuracy"].quantile(0.05)),
