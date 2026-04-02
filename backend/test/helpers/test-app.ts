@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -95,6 +96,17 @@ export async function createTestApp(): Promise<TestApp> {
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 
+  const dataSourceMock = {
+    createQueryRunner: jest.fn().mockReturnValue({
+      connect: jest.fn(),
+      startTransaction: jest.fn(),
+      commitTransaction: jest.fn(),
+      rollbackTransaction: jest.fn(),
+      release: jest.fn(),
+      manager: { update: jest.fn() },
+    }),
+  };
+
   // Default test wallet is recognized as superadmin so existing e2e tests pass
   process.env.SUPERADMIN_ADDRESS = TEST_SUPERADMIN;
 
@@ -134,6 +146,7 @@ export async function createTestApp(): Promise<TestApp> {
       },
       { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
       { provide: getRepositoryToken(SettingEntity), useValue: settingRepo },
+      { provide: DataSource, useValue: dataSourceMock },
       SettingsService,
     ],
   }).compile();

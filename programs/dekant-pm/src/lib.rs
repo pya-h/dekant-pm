@@ -9,7 +9,7 @@ pub mod engine;
 
 use instructions::*;
 
-declare_id!("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
+declare_id!("4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P");
 
 #[program]
 pub mod dekant_pm {

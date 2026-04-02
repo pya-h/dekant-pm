@@ -98,7 +98,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -113,7 +113,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -127,7 +127,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -142,7 +142,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -156,7 +156,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -170,7 +170,7 @@ describe("TradingPanel", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
 
@@ -191,7 +191,7 @@ describe("Trade flow integration", () => {
     vi.mocked(useWallet).mockReturnValue({
       connected: true,
       publicKey: new PublicKey(
-        "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+        "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
       ),
     } as any);
     vi.mocked(useProgram).mockReturnValue({ programId: "mock" } as any);

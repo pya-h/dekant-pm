@@ -9,7 +9,7 @@ import {
   deriveLpPosition,
 } from './pda';
 
-const PROGRAM_ID = new PublicKey('F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL');
+const PROGRAM_ID = new PublicKey('4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P');
 const DUMMY_USER = PublicKey.unique();
 const DUMMY_MARKET = PublicKey.unique();
 

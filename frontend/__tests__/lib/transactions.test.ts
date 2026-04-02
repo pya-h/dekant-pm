@@ -29,7 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const DUMMY_PK = new PublicKey(
-  "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+  "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
 );
 const realFindPDA = PublicKey.findProgramAddressSync;
 
@@ -93,7 +93,7 @@ function createMockProgram() {
 }
 
 const MARKET_PK = new PublicKey(
-  "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+  "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
 );
 const TRADER_PK = new PublicKey(
   "HXtBm8XZbxaTt41uqaKhwUAa6Z1aPyvJdsZVENiWsetg",
