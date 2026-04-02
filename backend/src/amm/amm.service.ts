@@ -443,11 +443,11 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
+    const kSq = market.kSquared != null ? Number(market.kSquared) : totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
     // Current probability
     const xI = totalMinted - reserves[outcome];
-    const kSq = totalMinted * totalMinted;
     const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
 
     if (targetProb <= currentProb) {
@@ -523,11 +523,11 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
+    const kSq = market.kSquared != null ? Number(market.kSquared) : totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
     // Current probability
     const xI = totalMinted - reserves[outcome];
-    const kSq = totalMinted * totalMinted;
     const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
 
     if (targetProb >= currentProb) {

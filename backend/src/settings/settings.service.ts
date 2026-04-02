@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { SettingEntity } from './setting.entity';
 
 export const VALID_FEE_INTERVALS = ['none', '6h', '12h', '24h', '48h'] as const;
@@ -32,6 +32,7 @@ export class SettingsService implements OnModuleInit {
   constructor(
     @InjectRepository(SettingEntity)
     private readonly repo: Repository<SettingEntity>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /** Seed a default active row on first boot. */
@@ -97,8 +98,19 @@ export class SettingsService implements OnModuleInit {
 
   /** Activate a settings row by id (deactivates all others). */
   async activate(id: number): Promise<SettingEntity> {
-    await this.repo.update({}, { isActive: false });
-    await this.repo.update(id, { isActive: true });
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      await qr.manager.update(SettingEntity, {}, { isActive: false });
+      await qr.manager.update(SettingEntity, id, { isActive: true });
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
     return this.getActive();
   }
 

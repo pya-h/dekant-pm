@@ -14,7 +14,7 @@ export class SettingEntity {
   @Column({ type: 'varchar', length: 64, default: 'default' })
   name!: string;
 
-  @Column({ type: 'boolean', default: true, name: 'is_active' })
+  @Column({ type: 'boolean', default: false, name: 'is_active' })
   isActive!: boolean;
 
   @Column({ type: 'varchar', length: 16, default: 'none', name: 'fee_collect_interval' })

@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { SettingsService } from './settings.service';
 import { SettingEntity } from './setting.entity';
 
 describe('SettingsService', () => {
   let service: SettingsService;
   let repo: Record<string, jest.Mock>;
+  let qrManager: Record<string, jest.Mock>;
+  let queryRunner: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     repo = {
@@ -19,10 +22,26 @@ describe('SettingsService', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
 
+    qrManager = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    queryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: qrManager as any,
+    };
+    const dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SettingsService,
         { provide: getRepositoryToken(SettingEntity), useValue: repo },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -110,11 +129,15 @@ describe('SettingsService', () => {
   });
 
   describe('activate', () => {
-    it('should deactivate all then activate target', async () => {
+    it('should deactivate all then activate target in a transaction', async () => {
       repo.findOne.mockResolvedValueOnce({ id: 2, isActive: true, name: 'staging' });
       const result = await service.activate(2);
-      expect(repo.update).toHaveBeenCalledWith({}, { isActive: false });
-      expect(repo.update).toHaveBeenCalledWith(2, { isActive: true });
+      expect(queryRunner.connect).toHaveBeenCalled();
+      expect(queryRunner.startTransaction).toHaveBeenCalled();
+      expect(qrManager.update).toHaveBeenCalledWith(SettingEntity, {}, { isActive: false });
+      expect(qrManager.update).toHaveBeenCalledWith(SettingEntity, 2, { isActive: true });
+      expect(queryRunner.commitTransaction).toHaveBeenCalled();
+      expect(queryRunner.release).toHaveBeenCalled();
     });
   });
 

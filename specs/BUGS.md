@@ -1,6 +1,7 @@
 # Bug Tracker
 
 Discovered via a systematic review of all commits from the last 24 hours (15 commits, 2026-03-25).
+Updated 2026-04-02 with full project review fixes and new findings.
 Organized by severity. Check off items as they are resolved.
 
 ---
@@ -9,17 +10,17 @@ Organized by severity. Check off items as they are resolved.
 
 These can cause incorrect behavior, block users, or corrupt state.
 
-- [ ] **C1: `@Roles('admin')` on `POST /markets` blocks Creator-role wallets**
+- [x] **C1: `@Roles('admin')` on `POST /markets` blocks Creator-role wallets** *(fixed 2026-04-02)*
   - **File:** `backend/src/market/market.controller.ts:68`
   - **Commit:** `cfad417`
   - **Impact:** Any wallet with the on-chain Creator role (3) gets 403 Forbidden when creating markets via the API, despite being authorized on-chain. Only Admin (1) and Superadmin (env) can create markets through the backend.
-  - **Fix:** Change `@Roles('admin')` to `@Roles('admin', 'creator')`.
+  - **Fix:** Changed `@Roles('admin')` to `@Roles('admin', 'creator')`.
 
-- [ ] **C2: `activate()` race condition — non-atomic deactivate/activate**
+- [x] **C2: `activate()` race condition — non-atomic deactivate/activate** *(fixed 2026-04-02)*
   - **File:** `backend/src/settings/settings.service.ts:99-102`
   - **Commit:** `9e24d96`
   - **Impact:** Two separate UPDATEs without a transaction. Between them, no row is active — any concurrent read of settings gets fallback defaults. If the second UPDATE fails (e.g., row deleted), all rows stay permanently deactivated.
-  - **Fix:** Wrap both UPDATEs in a TypeORM `queryRunner` transaction.
+  - **Fix:** Wrapped both UPDATEs in a TypeORM `queryRunner` transaction.
 
 ---
 
@@ -27,29 +28,29 @@ These can cause incorrect behavior, block users, or corrupt state.
 
 Significant bugs that affect correctness or UX but don't corrupt state.
 
-- [ ] **H1: No DB update after on-chain fee collection — causes repeated attempts**
+- [x] **H1: No DB update after on-chain fee collection — causes repeated attempts** *(fixed 2026-04-02)*
   - **File:** `backend/src/fee-collection/fee-collection.service.ts:138-171`
   - **Commit:** `6d492a7`
   - **Impact:** After successfully collecting fees on-chain, `protocolFeeAccumulated` is never zeroed in the DB. The same market is re-selected on every 5-minute sweep until the indexer syncs, causing repeated failed on-chain calls and log spam.
-  - **Fix:** After successful `collectFees` RPC, update `market.protocolFeeAccumulated = '0'` in the DB.
+  - **Fix:** Added `marketRepo.update(market.id, { protocolFeeAccumulated: '0' })` after successful on-chain collection.
 
-- [ ] **H2: `isActive` column defaults to `true` in settings entity**
+- [x] **H2: `isActive` column defaults to `true` in settings entity** *(fixed 2026-04-02)*
   - **File:** `backend/src/settings/setting.entity.ts:17`
   - **Commit:** `9e24d96`
   - **Impact:** DB-level default is `true` but business logic demands only one active row. Any raw INSERT or TypeORM sync issue creates an extra active row, breaking the single-active invariant.
-  - **Fix:** Change entity column default to `false`. The service's `onModuleInit` and `create()` already handle activation explicitly.
+  - **Fix:** Changed entity column default to `false`. The service's `onModuleInit` and `create()` already handle activation explicitly.
 
-- [ ] **H3: "Collect All" sends transactions to ALL markets, including those with zero fees**
+- [x] **H3: "Collect All" sends transactions to ALL markets, including those with zero fees** *(fixed 2026-04-02)*
   - **File:** `frontend/components/admin/fee-collector.tsx:51`
   - **Commit:** `d291fe3`
   - **Impact:** Iterates every market (up to 100) regardless of accumulated fees. Transactions to markets with no fees fail on-chain, wasting SOL.
-  - **Fix:** Filter `data.data` by `protocolFeeAccumulated > 0` before iterating (or have the backend expose an endpoint that returns only markets with pending fees).
+  - **Fix:** Filter `data.data` by `protocolFeeAccumulated > 0` before iterating.
 
-- [ ] **H4: `showTradeSuccess("")` produces broken toast with dead Solscan link**
+- [x] **H4: `showTradeSuccess("")` produces broken toast with dead Solscan link** *(fixed 2026-04-02)*
   - **File:** `frontend/components/admin/fee-collector.tsx:67`
   - **Commit:** `d291fe3`
   - **Impact:** The "Collect All" success toast passes `""` as the signature, producing a garbled description and a dead link to `https://solscan.io/tx/`.
-  - **Fix:** Use a plain success toast (e.g., `toast.success(...)`) instead of `showTradeSuccess` when there's no single signature.
+  - **Fix:** Replaced with `toast.success(...)` from sonner.
 
 ---
 
@@ -57,11 +58,11 @@ Significant bugs that affect correctness or UX but don't corrupt state.
 
 Incorrect behavior or missing safeguards that should be addressed.
 
-- [ ] **M1: `estimateBuyToPrice` / `estimateSellToPrice` use `totalMinted^2` instead of on-chain `kSquared`**
+- [x] **M1: `estimateBuyToPrice` / `estimateSellToPrice` use `totalMinted^2` instead of on-chain `kSquared`** *(fixed 2026-04-02)*
   - **File:** `backend/src/amm/amm.service.ts:450-451, 530`
   - **Commit:** `848859b` (and pre-existing in other estimate methods)
   - **Impact:** After LP add/remove operations, `kSquared != totalMinted^2`. The estimate methods compute wrong current probabilities and wrong collateral requirements for markets that have had LP operations.
-  - **Fix:** Use `market.kSquared` (already stored in DB by the indexer) instead of `totalMinted * totalMinted` in all estimate methods.
+  - **Fix:** Used `market.kSquared` (with fallback to `totalMinted * totalMinted`) in both estimate methods.
 
 - [ ] **M2: Sell-to-price has no frontend holdings validation**
   - **Commit:** `848859b`
@@ -84,11 +85,11 @@ Incorrect behavior or missing safeguards that should be addressed.
   - **Impact:** LP shares are u128 on-chain. `Number()` loses precision beyond ~2^53 (~9 * 10^15). Very large LP positions could display incorrect values.
   - **Fix:** Use `BigInt` or keep values as strings for display; only convert to `Number` for UI-scale formatting.
 
-- [ ] **M6: `lastCheckTime` not updated on error — tight retry loop on persistent failures**
+- [x] **M6: `lastCheckTime` not updated on error — tight retry loop on persistent failures** *(fixed 2026-04-02)*
   - **Files:** `backend/src/market/market-deadline.service.ts:43-45`, `backend/src/fee-collection/fee-collection.service.ts:99-102`
   - **Commit:** `9e24d96`, `6d492a7`
   - **Impact:** Both deadline and fee-collection services only update `lastCheckTime` on success. A persistent DB error causes retries every 30s (deadline) or 5m (fees) with error log spam.
-  - **Fix:** Update `lastCheckTime` in `finally` block (or add exponential backoff).
+  - **Fix:** Moved `lastCheckTime = Date.now()` to `finally` block in both services.
 
 - [ ] **M7: TASKS.md B-12 documents wrong role values**
   - **File:** `plans/TASKS.md` (B-12 section)
@@ -167,3 +168,17 @@ Minor issues, cleanup, or non-critical improvements.
 - [ ] **L13: No `@Max` validator on buy/sell-to-price DTO `targetProbability`**
   - **Commit:** `848859b`
   - **Impact:** The service-level check catches invalid values, but the DTO layer doesn't reject them early. Inconsistent with other DTOs that have `@Min`/`@Max`.
+
+---
+
+## New Findings (2026-04-02 Full Review)
+
+- [x] **N1: `__sonnerToast` never defined — clipboard copy toast silently fails** *(fixed 2026-04-02)*
+  - **File:** `frontend/app/markets/[id]/page.tsx:335`
+  - **Impact:** The "Address copied" toast after clipboard write never fires. `window.__sonnerToast` is never set anywhere in the codebase.
+  - **Fix:** Imported `toast` from `sonner` and used it directly.
+
+- [x] **N2: Continuous market negative bin index when `resolved < rangeMin`** *(fixed 2026-04-02)*
+  - **Files:** `frontend/app/portfolio/page.tsx:350`, `frontend/components/trading/user-position-display.tsx:133`
+  - **Impact:** `Math.floor((resolved - rMin) / binWidth)` can be negative, causing `holdings[-1]` to return `undefined`. Caught by `?? 0` but accidental, not defensive.
+  - **Fix:** Added `Math.max(0, ...)` to clamp negative indices. On-chain code prevents this case, but frontend should be robust.
