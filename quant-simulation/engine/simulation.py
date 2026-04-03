@@ -260,27 +260,23 @@ class SimulationRun:
                 state.holdings[bin_idx] = state.holdings.get(bin_idx, 0) + inventory_per_bin
 
     def _rescale_amm_pool(self, delta: int) -> None:
+        """Scale all reserves proportionally for an LP deposit/withdrawal.
+
+        Matches on-chain amm::scale_reserves:
+          reserves[i] = reserves[i] * (total + delta) / total
+        """
         if delta == 0 or self.design == DESIGN_CLOB:
             return
         current_total = int(self.state.total_minted)
+        if current_total <= 0:
+            return
         new_total = max(1, current_total + int(delta))
         if new_total == current_total:
             return
-        positions = [current_total - int(r) for r in self.state.reserves]
-        anchor = int(np.argmax(positions))
-        scaled_positions = [0] * self.num_bins
-        sum_other_sq = 0
-        for idx, position in enumerate(positions):
-            if idx == anchor:
-                continue
-            scaled = position * new_total // current_total
-            scaled_positions[idx] = int(min(max(scaled, 0), new_total))
-            sum_other_sq += scaled_positions[idx] * scaled_positions[idx]
-        scaled_positions[anchor] = isqrt(max(0, new_total * new_total - sum_other_sq))
-        self.state.reserves = np.array(
-            [new_total - scaled_positions[idx] for idx in range(self.num_bins)],
-            dtype=np.int64,
-        )
+        # Proportional reserve scaling (faithful to on-chain scale_reserves)
+        for i in range(len(self.state.reserves)):
+            r = int(self.state.reserves[i])
+            self.state.reserves[i] = r * new_total // current_total
         self.state.total_minted = new_total
 
     def _scale_config_bin(self, configured_bin: int) -> int:
@@ -1079,16 +1075,28 @@ class SimulationRun:
             slippages.update(self.mid_run_slippages)
 
         # LP profitability (aggregate + per-type)
+        # Under 1:1 fixed payout, winning tokens redeem 1:1 from the vault.
+        # The LP residual — reserves[winning_outcome] — stays for LPs,
+        # distributed proportional to shares (on-chain: compute_lp_resolved_payout).
         total_lp_deposited = self.state.passive_lp_deposited + self.state.rebalancing_lp_deposited
         pool_capital = self.initial_liquidity + total_lp_deposited
 
+        # Post-resolution LP residual: for WTA/1:1 designs, residual = reserves[winning].
+        # For experimental settlement designs this value is still a useful proxy
+        # for how much collateral remains after trader payouts.
+        lp_residual = 0
+        if self.design in (DESIGN_BASELINE_A, DESIGN_BASELINE_B):
+            lp_residual = int(self.state.reserves[resolved_bin])
+
         if self.state.passive_lp_deposited > 0 and pool_capital > 0:
+            passive_share = self.state.passive_lp_deposited / pool_capital
+            passive_residual = int(lp_residual * passive_share)
             passive_current_value = int(
                 self.state.total_minted * self.state.passive_lp_deposited / pool_capital
             )
             passive_impermanent_loss = self.state.passive_lp_deposited - passive_current_value
             lp_passive_profit = lp_profitability(
-                self.state.passive_lp_fees,
+                self.state.passive_lp_fees + passive_residual,
                 self.state.passive_lp_deposited,
                 passive_impermanent_loss,
             )
@@ -1096,12 +1104,14 @@ class SimulationRun:
             lp_passive_profit = 0.0
 
         if self.state.rebalancing_lp_deposited > 0 and pool_capital > 0:
+            rebal_share = self.state.rebalancing_lp_deposited / pool_capital
+            rebal_residual = int(lp_residual * rebal_share)
             rebal_current_value = int(
                 self.state.total_minted * self.state.rebalancing_lp_deposited / pool_capital
             )
             rebal_impermanent_loss = self.state.rebalancing_lp_deposited - rebal_current_value
             lp_rebalancing_profit = lp_profitability(
-                self.state.rebalancing_lp_fees,
+                self.state.rebalancing_lp_fees + rebal_residual,
                 self.state.rebalancing_lp_deposited,
                 rebal_impermanent_loss,
             )
@@ -1111,8 +1121,9 @@ class SimulationRun:
         if total_lp_deposited > 0 and pool_capital > 0:
             total_lp_current_value = int(self.state.total_minted * total_lp_deposited / pool_capital)
             total_impermanent_loss = total_lp_deposited - total_lp_current_value
+            total_residual = int(lp_residual * total_lp_deposited / pool_capital)
             lp_profit = lp_profitability(
-                self.state.lp_fee_accumulated,
+                self.state.lp_fee_accumulated + total_residual,
                 total_lp_deposited,
                 total_impermanent_loss,
             )

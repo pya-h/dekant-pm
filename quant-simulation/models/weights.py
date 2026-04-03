@@ -18,6 +18,20 @@ from config.params import SCALE, Z_CUTOFF
 # Taylor-4 approximation (faithful port of normal_pdf.rs::exp_neg_half_approx)
 # ---------------------------------------------------------------------------
 
+def _trunc_div(a: int, b: int) -> int:
+    """Integer division with truncation toward zero (matching Rust/C i128 behaviour).
+
+    Python ``//`` floors toward -∞; Rust ``/`` truncates toward 0.
+    For positive *b* (always true in our usage) the difference only
+    matters when *a* is negative and not evenly divisible by *b*.
+    """
+    q, rem = divmod(a, b)
+    # divmod floors; if there's a remainder and signs differ, adjust by +1
+    if rem != 0 and (a < 0) != (b < 0):
+        q += 1
+    return q
+
+
 def taylor4_exp_neg_half(t_scaled: int) -> int:
     """Approximate exp(-t/2) in SCALE-denominated fixed-point.
 
@@ -41,6 +55,8 @@ def taylor4_exp_neg_half(t_scaled: int) -> int:
         return 0
 
     # Integer arithmetic mirrors the on-chain i128 Horner evaluation.
+    # Uses _trunc_div to match Rust's truncation-toward-zero division
+    # (Python // floors toward -∞, which differs for negative intermediates).
     t = int(t_scaled)
     s = int(SCALE)
 
@@ -51,10 +67,10 @@ def taylor4_exp_neg_half(t_scaled: int) -> int:
     c0: int = s                 # 1_000_000_000
 
     r = c4
-    r = r * t // s + c3
-    r = r * t // s + c2
-    r = r * t // s + c1
-    r = r * t // s + c0
+    r = _trunc_div(r * t, s) + c3
+    r = _trunc_div(r * t, s) + c2
+    r = _trunc_div(r * t, s) + c1
+    r = _trunc_div(r * t, s) + c0
 
     if r <= 0:
         return 0
@@ -79,11 +95,11 @@ def compute_bin_weights_taylor4(
     denominated integers (same convention as range_min/range_max on-chain).
 
     Returns:
-        np.ndarray of shape (num_bins,) with dtype float64 whose sum equals
+        np.ndarray of shape (num_bins,) with dtype int64 whose sum equals
         SCALE (adjusted for rounding on the largest weight bin).
     """
     if num_bins == 0 or sigma == 0 or range_max <= range_min:
-        return np.zeros(num_bins, dtype=np.float64)
+        return np.zeros(num_bins, dtype=np.int64)
 
     span = range_max - range_min
     sigma_sq = sigma * sigma
@@ -108,7 +124,7 @@ def compute_bin_weights_taylor4(
         total += w
 
     if total == 0:
-        return np.zeros(num_bins, dtype=np.float64)
+        return np.zeros(num_bins, dtype=np.int64)
 
     weights: list[int] = [
         w * SCALE // total if w != 0 else 0
@@ -125,7 +141,7 @@ def compute_bin_weights_taylor4(
         else:
             weights[max_idx] -= current_sum - target
 
-    return np.array(weights, dtype=np.float64)
+    return np.array(weights, dtype=np.int64)
 
 
 # ---------------------------------------------------------------------------
@@ -153,11 +169,11 @@ def compute_bin_weights_exact(
         sigma:     Distribution standard deviation (SCALE-denominated int, > 0).
 
     Returns:
-        np.ndarray of shape (num_bins,) with dtype float64 whose sum equals
+        np.ndarray of shape (num_bins,) with dtype int64 whose sum equals
         SCALE (adjusted for rounding on the largest weight bin).
     """
     if num_bins == 0 or sigma == 0 or range_max <= range_min:
-        return np.zeros(num_bins, dtype=np.float64)
+        return np.zeros(num_bins, dtype=np.int64)
 
     span = range_max - range_min
 
@@ -172,7 +188,7 @@ def compute_bin_weights_exact(
 
     total = pdf_vals.sum()
     if total == 0.0:
-        return np.zeros(num_bins, dtype=np.float64)
+        return np.zeros(num_bins, dtype=np.int64)
 
     # Normalise to SCALE using integer rounding.
     raw_norm = (pdf_vals / total * SCALE).astype(np.int64)
@@ -188,4 +204,4 @@ def compute_bin_weights_exact(
         else:
             weights[max_idx] -= current_sum - target
 
-    return np.array(weights, dtype=np.float64)
+    return np.array(weights, dtype=np.int64)
