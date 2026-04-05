@@ -1,0 +1,3072 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DekantPM — Mathematical Analysis</title>
+
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Vazirmatn:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+<!-- MathJax -->
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$','$']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' },
+  startup: { typeset: true }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+
+<style>
+/* ============================================================
+   CSS CUSTOM PROPERTIES
+   ============================================================ */
+:root {
+  --bg: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --bg-card-hover: #263548;
+  --bg-input: #0f172a;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-heading: #f1f5f9;
+  --primary: #3b82f6;
+  --primary-dark: #1d4ed8;
+  --primary-light: #60a5fa;
+  --primary-glow: rgba(59, 130, 246, 0.15);
+  --accent: #06b6d4;
+  --accent-glow: rgba(6, 182, 212, 0.15);
+  --border: #334155;
+  --border-light: #475569;
+  --success: #22c55e;
+  --success-glow: rgba(34, 197, 94, 0.15);
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --danger-glow: rgba(239, 68, 68, 0.15);
+  --purple: #a855f7;
+  --purple-glow: rgba(168, 85, 247, 0.15);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-en: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-fa: 'Vazirmatn', 'Tahoma', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+html.theme-light {
+  --bg: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-input: #f1f5f9;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --text-heading: #0f172a;
+  --border: #e2e8f0;
+  --border-light: #cbd5e0;
+  --shadow: 0 4px 24px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.12);
+  --primary-glow: rgba(59, 130, 246, 0.08);
+  --accent-glow: rgba(6, 182, 212, 0.08);
+  --success-glow: rgba(34, 197, 94, 0.08);
+  --danger-glow: rgba(239, 68, 68, 0.08);
+  --purple-glow: rgba(168, 85, 247, 0.08);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  transition: background var(--transition);
+}
+
+body {
+  font-family: var(--font-en);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  overflow-x: hidden;
+  padding-bottom: 48px;
+  transition: background var(--transition), color var(--transition);
+}
+
+html.lang-fa body {
+  font-family: var(--font-fa);
+  direction: rtl;
+  text-align: right;
+}
+
+/* Language visibility */
+.lang-en, .lang-fa { transition: opacity 0.25s ease; }
+html.lang-en .lang-fa { display: none !important; }
+html.lang-fa .lang-en { display: none !important; }
+
+/* ============================================================
+   NAVBAR
+   ============================================================ */
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+html.theme-light .navbar {
+  background: rgba(248, 250, 252, 0.85);
+}
+
+.navbar-brand {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--primary-light);
+  letter-spacing: 0.5px;
+}
+
+.navbar-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.nav-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html.lang-fa .nav-btn { font-family: var(--font-fa); }
+
+.nav-btn:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.nav-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.main-wrapper {
+  display: flex;
+  margin-top: 56px;
+}
+
+/* Sidebar TOC */
+.sidebar {
+  position: fixed;
+  top: 56px;
+  width: 280px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 24px 16px;
+  z-index: 50;
+  transition: transform var(--transition), background var(--transition), border-color var(--transition);
+}
+
+html.lang-fa .sidebar {
+  left: auto;
+  right: 0;
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+html.lang-en .sidebar { left: 0; }
+
+.sidebar.collapsed {
+  transform: translateX(-100%);
+}
+
+html.lang-fa .sidebar.collapsed {
+  transform: translateX(100%);
+}
+
+.sidebar-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  font-weight: 700;
+}
+
+.toc-link {
+  display: block;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+  margin-bottom: 2px;
+}
+
+.toc-link:hover { color: var(--text); background: var(--bg-card-hover); }
+
+.toc-link.active {
+  color: var(--primary-light);
+  background: var(--primary-glow);
+  font-weight: 600;
+}
+
+.toc-link.sub { padding-left: 28px; font-size: 0.8rem; }
+html.lang-fa .toc-link.sub { padding-left: 12px; padding-right: 28px; }
+
+.sidebar-toggle {
+  position: fixed;
+  top: 68px;
+  z-index: 60;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all var(--transition);
+}
+
+html.lang-en .sidebar-toggle { left: 288px; }
+html.lang-fa .sidebar-toggle { right: 288px; }
+
+.sidebar-toggle:hover { background: var(--primary); color: white; }
+
+.sidebar.collapsed ~ .sidebar-toggle {
+  left: 8px;
+}
+
+html.lang-fa .sidebar.collapsed ~ .sidebar-toggle {
+  left: auto;
+  right: 8px;
+}
+
+/* Content */
+.content {
+  flex: 1;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+  transition: margin var(--transition);
+}
+
+html.lang-en .content { margin-left: 300px; }
+html.lang-fa .content { margin-right: 300px; }
+
+.sidebar.collapsed ~ .content {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+@media (max-width: 1024px) {
+  .sidebar { transform: translateX(-100%); }
+  html.lang-fa .sidebar { transform: translateX(100%); }
+  .sidebar.open { transform: translateX(0); }
+  .content { margin-left: auto !important; margin-right: auto !important; padding: 24px 16px 60px; }
+  html.lang-en .sidebar-toggle { left: 8px; }
+  html.lang-fa .sidebar-toggle { right: 8px; }
+  .sidebar.open ~ .sidebar-toggle { left: 288px; }
+  html.lang-fa .sidebar.open ~ .sidebar-toggle { left: auto; right: 288px; }
+}
+
+/* ============================================================
+   HERO / COVER
+   ============================================================ */
+.hero {
+  text-align: center;
+  padding: 80px 20px 60px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 50% 50%, var(--primary-glow) 0%, transparent 50%);
+  animation: heroGlow 8s ease-in-out infinite alternate;
+}
+
+@keyframes heroGlow {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, -20px) scale(1.1); }
+}
+
+.hero-content { position: relative; z-index: 1; }
+
+.hero h1 {
+  font-size: 3.2rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--primary-light), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+.hero h2 {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+html.lang-fa .hero h2 { font-weight: 500; }
+
+.hero-divider {
+  width: 120px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  margin: 0 auto 24px;
+  border-radius: 2px;
+}
+
+.hero-tags {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-tag {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: all var(--transition);
+}
+
+.hero-tag:hover { border-color: var(--primary); color: var(--primary-light); }
+
+/* ============================================================
+   SECTIONS
+   ============================================================ */
+.section {
+  margin-bottom: 48px;
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.section.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  cursor: default;
+}
+
+.section-num {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.section-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-heading);
+  line-height: 1.3;
+}
+
+.subsection-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--primary-light);
+  margin: 28px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--border);
+}
+
+p { margin: 10px 0; }
+
+strong { color: var(--text-heading); }
+
+ul, ol {
+  margin: 10px 0;
+  padding-left: 24px;
+}
+
+html.lang-fa ul, html.lang-fa ol {
+  padding-left: 0;
+  padding-right: 24px;
+}
+
+li { margin-bottom: 6px; }
+
+li::marker { color: var(--primary); font-weight: 700; }
+
+/* ============================================================
+   MATH BLOCKS
+   ============================================================ */
+.math-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 24px;
+  margin: 16px 0;
+  text-align: center;
+  direction: ltr;
+  overflow-x: auto;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.math-block:hover { border-color: var(--primary); }
+
+.math-inline { direction: ltr; unicode-bidi: embed; }
+
+/* Code blocks */
+.code-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+  margin: 12px 0;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  direction: ltr;
+  text-align: left;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+code {
+  font-family: var(--font-mono);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead th {
+  background: var(--primary-dark);
+  color: white;
+  padding: 10px 14px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+tbody tr { transition: background var(--transition); }
+tbody tr:hover { background: var(--bg-card-hover); }
+
+/* ============================================================
+   NOTE / CALLOUT
+   ============================================================ */
+.note-box {
+  background: var(--primary-glow);
+  border-left: 4px solid var(--primary);
+  padding: 14px 18px;
+  margin: 16px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.9rem;
+}
+
+html.lang-fa .note-box {
+  border-left: none;
+  border-right: 4px solid var(--primary);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+/* ============================================================
+   INTERACTIVE DEMO CARDS
+   ============================================================ */
+.demo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  margin: 32px 0;
+  box-shadow: var(--shadow);
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.demo-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+}
+
+.demo-card:hover { border-color: var(--primary); box-shadow: var(--shadow-lg); }
+
+.demo-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.demo-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.demo-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.control-group { display: flex; flex-direction: column; gap: 4px; }
+
+.control-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  transition: border-color var(--transition);
+  width: 100%;
+}
+
+.control-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.control-input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  padding: 0;
+  border: none;
+}
+
+.control-input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.control-input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.control-value {
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  color: var(--primary-light);
+  font-weight: 600;
+}
+
+select.control-input {
+  cursor: pointer;
+}
+
+.btn {
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition);
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html.lang-fa .btn { font-family: var(--font-fa); }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+}
+
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(59,130,246,0.4); }
+
+.btn-accent {
+  background: linear-gradient(135deg, var(--accent), #0891b2);
+  color: white;
+}
+
+.btn-accent:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(6,182,212,0.4); }
+
+.btn-success {
+  background: linear-gradient(135deg, var(--success), #16a34a);
+  color: white;
+}
+
+.btn-success:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(34,197,94,0.4); }
+
+.btn-danger {
+  background: linear-gradient(135deg, var(--danger), #dc2626);
+  color: white;
+}
+
+.btn-danger:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(239,68,68,0.4); }
+
+.btn-purple {
+  background: linear-gradient(135deg, var(--purple), #7c3aed);
+  color: white;
+}
+
+.btn-purple:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(168,85,247,0.4); }
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-outline:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary);
+}
+
+.btn-xs {
+  padding: 2px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 5px;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  border: 1px solid oklch(0.65 0.2 25);
+  color: oklch(0.75 0.18 25);
+}
+.btn-danger-outline:hover {
+  background: oklch(0.65 0.2 25 / 0.12);
+}
+
+.btn-sm {
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: all var(--transition);
+}
+
+.btn-sm:hover { border-color: var(--primary); color: var(--primary-light); }
+
+.btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.btn:disabled, .btn-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Chart containers */
+.chart-container {
+  position: relative;
+  height: 300px;
+  margin: 16px 0;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+/* Result displays */
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.result-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+  transition: all var(--transition);
+}
+
+.result-item:hover { border-color: var(--primary); }
+
+.result-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.result-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--primary-light);
+}
+
+.result-value.positive { color: var(--success); }
+.result-value.negative { color: var(--danger); }
+.result-value.neutral { color: var(--warning); }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tab {
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: all var(--transition);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+html.lang-fa .tab { font-family: var(--font-fa); }
+
+.tab:hover { color: var(--text); }
+
+.tab.active {
+  color: var(--primary-light);
+  background: var(--primary-glow);
+  border-bottom: 2px solid var(--primary);
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ============================================================
+   CHART MODE TOGGLE
+   ============================================================ */
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.chart-header-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chart-mode-group {
+  display: flex;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.chart-mode-btn {
+  padding: 4px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+
+html.lang-fa .chart-mode-btn { font-family: var(--font-fa); }
+
+.chart-mode-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+.chart-mode-btn:hover:not(.active) {
+  color: var(--text);
+}
+
+/* ============================================================
+   PLAYGROUND HEADER (active trader + controls)
+   ============================================================ */
+.playground-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.toolbar-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.toolbar-select:focus { outline: none; border-color: var(--primary); }
+
+/* ============================================================
+   PARTICIPANT CHIPS
+   ============================================================ */
+.participants-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.participant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  transition: all var(--transition);
+}
+
+.participant-chip.trader {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.participant-chip.lp {
+  border-color: var(--purple);
+  color: var(--purple);
+}
+
+.participant-chip .chip-balance {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   PAYOUTS TABLE
+   ============================================================ */
+.payout-section {
+  margin-top: 20px;
+  animation: slideUp 0.4s ease;
+}
+
+.payout-section h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.payout-table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.payout-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.payout-table th {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  padding: 8px 12px;
+  font-weight: 600;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.payout-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.payout-table tr:hover { background: var(--bg-card-hover); }
+
+.pnl-positive { color: var(--success); font-weight: 700; }
+.pnl-negative { color: var(--danger); font-weight: 700; }
+
+/* ============================================================
+   EXPANDABLE DEMO
+   ============================================================ */
+.expandable-demo {
+  margin: 24px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.expandable-demo:hover { border-color: var(--primary); }
+
+.expandable-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  transition: background var(--transition);
+}
+
+html.lang-fa .expandable-toggle { font-family: var(--font-fa); }
+
+.expandable-toggle:hover { background: var(--bg-card-hover); }
+
+.expand-arrow {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.expandable-demo.open .expand-arrow { transform: rotate(180deg); }
+
+.expandable-body {
+  padding: 0 20px 20px;
+  background: var(--bg-card);
+  display: none;
+}
+
+.expandable-demo.open .expandable-body {
+  display: block;
+  animation: fadeIn 0.3s ease;
+}
+
+/* ============================================================
+   ACTION LOG BOTTOM PANEL
+   ============================================================ */
+.action-log-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  background: var(--bg-card);
+  border-top: 2px solid var(--primary);
+  transition: height var(--transition), background var(--transition);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.2);
+}
+
+.action-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.action-log-header:hover { background: var(--bg-card-hover); }
+
+.action-log-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.action-log-count {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.action-log-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-log-body {
+  max-height: 0;
+  overflow-y: auto;
+  transition: max-height 0.4s ease;
+  padding: 0 20px;
+}
+
+.action-log-panel.open .action-log-body {
+  max-height: 320px;
+  padding: 0 20px 16px;
+}
+
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  animation: logSlideIn 0.3s ease;
+}
+
+.log-entry:last-child { border-bottom: none; }
+
+@keyframes logSlideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+html.lang-fa .log-entry { flex-direction: row-reverse; text-align: right; }
+
+.log-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  min-width: 50px;
+  text-align: center;
+}
+
+.log-badge.buy { background: var(--success-glow); color: var(--success); }
+.log-badge.sell { background: var(--danger-glow); color: var(--danger); }
+.log-badge.lp { background: var(--purple-glow); color: var(--purple); }
+.log-badge.resolve { background: rgba(245,158,11,0.15); color: var(--warning); }
+.log-badge.init { background: var(--primary-glow); color: var(--primary-light); }
+
+.log-summary {
+  flex: 1;
+  color: var(--text);
+}
+
+.log-details {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.log-time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+.toast-container {
+  position: fixed;
+  bottom: 56px;
+  right: 24px;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+html.lang-fa .toast-container { right: auto; left: 24px; }
+
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 18px;
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-lg);
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  max-width: 400px;
+  pointer-events: auto;
+  border-left: 3px solid var(--primary);
+}
+
+html.lang-fa .toast { border-left: 1px solid var(--border); border-right: 3px solid var(--primary); }
+
+.toast.toast-buy { border-left-color: var(--success); }
+.toast.toast-sell { border-left-color: var(--danger); }
+.toast.toast-lp { border-left-color: var(--purple); }
+.toast.toast-resolve { border-left-color: var(--warning); }
+
+html.lang-fa .toast.toast-buy { border-right-color: var(--success); }
+html.lang-fa .toast.toast-sell { border-right-color: var(--danger); }
+html.lang-fa .toast.toast-lp { border-right-color: var(--purple); }
+html.lang-fa .toast.toast-resolve { border-right-color: var(--warning); }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+
+/* ============================================================
+   DISTORTION DEMO
+   ============================================================ */
+.distortion-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.distortion-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--border);
+  transition: all 0.5s ease;
+}
+
+.distortion-circle.true-prob { border-color: var(--success); }
+.distortion-circle.quad-prob { border-color: var(--warning); }
+
+.distortion-circle .big-num {
+  font-size: 1.8rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.distortion-circle .label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.distortion-arrow {
+  font-size: 2rem;
+  color: var(--text-muted);
+  animation: arrowPulse 2s ease-in-out infinite;
+}
+
+@keyframes arrowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ============================================================
+   MISC ANIMATIONS
+   ============================================================ */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--primary-glow); }
+  50% { box-shadow: 0 0 12px 4px var(--primary-glow); }
+}
+
+.resolved-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+  margin-top: 60px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+/* ============================================================
+   TRADE PREVIEW (SVG overlays like frontend)
+   ============================================================ */
+.trade-preview {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px 6px;
+  margin: 16px 0 12px;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.trade-preview:hover { border-color: var(--primary); }
+
+.trade-preview svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.trade-preview-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.trade-preview-legend .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+html.lang-fa .trade-preview-legend .swatch {
+  margin-right: 0;
+  margin-left: 4px;
+}
+
+.trade-preview-legend .swatch-dashed {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--text-muted);
+  vertical-align: middle;
+  margin-right: 4px;
+  opacity: 0.6;
+}
+
+html.lang-fa .trade-preview-legend .swatch-dashed {
+  margin-right: 0;
+  margin-left: 4px;
+}
+
+/* Confidence/mu slider row */
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+  padding: 0 2px;
+}
+
+.slider-hint {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Custom range track/thumb coloring for confidence slider */
+.range-confidence::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, var(--primary), var(--border-light));
+}
+
+.range-confidence::-moz-range-track {
+  background: linear-gradient(90deg, var(--primary), var(--border-light));
+}
+
+/* Save indicator */
+.save-indicator {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  background: var(--success);
+  color: #fff;
+}
+.save-indicator.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.save-indicator.error {
+  background: var(--danger);
+}
+
+/* Trade result card */
+.trade-result {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+.trade-result .result-value.positive, .trade-result .positive { color: var(--success); }
+.trade-result .result-value.negative, .trade-result .negative { color: var(--danger); }
+.trade-result-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Trade preview mode (dashed, lighter) */
+.trade-preview-mode {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.preview-header {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.preview-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preview-cell {
+  flex: 1 1 auto;
+  min-width: 70px;
+  text-align: center;
+}
+.preview-cell-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+}
+.preview-cell-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--primary-light);
+}
+.preview-cell-value.positive { color: var(--success); }
+.preview-cell-value.negative { color: var(--danger); }
+.preview-trader-bar {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Smaller result grid/items for portfolio & trade results */
+.result-grid-sm {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+.result-item-sm {
+  padding: 8px 6px;
+}
+.result-item-sm .result-label {
+  font-size: 0.6rem;
+}
+.result-value-sm {
+  font-size: 0.85rem !important;
+}
+
+/* Portfolio tab content */
+.portfolio-block {
+  margin-bottom: 16px;
+}
+.portfolio-heading {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.portfolio-sub {
+  margin-top: 10px;
+}
+.portfolio-subheading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* Portfolio tables */
+.ptable-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ptable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.ptable th {
+  text-align: left;
+  padding: 4px 8px;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+html.lang-fa .ptable th { text-align: right; }
+.ptable td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+}
+.ptable tbody tr:hover { background: var(--bg-card-hover); }
+.td-mono { font-family: var(--font-mono); font-size: 0.7rem; }
+.td-time { font-size: 0.65rem; color: var(--text-muted); }
+
+/* Trade type badges */
+.trade-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-buy { background: var(--success-glow); color: var(--success); }
+.badge-sell { background: var(--danger-glow); color: var(--danger); }
+.badge-lp { background: var(--purple-glow); color: var(--purple); }
+
+/* Settings modal */
+.settings-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+.settings-overlay.open { display: flex; }
+.settings-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 90%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+.settings-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px;
+}
+.settings-close:hover { color: var(--text); }
+.settings-group {
+  margin-bottom: 16px;
+}
+.settings-group-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.settings-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.settings-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  transition: all var(--transition);
+}
+.settings-row label:has(input:checked) {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+.settings-row input[type="radio"] { display: none; }
+.settings-row input[type="range"] {
+  flex: 1;
+  min-width: 100px;
+}
+.settings-row input[type="checkbox"] {
+  accent-color: var(--primary);
+}
+.settings-precision-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--primary-light);
+  min-width: 16px;
+  text-align: center;
+}
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+.settings-toggle-row span {
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+/* Autosave dot (green/grey indicator beside Auto button) */
+.autosave-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-light);
+  margin-left: 4px;
+  vertical-align: middle;
+  transition: background 0.2s;
+}
+.autosave-dot.on { background: var(--success); }
+
+/* Top-up section */
+.topup-section {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--border-light);
+  background: var(--bg-secondary);
+}
+.topup-section .control-label { font-size: 0.8rem; }
+
+/* Market selector in setup */
+.market-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.market-selector-row select {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+/* Question input row */
+.question-row {
+  margin-bottom: 12px;
+}
+.question-row input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.question-row .btn-sm {
+  margin-top: 6px;
+}
+
+/* Print styles */
+@media print {
+  .navbar, .sidebar, .sidebar-toggle, .demo-card, .action-log-panel, .toast-container { display: none; }
+  .content { margin: 0 !important; padding: 20px; }
+  .section { opacity: 1 !important; transform: none !important; }
+  body { padding-bottom: 0; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- ============================================================
+     NAVBAR
+     ============================================================ -->
+<nav class="navbar">
+  <div class="navbar-brand">DekantPM</div>
+  <div class="navbar-controls">
+    <button class="nav-btn" onclick="manualSave()" title="Save state">
+      <span class="lang-en">Save</span><span class="lang-fa">ذخیره</span>
+    </button>
+    <button class="nav-btn" onclick="toggleAutosave()" title="Toggle autosave">
+      <span id="autosaveLabel"><span class="lang-en">Auto</span><span class="lang-fa">خودکار</span></span>
+      <span class="autosave-dot" id="autosaveDot"></span>
+    </button>
+    <button class="nav-btn" onclick="resetAllState()" title="Reset all state">
+      <span class="lang-en">Reset</span><span class="lang-fa">پاک</span>
+    </button>
+    <button class="nav-btn" onclick="openSettingsModal()" title="Settings">
+      &#9881;
+    </button>
+    <button class="nav-btn" id="langToggle" onclick="toggleLanguage()">
+      <span class="lang-en">FA</span>
+      <span class="lang-fa">EN</span>
+    </button>
+    <button class="nav-btn" id="themeToggle" onclick="toggleTheme()">
+      <span id="themeIcon">&#9790;</span>
+    </button>
+    <button class="nav-btn" onclick="toggleSidebar()" id="menuBtn">&#9776;</button>
+  </div>
+</nav>
+
+<!-- ============================================================
+     SIDEBAR TOC
+     ============================================================ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-title">
+    <span class="lang-en">Contents</span>
+    <span class="lang-fa">فهرست</span>
+  </div>
+  <a class="toc-link" href="#sec1"><span class="lang-en">1. Introduction</span><span class="lang-fa">۱. مقدمه</span></a>
+  <a class="toc-link" href="#sec2"><span class="lang-en">2. L&#8322;-Norm AMM</span><span class="lang-fa">۲. AMM نُرم L&#8322;</span></a>
+  <a class="toc-link sub" href="#demo-distortion"><span class="lang-en">&#8627; Distortion Demo</span><span class="lang-fa">&#8627; نمایش اعوجاج</span></a>
+  <a class="toc-link" href="#sec3"><span class="lang-en">3. Market Initialization</span><span class="lang-fa">۳. مقداردهی اولیه</span></a>
+  <a class="toc-link" href="#sec4"><span class="lang-en">4. Discrete Trading</span><span class="lang-fa">۴. معاملات گسسته</span></a>
+  <a class="toc-link" href="#sec5"><span class="lang-en">5. Distribution Trading</span><span class="lang-fa">۵. معاملات توزیعی</span></a>
+  <a class="toc-link sub" href="#demo-playground"><span class="lang-en">&#8627; Market Playground</span><span class="lang-fa">&#8627; آزمایشگاه بازار</span></a>
+  <a class="toc-link sub" href="#demo-gaussian"><span class="lang-en">&#8627; Gaussian Explorer</span><span class="lang-fa">&#8627; نمایشگر گاوسی</span></a>
+  <a class="toc-link" href="#sec6"><span class="lang-en">6. Liquidity Provision</span><span class="lang-fa">۶. تأمین نقدینگی</span></a>
+  <a class="toc-link sub" href="#demo-lp"><span class="lang-en">&#8627; LP Calculator</span><span class="lang-fa">&#8627; محاسبه‌گر LP</span></a>
+  <a class="toc-link" href="#sec7"><span class="lang-en">7. Resolution & Payout</span><span class="lang-fa">۷. تعیین نتیجه</span></a>
+  <a class="toc-link" href="#sec8"><span class="lang-en">8. Worked Example</span><span class="lang-fa">۸. مثال عملی</span></a>
+  <a class="toc-link" href="#sec9"><span class="lang-en">9. Fee Structure</span><span class="lang-fa">۹. ساختار کارمزد</span></a>
+  <a class="toc-link" href="#sec10"><span class="lang-en">10. Discretization</span><span class="lang-fa">۱۰. گسسته‌سازی</span></a>
+  <a class="toc-link" href="#sec11"><span class="lang-en">11. Limitations</span><span class="lang-fa">۱۱. محدودیت‌ها</span></a>
+  <a class="toc-link" href="#sec12"><span class="lang-en">12. Paradigm Comparison</span><span class="lang-fa">۱۲. مقایسه پارادایم</span></a>
+  <a class="toc-link" href="#sec13"><span class="lang-en">13. Properties Summary</span><span class="lang-fa">۱۳. خلاصه ویژگی‌ها</span></a>
+  <a class="toc-link" href="#appendix"><span class="lang-en">Appendices</span><span class="lang-fa">پیوست‌ها</span></a>
+</aside>
+
+<button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">&#9776;</button>
+
+<!-- ============================================================
+     MAIN CONTENT
+     ============================================================ -->
+<main class="content" id="mainContent">
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-content">
+    <h1>DekantPM</h1>
+    <h2>
+      <span class="lang-en">Mathematical Analysis</span>
+      <span class="lang-fa">تحلیل ریاضی</span>
+    </h2>
+    <div class="hero-divider"></div>
+    <div class="hero-tags">
+      <span class="hero-tag">L&#8322;-Norm AMM</span>
+      <span class="hero-tag"><span class="lang-en">Bin Discretization</span><span class="lang-fa">گسسته‌سازی بازه‌ای</span></span>
+      <span class="hero-tag"><span class="lang-en">Distribution Trading</span><span class="lang-fa">معاملات توزیعی</span></span>
+      <span class="hero-tag">Solana / Anchor</span>
+      <span class="hero-tag"><span class="lang-en">Solvency Proof</span><span class="lang-fa">اثبات توانایی پرداخت</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 1: Introduction
+     ============================================================ -->
+<div class="section" id="sec1">
+  <div class="section-header">
+    <div class="section-num">1</div>
+    <div class="section-title">
+      <span class="lang-en">Introduction: Continuous Prediction Markets</span>
+      <span class="lang-fa">مقدمه: بازارهای پیش‌بینی پیوسته</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">1.1 What Are Prediction Markets?</span>
+    <span class="lang-fa">۱.۱ بازارهای پیش‌بینی چیست؟</span>
+  </div>
+  <p class="lang-en">A prediction market is a speculative market where participants trade contracts whose payoffs depend on the outcome of future events. In a <strong>binary</strong> prediction market, a contract pays $1 if event E occurs and $0 otherwise. The market price reflects the crowd's aggregate belief about the probability of E.</p>
+  <p class="lang-fa">بازار پیش‌بینی یک بازار سفته‌بازی است که در آن شرکت‌کنندگان قراردادهایی را معامله می‌کنند که بازدهی آنها به نتیجه رویدادهای آینده بستگی دارد. در یک بازار پیش‌بینی <strong>دوتایی</strong>، یک قرارداد در صورت وقوع رویداد E مبلغ ۱ دلار و در غیر این صورت ۰ دلار پرداخت می‌کند.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">1.2 From Discrete to Continuous</span>
+    <span class="lang-fa">۱.۲ از گسسته به پیوسته</span>
+  </div>
+  <p class="lang-en">Traditional prediction markets handle <strong>discrete</strong> outcomes: "Will candidate A win?" (Yes/No). But many real-world quantities are <strong>continuous</strong>: "What will the temperature be on July 1st?" "What will the price of ETH be on December 31st?"</p>
+  <p class="lang-fa">بازارهای پیش‌بینی سنتی نتایج <strong>گسسته</strong> را مدیریت می‌کنند. اما بسیاری از کمیت‌های دنیای واقعی <strong>پیوسته</strong> هستند: «دمای هوا چقدر خواهد بود؟» «قیمت ETH چقدر خواهد بود؟»</p>
+  <p class="lang-en">A <strong>continuous prediction market</strong> elicits a full probability distribution over a continuous outcome space — it asks "What does the crowd believe the probability density function over all possible answers looks like?"</p>
+  <p class="lang-fa">یک <strong>بازار پیش‌بینی پیوسته</strong> یک توزیع احتمال کامل روی فضای نتایج پیوسته استخراج می‌کند.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">1.3 Goals</span>
+    <span class="lang-fa">۱.۳ اهداف</span>
+  </div>
+  <ol>
+    <li><span class="lang-en"><strong>Aggregate beliefs</strong> — Allow participants to express nuanced probabilistic views.</span><span class="lang-fa"><strong>تجمیع باورها</strong> — به شرکت‌کنندگان اجازه بیان دیدگاه‌های دقیق را بدهد.</span></li>
+    <li><span class="lang-en"><strong>Maintain consensus</strong> — The market state encodes the crowd's aggregate probability distribution.</span><span class="lang-fa"><strong>حفظ اجماع</strong> — وضعیت بازار توزیع احتمال تجمیعی را کدگذاری کند.</span></li>
+    <li><span class="lang-en"><strong>Incentivize accuracy</strong> — Traders who move toward truth profit.</span><span class="lang-fa"><strong>انگیزه برای دقت</strong> — معامله‌گران دقیق سود ببرند.</span></li>
+    <li><span class="lang-en"><strong>Provide liquidity</strong> — An AMM ensures trades execute without counterparty.</span><span class="lang-fa"><strong>تأمین نقدینگی</strong> — AMM معاملات را بدون نیاز به طرف مقابل اجرا کند.</span></li>
+  </ol>
+</div>
+
+<!-- ============================================================
+     SECTION 2: L2-Norm AMM
+     ============================================================ -->
+<div class="section" id="sec2">
+  <div class="section-header">
+    <div class="section-num">2</div>
+    <div class="section-title">
+      <span class="lang-en">Mathematical Framework: The L&#8322;-Norm AMM</span>
+      <span class="lang-fa">چارچوب ریاضی: AMM با نُرم L&#8322;</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">2.1 Core Setup</span>
+    <span class="lang-fa">۲.۱ تنظیمات اصلی</span>
+  </div>
+  <p class="lang-en">Consider a market with <strong>N</strong> outcomes (bins). We define:</p>
+  <p class="lang-fa">بازاری با <strong>N</strong> نتیجه (بازه) را در نظر بگیرید:</p>
+  <ul>
+    <li><span class="lang-en"><strong>k</strong> (= <code>total_minted</code>): Total collateral deposited as complete sets.</span><span class="lang-fa"><strong>k</strong> (= <code>total_minted</code>): مجموع وثیقه واریزشده.</span></li>
+    <li><span class="lang-en"><strong>h = (h&#8321;, &#8230;, h&#8345;)</strong> (= <code>reserves</code>): AMM reserves per outcome.</span><span class="lang-fa"><strong>h = (h&#8321;, &#8230;, h&#8345;)</strong> (= <code>reserves</code>): ذخایر AMM.</span></li>
+    <li><span class="lang-en"><strong>x = (x&#8321;, &#8230;, x&#8345;)</strong>: Positions held by traders, where <span class="math-inline">$x_i = k - h_i$</span></span><span class="lang-fa"><strong>x = (x&#8321;, &#8230;, x&#8345;)</strong>: موقعیت‌های معامله‌گران، <span class="math-inline">$x_i = k - h_i$</span></span></li>
+  </ul>
+
+  <div class="subsection-title">
+    <span class="lang-en">2.2 The Invariant</span>
+    <span class="lang-fa">۲.۲ ناوردا (Invariant)</span>
+  </div>
+  <p class="lang-en">The AMM enforces a <strong>constant L&#8322;-norm</strong> on the position vector:</p>
+  <p class="lang-fa">AMM یک <strong>نُرم L&#8322; ثابت</strong> روی بردار موقعیت اعمال می‌کند:</p>
+  <div class="math-block">
+    $$\|\mathbf{x}\|_2 = \sqrt{\sum_{i=1}^{N} x_i^2} = k \quad \Longleftrightarrow \quad \sum_{i=1}^{N} x_i^2 = k^2$$
+  </div>
+  <p class="lang-en">This defines a <strong>hypersphere</strong> of radius k in position space. All valid AMM states lie on this surface.</p>
+  <p class="lang-fa">این یک <strong>ابَرکُره</strong> به شعاع k تعریف می‌کند. تمام حالات معتبر AMM روی این سطح قرار دارند.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">2.3 Why L&#8322;-Norm? — Market Scoring Rule</span>
+    <span class="lang-fa">۲.۳ چرا نُرم L&#8322;؟ — قاعده امتیازدهی بازار</span>
+  </div>
+  <p class="lang-en">A rational trader maximizes expected value on the invariant surface. By <strong>Cauchy-Schwarz</strong>:</p>
+  <p class="lang-fa">یک معامله‌گر عقلانی ارزش مورد انتظار را بیشینه می‌کند. طبق <strong>کوشی-شوارتس</strong>:</p>
+  <div class="math-block">
+    $$\mathbf{x}^* = k \cdot \frac{\mathbf{p}}{\|\mathbf{p}\|_2} \quad \Rightarrow \quad x_i \propto p_i$$
+  </div>
+  <p class="lang-en">The optimal position is directly proportional to the true probability distribution — making the L&#8322;-norm AMM a <strong>market scoring rule</strong>.</p>
+  <p class="lang-fa">موقعیت بهینه مستقیماً متناسب با توزیع احتمال واقعی است — ویژگی <strong>قاعده امتیازدهی بازار</strong>.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">2.4 Probability Extraction</span>
+    <span class="lang-fa">۲.۴ استخراج احتمال</span>
+  </div>
+  <p class="lang-en"><strong>Linear (true at equilibrium):</strong> <span class="math-inline">$p_i = x_i / \sum_j x_j$</span></p>
+  <p class="lang-fa"><strong>خطی (واقعی در تعادل):</strong> <span class="math-inline">$p_i = x_i / \sum_j x_j$</span></p>
+  <p class="lang-en"><strong>Quadratic (used by DekantPM):</strong></p>
+  <p class="lang-fa"><strong>درجه دو (مورد استفاده DekantPM):</strong></p>
+  <div class="math-block">
+    $$\hat{p}_i = \frac{x_i^2}{k^2} \qquad \sum_i \hat{p}_i = 1 \;\text{(automatic)}$$
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">2.5 Quadratic Distortion</span>
+    <span class="lang-fa">۲.۵ اعوجاج درجه دو</span>
+  </div>
+  <p class="lang-en">The quadratic formula compresses values toward the extremes. A true 70% becomes ~84.5% displayed.</p>
+  <p class="lang-fa">فرمول درجه دو مقادیر را به سمت حدود فشرده می‌کند. ۷۰٪ واقعی حدود ۸۴.۵٪ نمایش داده می‌شود.</p>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th><span class="lang-en">True probability</span><span class="lang-fa">احتمال واقعی</span></th>
+        <th><span class="lang-en">Quadratic p&#770; (displayed)</span><span class="lang-fa">p&#770; درجه دو (نمایشی)</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td>50%</td><td>50.0%</td></tr>
+        <tr><td>60%</td><td>69.2%</td></tr>
+        <tr><td>70%</td><td>84.5%</td></tr>
+        <tr><td>80%</td><td>94.1%</td></tr>
+        <tr><td>90%</td><td>98.8%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="lang-en">To recover true probabilities: <span class="math-inline">$p_i = \sqrt{\hat{p}_i} / \sum_j \sqrt{\hat{p}_j}$</span></p>
+  <p class="lang-fa">بازیابی احتمالات واقعی: <span class="math-inline">$p_i = \sqrt{\hat{p}_i} / \sum_j \sqrt{\hat{p}_j}$</span></p>
+
+  <!-- ==================== DEMO: Probability Distortion ==================== -->
+  <div class="demo-card" id="demo-distortion">
+    <div class="demo-title">
+      &#9881;
+      <span class="lang-en">Interactive: Probability Distortion</span>
+      <span class="lang-fa">تعاملی: اعوجاج احتمال</span>
+    </div>
+    <div class="demo-subtitle">
+      <span class="lang-en">Drag the slider to see how true probability maps to quadratic displayed probability (binary market)</span>
+      <span class="lang-fa">اسلایدر را بکشید تا ببینید احتمال واقعی چگونه به احتمال درجه دو نگاشت می‌شود (بازار دوتایی)</span>
+    </div>
+
+    <div class="demo-controls" style="max-width:400px;">
+      <div class="control-group" style="grid-column: 1 / -1;">
+        <div style="display:flex;justify-content:space-between;">
+          <span class="control-label"><span class="lang-en">True Probability (p&#8321;)</span><span class="lang-fa">احتمال واقعی (p&#8321;)</span></span>
+          <span class="control-value" id="distortionSliderVal">50%</span>
+        </div>
+        <input type="range" class="control-input" id="distortionSlider" min="1" max="99" value="50" oninput="updateDistortion()">
+      </div>
+    </div>
+
+    <div class="distortion-display">
+      <div class="distortion-circle true-prob">
+        <div class="big-num" id="trueP1" style="color:var(--success)">50.0%</div>
+        <div class="label"><span class="lang-en">True p&#8321;</span><span class="lang-fa">واقعی p&#8321;</span></div>
+      </div>
+      <div class="distortion-arrow">&#10230;</div>
+      <div class="distortion-circle quad-prob">
+        <div class="big-num" id="quadP1" style="color:var(--warning)">50.0%</div>
+        <div class="label"><span class="lang-en">Displayed p&#770;&#8321;</span><span class="lang-fa">نمایشی p&#770;&#8321;</span></div>
+      </div>
+    </div>
+
+    <div class="chart-container" style="height:220px;"><canvas id="distortionChart"></canvas></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 3: Market Initialization
+     ============================================================ -->
+<div class="section" id="sec3">
+  <div class="section-header">
+    <div class="section-num">3</div>
+    <div class="section-title">
+      <span class="lang-en">Market Initialization</span>
+      <span class="lang-fa">مقداردهی اولیه بازار</span>
+    </div>
+  </div>
+
+  <p class="lang-en">When created with initial liquidity <strong>L</strong> and <strong>N</strong> outcomes:</p>
+  <p class="lang-fa">با نقدینگی اولیه <strong>L</strong> و <strong>N</strong> نتیجه:</p>
+  <div class="math-block">
+    $$k = L, \quad x_i = \lfloor\sqrt{L^2/N}\rfloor, \quad h_i = L - x_i, \quad \hat{p}_i \approx 1/N$$
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 4: Discrete Trading
+     ============================================================ -->
+<div class="section" id="sec4">
+  <div class="section-header">
+    <div class="section-num">4</div>
+    <div class="section-title">
+      <span class="lang-en">Discrete Trading</span>
+      <span class="lang-fa">معاملات گسسته</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">4.1 Buy (Single Outcome)</span>
+    <span class="lang-fa">۴.۱ خرید (نتیجه تکی)</span>
+  </div>
+  <p class="lang-en">Trader spends <strong>c</strong> collateral (after fees) to buy tokens of outcome <strong>i</strong>. Complete-set minting first, then solve:</p>
+  <p class="lang-fa">معامله‌گر <strong>c</strong> وثیقه (پس از کارمزد) برای خرید توکن‌های نتیجه <strong>i</strong> هزینه می‌کند:</p>
+  <div class="math-block">
+    $$k' = k + c, \qquad x'_i = \sqrt{k'^2 - \sum_{j \neq i} x_j^2}, \qquad \text{tokens} = x'_i - x_i$$
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">4.2 Sell (Single Outcome)</span>
+    <span class="lang-fa">۴.۲ فروش (نتیجه تکی)</span>
+  </div>
+  <p class="lang-en">Return <strong>t</strong> tokens: <span class="math-inline">$x'_i = x_i - t$</span>, compute <span class="math-inline">$k' = \sqrt{\sum_j x'^2_j}$</span>, collateral out = <span class="math-inline">$k - k'$</span>.</p>
+  <p class="lang-fa">بازگرداندن <strong>t</strong> توکن: <span class="math-inline">$x'_i = x_i - t$</span>، محاسبه <span class="math-inline">$k' = \sqrt{\sum_j x'^2_j}$</span>، وثیقه خروجی = <span class="math-inline">$k - k'$</span>.</p>
+</div>
+
+<!-- ============================================================
+     SECTION 5: Distribution Trading
+     ============================================================ -->
+<div class="section" id="sec5">
+  <div class="section-header">
+    <div class="section-num">5</div>
+    <div class="section-title">
+      <span class="lang-en">Distribution Trading (Continuous Markets)</span>
+      <span class="lang-fa">معاملات توزیعی (بازارهای پیوسته)</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">5.1 Bin Discretization</span>
+    <span class="lang-fa">۵.۱ گسسته‌سازی بازه‌ای</span>
+  </div>
+  <p class="lang-en">Range [a, b] divided into N bins. Bin center: <span class="math-inline">$\text{center}_j = a + (2j+1)(b-a)/(2N)$</span></p>
+  <p class="lang-fa">بازه [a, b] به N بازه تقسیم. مرکز: <span class="math-inline">$\text{center}_j = a + (2j+1)(b-a)/(2N)$</span></p>
+
+  <div class="subsection-title">
+    <span class="lang-en">5.2 Normal PDF Weights</span>
+    <span class="lang-fa">۵.۲ وزن‌های PDF نرمال</span>
+  </div>
+  <div class="math-block">
+    $$z_j = \frac{\text{center}_j - \mu}{\sigma}, \qquad w_j = e^{-z_j^2/2} \approx 1 - \frac{t}{2} + \frac{t^2}{8} - \frac{t^3}{48} + \frac{t^4}{384}$$
+  </div>
+  <p class="lang-en">Weights normalized so <span class="math-inline">$\sum W_j = S = 10^9$</span>.</p>
+  <p class="lang-fa">وزن‌ها نرمالیزه تا <span class="math-inline">$\sum W_j = S = 10^9$</span>.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">5.3 Distribution Buy</span>
+    <span class="lang-fa">۵.۳ خرید توزیعی</span>
+  </div>
+  <div class="math-block">
+    $$XW = \sum_j x_j W_j, \quad W^2 = \sum_j W_j^2, \quad \lambda = \sqrt{XW^2 + W^2 \cdot (k'^2 - k^2)} - XW$$
+  </div>
+  <div class="math-block">
+    $$\text{tokens\_out}_j = \frac{\lambda \cdot W_j}{W^2}$$
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">5.4 Distribution Sell</span>
+    <span class="lang-fa">۵.۴ فروش توزیعی</span>
+  </div>
+  <p class="lang-en">Trader returns <strong>T</strong> total tokens, distributed proportionally by Gaussian weights. Each bin receives <span class="math-inline">$t_j = T \cdot W_j / S$</span>, capped at the trader's holdings. After deducting tokens, recompute:</p>
+  <p class="lang-fa">معامله‌گر <strong>T</strong> توکن بازمی‌گرداند، متناسب با وزن‌های گاوسی. هر بازه <span class="math-inline">$t_j = T \cdot W_j / S$</span> دریافت می‌کند (محدود به دارایی معامله‌گر). پس از کسر توکن‌ها:</p>
+  <div class="math-block">
+    $$x'_j = x_j - t_j, \qquad k' = \sqrt{\sum_j x'^2_j}, \qquad \text{collateral\_out} = k - k'$$
+  </div>
+
+  <!-- ==================== DEMO: Market Playground ==================== -->
+  <div class="demo-card" id="demo-playground">
+    <div class="demo-title">
+      &#9881;
+      <span class="lang-en">Interactive: Continuous Market Playground</span>
+      <span class="lang-fa">تعاملی: آزمایشگاه بازار پیوسته</span>
+    </div>
+    <div class="demo-subtitle">
+      <span class="lang-en">Create a market, add traders & LPs, trade (buy/sell), and watch the probability distribution shift. Resolve to see payouts.</span>
+      <span class="lang-fa">یک بازار بسازید، معامله‌گر و LP اضافه کنید، معامله (خرید/فروش) کنید و تغییر توزیع احتمال را ببینید. تعیین نتیجه برای مشاهده پرداخت‌ها.</span>
+    </div>
+
+    <!-- Toolbar: active trader + chart mode -->
+    <div class="playground-toolbar" id="pgToolbar" style="display:none;">
+      <div class="toolbar-group">
+        <span class="toolbar-label"><span class="lang-en">Active Trader</span><span class="lang-fa">معامله‌گر فعال</span></span>
+        <select class="toolbar-select" id="activeTrader" onchange="updatePortfolioTab(); updateDiscreteTradePreview(); updateDistTradePreview(); updateTradeResultFooters()"></select>
+      </div>
+      <div class="toolbar-group">
+        <span class="toolbar-label"><span class="lang-en">Chart</span><span class="lang-fa">نمودار</span></span>
+        <div class="chart-mode-group">
+          <button class="chart-mode-btn active" onclick="setChartMode('bar',this)"><span class="lang-en">Bars</span><span class="lang-fa">میله‌ای</span></button>
+          <button class="chart-mode-btn" onclick="setChartMode('line',this)"><span class="lang-en">Continuous</span><span class="lang-fa">پیوسته</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs" id="pgTabs">
+      <button class="tab active" onclick="switchTab('setup', this)">
+        <span class="lang-en">Setup</span><span class="lang-fa">تنظیم</span>
+      </button>
+      <button class="tab" onclick="switchTab('traders', this)">
+        <span class="lang-en">Traders</span><span class="lang-fa">معامله‌گران</span>
+      </button>
+      <button class="tab" onclick="switchTab('discrete', this)">
+        <span class="lang-en">Discrete</span><span class="lang-fa">گسسته</span>
+      </button>
+      <button class="tab" onclick="switchTab('distribution', this)">
+        <span class="lang-en">Distribution</span><span class="lang-fa">توزیعی</span>
+      </button>
+      <button class="tab" onclick="switchTab('liquidity', this)">
+        <span class="lang-en">Liquidity</span><span class="lang-fa">نقدینگی</span>
+      </button>
+      <button class="tab" onclick="switchTab('resolve', this)">
+        <span class="lang-en">Resolve</span><span class="lang-fa">تعیین نتیجه</span>
+      </button>
+      <button class="tab" onclick="switchTab('portfolio', this)">
+        <span class="lang-en">Portfolio</span><span class="lang-fa">سبد</span>
+      </button>
+    </div>
+
+    <!-- ===== Setup Tab ===== -->
+    <div class="tab-content active" id="tab-setup">
+      <!-- Market selector -->
+      <div class="market-selector-row">
+        <span class="control-label" style="white-space:nowrap;"><span class="lang-en">Market</span><span class="lang-fa">بازار</span></span>
+        <select id="marketSelector" onchange="switchMarket(this.value)"></select>
+      </div>
+      <!-- Question input -->
+      <div class="question-row">
+        <input type="text" id="pgQuestion" placeholder="Market question (optional) / سؤال بازار (اختیاری)" style="font-family:inherit;">
+        <button class="btn-sm" onclick="document.getElementById('pgQuestion').value = generateRandomQuestion()">
+          <span class="lang-en">Random &#127922;</span><span class="lang-fa">تصادفی &#127922;</span>
+        </button>
+      </div>
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Bins (N)</span><span class="lang-fa">تعداد بازه‌ها (N)</span></span>
+          <select class="control-input" id="pgBins" onchange="onBinSelectChange()">
+            <option value="5">5</option>
+            <option value="8">8</option>
+            <option value="16" selected>16</option>
+            <option value="32">32</option>
+            <option value="64">64</option>
+            <option value="128">128</option>
+            <option value="256">256</option>
+            <option value="512">512</option>
+            <option value="1000">1,000</option>
+            <option value="custom">Custom / سفارشی</option>
+          </select>
+          <input type="number" class="control-input" id="pgBinsCustom" style="display:none;" min="2" max="10000" placeholder="2 - 10,000">
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Range Min</span><span class="lang-fa">حداقل بازه</span></span>
+          <input type="number" class="control-input" id="pgRangeMin" value="2000">
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Range Max</span><span class="lang-fa">حداکثر بازه</span></span>
+          <input type="number" class="control-input" id="pgRangeMax" value="4000">
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Liquidity (L)</span><span class="lang-fa">نقدینگی (L)</span></span>
+          <input type="number" class="control-input" id="pgLiquidity" value="1000000">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="initPlayground()">
+          <span class="lang-en">Create Market</span><span class="lang-fa">ایجاد بازار</span>
+        </button>
+        <button class="btn btn-outline" onclick="openFeeModal()">
+          <span class="lang-en">&#9881; Fees</span><span class="lang-fa">&#9881; کارمزدها</span>
+        </button>
+        <button class="btn btn-danger" onclick="resetPlayground()">
+          <span class="lang-en">Reset</span><span class="lang-fa">بازنشانی</span>
+        </button>
+      </div>
+      <div id="feeDisplayInfo" style="display:none;margin-top:8px;"></div>
+    </div>
+
+    <!-- ===== Traders Tab ===== -->
+    <div class="tab-content" id="tab-traders">
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px;">
+        <span class="lang-en">Traders are global and can trade on any market. LP providers are per-market. The market creator is automatically registered as the initial LP.</span>
+        <span class="lang-fa">معامله‌گران سراسری هستند و می‌توانند در هر بازاری معامله کنند. تأمین‌کنندگان نقدینگی مختص هر بازار هستند. سازنده بازار به عنوان LP اولیه ثبت می‌شود.</span>
+      </p>
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Name</span><span class="lang-fa">نام</span></span>
+          <input type="text" class="control-input" id="traderNameInput" placeholder="Alice" style="font-family:inherit;">
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Wallet Balance</span><span class="lang-fa">موجودی کیف پول</span></span>
+          <input type="number" class="control-input" id="traderBalanceInput" value="500000">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="addGlobalTrader()">
+          <span class="lang-en">Add Trader</span><span class="lang-fa">افزودن معامله‌گر</span>
+        </button>
+        <button class="btn btn-purple" onclick="addLpUI()">
+          <span class="lang-en">Register LP Provider</span><span class="lang-fa">ثبت تأمین‌کننده نقدینگی</span>
+        </button>
+      </div>
+      <div id="globalTradersList" style="margin-top:12px;"></div>
+      <div id="participantsList"></div>
+      <!-- Top-up section -->
+      <div class="topup-section">
+        <span class="control-label" style="display:block;margin-bottom:8px;font-weight:600;">
+          <span class="lang-en">Top Up Trader Balance</span><span class="lang-fa">افزایش موجودی معامله‌گر</span>
+        </span>
+        <div class="demo-controls" style="margin-bottom:8px;">
+          <div class="control-group">
+            <span class="control-label"><span class="lang-en">Trader</span><span class="lang-fa">معامله‌گر</span></span>
+            <select class="control-input" id="topUpTrader"></select>
+          </div>
+          <div class="control-group">
+            <span class="control-label"><span class="lang-en">Amount</span><span class="lang-fa">مقدار</span></span>
+            <input type="number" class="control-input" id="topUpAmount" value="500000">
+          </div>
+        </div>
+        <button class="btn btn-success" onclick="topUpTrader()" style="width:auto;">
+          <span class="lang-en">Top Up</span><span class="lang-fa">شارژ</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ===== Discrete Trade Tab ===== -->
+    <div class="tab-content" id="tab-discrete">
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Target Bin</span><span class="lang-fa">بازه هدف</span></span>
+          <input type="number" class="control-input" id="pgDiscreteBin" value="0" min="0" oninput="syncDiscreteSlider('input')">
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Amount</span><span class="lang-fa">مقدار</span></span>
+          <input type="number" class="control-input" id="pgDiscreteAmount" value="100000" oninput="updateDiscreteTradePreview()">
+        </div>
+      </div>
+      <!-- Bin slider -->
+      <div class="slider-row" id="discreteSliderRow" style="display:none;">
+        <input type="range" class="control-input" id="pgDiscreteBinSlider" min="0" max="15" value="0" oninput="syncDiscreteSlider('slider')">
+        <div class="slider-labels">
+          <span id="discreteSliderMin">0</span>
+          <span id="discreteSliderCenter" style="font-weight:600;color:var(--accent);"></span>
+          <span id="discreteSliderMax">15</span>
+        </div>
+      </div>
+      <!-- Bin preview SVG -->
+      <div class="trade-preview" id="discretePreview" style="display:none;">
+        <svg id="discretePreviewSvg" viewBox="0 0 400 100" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="trade-preview-legend">
+          <span><span class="swatch-dashed"></span><span class="lang-en">Market</span><span class="lang-fa">بازار</span></span>
+          <span><span class="swatch" style="background:var(--success);"></span><span class="lang-en">Selected bin</span><span class="lang-fa">بازه انتخاب‌شده</span></span>
+        </div>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+        <span class="lang-en">Buy: amount = collateral to spend. Sell: amount = tokens to return.</span>
+        <span class="lang-fa">خرید: مقدار = وثیقه. فروش: مقدار = توکن برای بازگرداندن.</span>
+      </p>
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="playgroundDiscreteBuy()">
+          <span class="lang-en">Buy</span><span class="lang-fa">خرید</span>
+        </button>
+        <button class="btn btn-danger" onclick="playgroundDiscreteSell()">
+          <span class="lang-en">Sell</span><span class="lang-fa">فروش</span>
+        </button>
+      </div>
+      <div style="margin-top:8px;margin-bottom:4px;"><button class="btn btn-xs btn-outline" id="discretePreviewToggle" onclick="toggleDiscretePreviewMode()">Buy ▸ Sell</button> <span style="font-size:0.75rem;color:var(--text-muted);"><span class="lang-en">Toggle preview mode</span><span class="lang-fa">تغییر حالت پیش‌نمایش</span></span></div>
+      <div class="trade-result" id="discreteTradePreview" style="display:none;"></div>
+      <div class="trade-result" id="discreteTradeResult" style="display:none;"></div>
+    </div>
+
+    <!-- ===== Distribution Trade Tab ===== -->
+    <div class="tab-content" id="tab-distribution">
+      <!-- Prediction center (mu) -->
+      <div style="margin-bottom:16px;">
+        <span class="control-label" style="display:block;margin-bottom:6px;"><span class="lang-en">Your Prediction</span><span class="lang-fa">پیش‌بینی شما</span></span>
+        <div class="demo-controls" style="margin-bottom:4px;">
+          <div class="control-group" style="grid-column: 1 / -1;">
+            <input type="number" class="control-input" id="pgDistMu" value="3000" oninput="syncDistSliders('mu-input')">
+          </div>
+        </div>
+        <div class="slider-row" id="distMuSliderRow" style="display:none;">
+          <input type="range" class="control-input" id="pgDistMuSlider" min="2000" max="4000" step="1" value="3000" oninput="syncDistSliders('mu-slider')">
+          <div class="slider-labels">
+            <span id="distMuSliderMin">2000</span>
+            <span id="distMuSliderMax">4000</span>
+          </div>
+        </div>
+      </div>
+      <!-- Confidence (sigma) -->
+      <div style="margin-bottom:16px;">
+        <span class="control-label" style="display:block;margin-bottom:6px;"><span class="lang-en">Confidence</span><span class="lang-fa">اطمینان</span></span>
+        <div class="slider-row" id="distConfSliderRow" style="display:none;">
+          <input type="range" class="control-input range-confidence" id="pgConfidenceSlider" min="0" max="1" step="0.01" value="0.5" oninput="syncDistSliders('conf-slider')">
+          <div class="slider-labels">
+            <span><span class="lang-en">Very sure</span><span class="lang-fa">بسیار مطمئن</span></span>
+            <span><span class="lang-en">Uncertain</span><span class="lang-fa">نامطمئن</span></span>
+          </div>
+          <div class="slider-hint" id="distConfHint"></div>
+        </div>
+        <div class="demo-controls" style="margin-top:8px;">
+          <div class="control-group">
+            <span class="control-label">&#963; (<span class="lang-en">Std Dev</span><span class="lang-fa">انحراف معیار</span>)</span>
+            <input type="number" class="control-input" id="pgDistSigma" value="400" oninput="syncDistSliders('sigma-input')">
+          </div>
+          <div class="control-group">
+            <span class="control-label"><span class="lang-en">Amount</span><span class="lang-fa">مقدار</span></span>
+            <input type="number" class="control-input" id="pgDistAmount" value="200000" oninput="updateDistTradePreview()">
+          </div>
+        </div>
+      </div>
+      <!-- Distribution preview SVG -->
+      <div class="trade-preview" id="distPreview" style="display:none;">
+        <svg id="distPreviewSvg" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="trade-preview-legend">
+          <span><span class="swatch" style="background:#3b82f6;"></span><span class="lang-en">Your prediction</span><span class="lang-fa">پیش‌بینی شما</span></span>
+          <span><span class="swatch-dashed"></span><span class="lang-en">Market</span><span class="lang-fa">بازار</span></span>
+        </div>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+        <span class="lang-en">Buy: amount = collateral. Sell: amount = total tokens to sell (distributed by Gaussian weights).</span>
+        <span class="lang-fa">خرید: مقدار = وثیقه. فروش: مقدار = مجموع توکن‌ها (توزیع‌شده با وزن‌های گاوسی).</span>
+      </p>
+      <div class="btn-group">
+        <button class="btn btn-accent" onclick="playgroundDistBuy()">
+          <span class="lang-en">Distribution Buy</span><span class="lang-fa">خرید توزیعی</span>
+        </button>
+        <button class="btn btn-danger" onclick="playgroundDistSell()">
+          <span class="lang-en">Distribution Sell</span><span class="lang-fa">فروش توزیعی</span>
+        </button>
+      </div>
+      <div style="margin-top:8px;margin-bottom:4px;"><button class="btn btn-xs btn-outline" id="distPreviewToggle" onclick="toggleDistPreviewMode()">Buy ▸ Sell</button> <span style="font-size:0.75rem;color:var(--text-muted);"><span class="lang-en">Toggle preview mode</span><span class="lang-fa">تغییر حالت پیش‌نمایش</span></span></div>
+      <div class="trade-result" id="distTradePreview" style="display:none;"></div>
+      <div class="trade-result" id="distTradeResult" style="display:none;"></div>
+    </div>
+
+    <!-- ===== Liquidity Tab ===== -->
+    <div class="tab-content" id="tab-liquidity">
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px;">
+        <span class="lang-en">Add or remove liquidity. LP providers must be registered in the Traders tab first. Adding liquidity preserves probabilities; removing returns proportional collateral + fee share.</span>
+        <span class="lang-fa">افزودن یا برداشت نقدینگی. تأمین‌کنندگان باید ابتدا در تب معامله‌گران ثبت شوند. افزودن نقدینگی احتمالات را حفظ می‌کند؛ برداشت وثیقه متناسب + سهم کارمزد بازمی‌گرداند.</span>
+      </p>
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">LP Provider</span><span class="lang-fa">تأمین‌کننده</span></span>
+          <select class="control-input" id="lpProviderSelect"></select>
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Amount / Shares</span><span class="lang-fa">مقدار / سهام</span></span>
+          <input type="number" class="control-input" id="lpAmount" value="200000">
+        </div>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+        <span class="lang-en">Add: amount = collateral to deposit. Remove: amount = LP shares to withdraw.</span>
+        <span class="lang-fa">افزودن: مقدار = وثیقه واریزی. برداشت: مقدار = سهام LP برای برداشت.</span>
+      </p>
+      <div class="btn-group">
+        <button class="btn btn-purple" onclick="playgroundAddLP()">
+          <span class="lang-en">Add Liquidity</span><span class="lang-fa">افزودن نقدینگی</span>
+        </button>
+        <button class="btn btn-outline" onclick="playgroundRemoveLP()">
+          <span class="lang-en">Remove Liquidity</span><span class="lang-fa">برداشت نقدینگی</span>
+        </button>
+      </div>
+      <div class="note-box" style="margin-top:16px;">
+        <p>
+          <span class="lang-en">For theoretical break-even analysis, see the <a href="#demo-lp" style="color:var(--accent);">LP Calculator</a> below.</span>
+          <span class="lang-fa">برای تحلیل نظری سربه‌سر، <a href="#demo-lp" style="color:var(--accent);">محاسبه‌گر LP</a> پایین را ببینید.</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- ===== Resolve Tab ===== -->
+    <div class="tab-content" id="tab-resolve">
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Resolved Value</span><span class="lang-fa">مقدار تعیین‌شده</span></span>
+          <input type="number" class="control-input" id="pgResolveValue" value="3150">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="resolveBtn" onclick="playgroundResolve()">
+        <span class="lang-en">Resolve Market</span><span class="lang-fa">تعیین نتیجه بازار</span>
+      </button>
+      <div id="payoutsSection" style="display:none;"></div>
+    </div>
+
+    <!-- ===== Portfolio Tab ===== -->
+    <div class="tab-content" id="tab-portfolio">
+      <div id="portfolioTabContent">
+        <p style="color:var(--text-muted);font-size:0.85rem;">
+          <span class="lang-en">Create a market and make trades to see portfolio data.</span>
+          <span class="lang-fa">یک بازار بسازید و معامله کنید تا داده‌های سبد را ببینید.</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Results grid -->
+    <div class="result-grid" id="pgResults" style="display:none;">
+      <div class="result-item"><div class="result-label">k (<span class="lang-en">Total Minted</span><span class="lang-fa">مجموع ضرب‌شده</span>)</div><div class="result-value" id="pgK">-</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">LP Fees</span><span class="lang-fa">کارمزد LP</span></div><div class="result-value" id="pgFees">-</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Actions</span><span class="lang-fa">عملیات</span></div><div class="result-value" id="pgTrades">0</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Invariant</span><span class="lang-fa">ناوردا</span> &#8721;x&#178;</div><div class="result-value" id="pgInvariant">-</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">LP Shares</span><span class="lang-fa">سهام LP</span></div><div class="result-value" id="pgLpShares">-</div></div>
+    </div>
+
+    <!-- Chart -->
+    <div id="pgChartContainer" style="display:none;">
+      <div class="chart-header">
+        <span class="chart-header-label"><span class="lang-en">Probability Distribution</span><span class="lang-fa">توزیع احتمال</span></span>
+      </div>
+      <div class="chart-container"><canvas id="pgChart"></canvas></div>
+    </div>
+
+    <!-- Participants summary -->
+    <div id="pgParticipantsSummary" style="display:none;"></div>
+  </div>
+
+  <!-- ==================== EXPANDABLE: Gaussian Explorer ==================== -->
+  <div class="expandable-demo" id="demo-gaussian">
+    <button class="expandable-toggle" onclick="toggleExpandable(this)">
+      <span>
+        &#9881;
+        <span class="lang-en">Interactive: Gaussian Discretization Explorer</span>
+        <span class="lang-fa">تعاملی: نمایشگر گسسته‌سازی گاوسی</span>
+      </span>
+      <span class="expand-arrow">&#9660;</span>
+    </button>
+    <div class="expandable-body">
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px;">
+        <span class="lang-en">Visualize how a continuous Gaussian PDF is approximated by discrete bin weights. Adjust parameters to see how the number of bins affects approximation quality.</span>
+        <span class="lang-fa">ببینید چگونه یک PDF گاوسی پیوسته با وزن‌های بازه‌ای گسسته تقریب زده می‌شود. پارامترها را تنظیم کنید تا تأثیر تعداد بازه‌ها بر کیفیت تقریب را ببینید.</span>
+      </p>
+      <div class="demo-controls">
+        <div class="control-group">
+          <span class="control-label">&#956;</span>
+          <input type="range" class="control-input" id="gaussMu" min="0" max="100" value="50" oninput="updateGaussian()">
+          <span class="control-value" id="gaussMuVal">50</span>
+        </div>
+        <div class="control-group">
+          <span class="control-label">&#963;</span>
+          <input type="range" class="control-input" id="gaussSigma" min="2" max="30" value="12" oninput="updateGaussian()">
+          <span class="control-value" id="gaussSigmaVal">12</span>
+        </div>
+        <div class="control-group">
+          <span class="control-label"><span class="lang-en">Bins</span><span class="lang-fa">بازه‌ها</span></span>
+          <select class="control-input" id="gaussBins" onchange="updateGaussian()">
+            <option value="5">5</option>
+            <option value="8">8</option>
+            <option value="16" selected>16</option>
+            <option value="32">32</option>
+            <option value="64">64</option>
+            <option value="128">128</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-container" style="height:260px;"><canvas id="gaussChart"></canvas></div>
+      <div class="result-grid" style="margin-top:8px;">
+        <div class="result-item"><div class="result-label"><span class="lang-en">Approx. Error</span><span class="lang-fa">خطای تقریب</span></div><div class="result-value" id="gaussError">-</div></div>
+        <div class="result-item"><div class="result-label"><span class="lang-en">Max Weight Bin</span><span class="lang-fa">بازه حداکثر وزن</span></div><div class="result-value" id="gaussPeak">-</div></div>
+        <div class="result-item"><div class="result-label"><span class="lang-en">Active Bins</span><span class="lang-fa">بازه‌های فعال</span></div><div class="result-value" id="gaussActive">-</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 6: Liquidity Provision
+     ============================================================ -->
+<div class="section" id="sec6">
+  <div class="section-header">
+    <div class="section-num">6</div>
+    <div class="section-title">
+      <span class="lang-en">Liquidity Provision</span>
+      <span class="lang-fa">تأمین نقدینگی</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">6.1 Adding Liquidity</span>
+    <span class="lang-fa">۶.۱ افزودن نقدینگی</span>
+  </div>
+  <p class="lang-en">LP deposits <strong>d</strong>. Reserves scale proportionally, preserving probabilities:</p>
+  <p class="lang-fa">LP مقدار <strong>d</strong> واریز می‌کند. ذخایر متناسب مقیاس می‌شوند:</p>
+  <div class="math-block">
+    $$h'_j = h_j \cdot \frac{k+d}{k}, \qquad k' = k + d$$
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">6.2 Removing Liquidity</span>
+    <span class="lang-fa">۶.۲ برداشت نقدینگی</span>
+  </div>
+  <p class="lang-en"><strong>Active:</strong> <span class="math-inline">$\text{out} = k \cdot s / L_{\text{total}}$</span>. <strong>Resolved:</strong> <span class="math-inline">$\text{out} = h_{\text{win}} \cdot s / L_{\text{total}}$</span> + fee share.</p>
+  <p class="lang-fa"><strong>فعال:</strong> <span class="math-inline">$\text{out} = k \cdot s / L_{\text{total}}$</span>. <strong>تعیین‌نتیجه‌شده:</strong> <span class="math-inline">$\text{out} = h_{\text{win}} \cdot s / L_{\text{total}}$</span> + سهم کارمزد.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">6.3 LP Economics</span>
+    <span class="lang-fa">۶.۳ اقتصاد LP</span>
+  </div>
+  <p class="lang-en">LPs earn 0.15% per trade (default). They face <strong>divergence loss</strong> and <strong>adverse selection</strong> from informed traders. Baseline loss on uniform resolution = <span class="math-inline">$1/\sqrt{N}$</span> of the deposited liquidity.</p>
+  <p class="lang-fa">LPها ۰.۱۵٪ به ازای هر معامله کسب می‌کنند. با <strong>زیان واگرایی</strong> و <strong>انتخاب نامطلوب</strong> مواجه‌اند. زیان پایه = <span class="math-inline">$1/\sqrt{N}$</span> از نقدینگی واریزشده.</p>
+
+  <div class="note-box">
+    <p>
+      <span class="lang-en">Try hands-on LP operations in the <a href="#demo-playground" style="color:var(--accent);">Market Playground</a> above (Liquidity tab).</span>
+      <span class="lang-fa">عملیات LP را در <a href="#demo-playground" style="color:var(--accent);">آزمایشگاه بازار</a> بالا (تب نقدینگی) امتحان کنید.</span>
+    </p>
+  </div>
+
+  <!-- ==================== DEMO: LP Calculator ==================== -->
+  <div class="demo-card" id="demo-lp">
+    <div class="demo-title">
+      &#9881;
+      <span class="lang-en">Interactive: LP Break-even Calculator</span>
+      <span class="lang-fa">تعاملی: محاسبه‌گر سربه‌سر LP</span>
+    </div>
+    <div class="demo-subtitle">
+      <span class="lang-en">How much trading volume does an LP need to break even?</span>
+      <span class="lang-fa">LP به چه حجم معاملاتی برای سربه‌سر شدن نیاز دارد؟</span>
+    </div>
+
+    <div class="demo-controls">
+      <div class="control-group">
+        <span class="control-label"><span class="lang-en">Pool Size ($)</span><span class="lang-fa">اندازه استخر ($)</span></span>
+        <input type="number" class="control-input" id="lpPool" value="100000" oninput="updateLP()">
+      </div>
+      <div class="control-group">
+        <span class="control-label"><span class="lang-en">Bins</span><span class="lang-fa">بازه‌ها</span></span>
+        <select class="control-input" id="lpBins" onchange="updateLP()">
+          <option value="16">16</option>
+          <option value="32">32</option>
+          <option value="64" selected>64</option>
+          <option value="128">128</option>
+          <option value="256">256</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label"><span class="lang-en">Trade Fee (bps)</span><span class="lang-fa">کارمزد (واحد پایه)</span></span>
+        <input type="number" class="control-input" id="lpFee" value="30" oninput="updateLP()">
+      </div>
+      <div class="control-group">
+        <span class="control-label"><span class="lang-en">LP Fee Share (%)</span><span class="lang-fa">سهم کارمزد LP (%)</span></span>
+        <input type="number" class="control-input" id="lpShare" value="50" oninput="updateLP()">
+      </div>
+    </div>
+
+    <div class="result-grid" id="lpResults">
+      <div class="result-item"><div class="result-label"><span class="lang-en">Baseline Loss</span><span class="lang-fa">زیان پایه</span></div><div class="result-value negative" id="lpLoss">-12.5%</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Break-even Volume</span><span class="lang-fa">حجم سربه‌سر</span></div><div class="result-value neutral" id="lpBreakeven">$8.3M</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Volume Multiple</span><span class="lang-fa">ضریب حجم</span></div><div class="result-value" id="lpMultiple">83x</div></div>
+    </div>
+
+    <div class="chart-container" style="height:250px;"><canvas id="lpChart"></canvas></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 7: Resolution & Payout
+     ============================================================ -->
+<div class="section" id="sec7">
+  <div class="section-header">
+    <div class="section-num">7</div>
+    <div class="section-title">
+      <span class="lang-en">Resolution and Payout</span>
+      <span class="lang-fa">تعیین نتیجه و پرداخت</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">7.1 Discrete Markets</span>
+    <span class="lang-fa">۷.۱ بازارهای گسسته</span>
+  </div>
+  <p class="lang-en">Oracle provides winning outcome. Holders redeem 1:1 minus redemption fee (default 0.5%).</p>
+  <p class="lang-fa">اوراکل نتیجه برنده را ارائه می‌دهد. نگهدارندگان به نسبت ۱:۱ منهای کارمزد بازخرید (۰.۵٪) بازخرید می‌کنند.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">7.2 Continuous Markets</span>
+    <span class="lang-fa">۷.۲ بازارهای پیوسته</span>
+  </div>
+  <div class="math-block">
+    $$\text{bin} = \left\lfloor\frac{(v-a) \cdot N}{b-a}\right\rfloor, \quad \text{clamped to } [0, N-1]$$
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">7.3 Solvency Guarantee</span>
+    <span class="lang-fa">۷.۳ تضمین توانایی پرداخت</span>
+  </div>
+  <div class="note-box">
+    <p class="lang-en"><strong>Theorem:</strong> The vault holds &#8805; k collateral at all times, and max redemption &#8804; k. Since <span class="math-inline">$x_i^2 \leq \sum x_j^2 = k^2$</span>, we have <span class="math-inline">$|x_i| \leq k$</span>. System is always solvent. &#8718;</p>
+    <p class="lang-fa"><strong>قضیه:</strong> صندوق همیشه &#8805; k وثیقه دارد. چون <span class="math-inline">$x_i^2 \leq k^2$</span>، حداکثر بازخرید &#8804; k. همیشه توان پرداخت دارد. &#8718;</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 8: Worked Example
+     ============================================================ -->
+<div class="section" id="sec8">
+  <div class="section-header">
+    <div class="section-num">8</div>
+    <div class="section-title">
+      <span class="lang-en">Worked Example: Continuous Market Lifecycle</span>
+      <span class="lang-fa">مثال عملی: چرخه حیات بازار پیوسته</span>
+    </div>
+  </div>
+
+  <p class="lang-en"><strong>Market:</strong> "ETH price on March 31" — Range [2000, 4000], N=5, L=1,000,000</p>
+  <p class="lang-fa"><strong>بازار:</strong> «قیمت ETH در ۳۱ مارس» — بازه [۲۰۰۰, ۴۰۰۰]، N=۵، L=۱,۰۰۰,۰۰۰</p>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th><span class="lang-en">Bin</span><span class="lang-fa">بازه</span></th>
+        <th><span class="lang-en">Range</span><span class="lang-fa">محدوده</span></th>
+        <th><span class="lang-en">Center</span><span class="lang-fa">مرکز</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td>0</td><td>[2000, 2400)</td><td>2200</td></tr>
+        <tr><td>1</td><td>[2400, 2800)</td><td>2600</td></tr>
+        <tr><td>2</td><td>[2800, 3200)</td><td>3000</td></tr>
+        <tr><td>3</td><td>[3200, 3600)</td><td>3400</td></tr>
+        <tr><td>4</td><td>[3600, 4000]</td><td>3800</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note-box">
+    <p class="lang-en">Try it yourself: Use the <a href="#demo-playground" style="color:var(--accent);">Market Playground</a> above with N=5, range [2000, 4000], L=1,000,000. Add traders (Alice, Bob, Carol), execute trades, add LP, then resolve at 3150 to see per-participant payouts.</p>
+    <p class="lang-fa">خودتان امتحان کنید: از <a href="#demo-playground" style="color:var(--accent);">آزمایشگاه بازار</a> بالا با N=۵، بازه [۲۰۰۰, ۴۰۰۰]، L=۱,۰۰۰,۰۰۰ استفاده کنید. معامله‌گران اضافه کنید، معامله انجام دهید و تعیین نتیجه را ببینید.</p>
+  </div>
+
+  <p class="lang-en"><strong>Lifecycle:</strong> Create (uniform 20%) &#8594; Alice buys bin 2 &#8594; p&#770;&#8322; rises to ~34% &#8594; Bob dist-buys N(3000,400) &#8594; bell curve ~40% at center &#8594; Carol adds LP &#8594; depth grows &#8594; Oracle: ETH=$3,150 &#8594; bin 2 wins &#8594; Alice profits, Bob partially profits, Carol gets residual + fees.</p>
+  <p class="lang-fa"><strong>چرخه حیات:</strong> ایجاد (یکنواخت ۲۰٪) &#8594; آلیس بازه ۲ &#8594; &#8776;۳۴٪ &#8594; باب خرید توزیعی N(۳۰۰۰,۴۰۰) &#8594; منحنی زنگی &#8776;۴۰٪ &#8594; کارول LP &#8594; اوراکل: ۳,۱۵۰$ &#8594; بازه ۲ برنده.</p>
+</div>
+
+<!-- ============================================================
+     SECTION 9: Fee Structure
+     ============================================================ -->
+<div class="section" id="sec9">
+  <div class="section-header">
+    <div class="section-num">9</div>
+    <div class="section-title">
+      <span class="lang-en">Fee Structure</span>
+      <span class="lang-fa">ساختار کارمزد</span>
+    </div>
+  </div>
+  <div class="math-block">
+    $$\text{trade\_fee} = \left\lfloor\frac{G \times 30}{10{,}000}\right\rfloor, \quad \text{lp\_fee} = 50\%, \quad \text{redemption\_fee} = 0.5\%$$
+  </div>
+  <p class="lang-en">A round-trip (buy+sell) costs &#8805; 2 &#215; 0.3% = 0.6%, creating a natural bid-ask spread. LP fees accumulate and distribute proportionally on withdrawal.</p>
+  <p class="lang-fa">یک رفت و برگشت (خرید+فروش) حداقل ۰.۶٪ هزینه دارد و اسپرد طبیعی ایجاد می‌کند.</p>
+</div>
+
+<!-- ============================================================
+     SECTION 10: Discretization
+     ============================================================ -->
+<div class="section" id="sec10">
+  <div class="section-header">
+    <div class="section-num">10</div>
+    <div class="section-title">
+      <span class="lang-en">The Discretization Approach</span>
+      <span class="lang-fa">رویکرد گسسته‌سازی</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">10.1 Advantages</span>
+    <span class="lang-fa">۱۰.۱ مزایا</span>
+  </div>
+  <ol>
+    <li><span class="lang-en"><strong>Simplicity</strong> — Same AMM engine for discrete and continuous markets.</span><span class="lang-fa"><strong>سادگی</strong> — همان موتور AMM برای هر دو نوع بازار.</span></li>
+    <li><span class="lang-en"><strong>On-chain efficiency</strong> — O(N) operations, max N=256.</span><span class="lang-fa"><strong>کارایی درون‌زنجیره‌ای</strong> — O(N)، حداکثر N=۲۵۶.</span></li>
+    <li><span class="lang-en"><strong>Composability</strong> — Bin tokens individually tradeable.</span><span class="lang-fa"><strong>ترکیب‌پذیری</strong> — توکن‌های بازه جداگانه قابل معامله.</span></li>
+    <li><span class="lang-en"><strong>Exact solvency</strong> — Complete-set minting guarantees.</span><span class="lang-fa"><strong>توانایی پرداخت دقیق</strong> — تضمین ضرب مجموعه کامل.</span></li>
+  </ol>
+
+  <div class="subsection-title">
+    <span class="lang-en">10.2 Disadvantages</span>
+    <span class="lang-fa">۱۰.۲ معایب</span>
+  </div>
+  <ol>
+    <li><span class="lang-en"><strong>Resolution granularity</strong> — Same-bin values treated identically.</span><span class="lang-fa"><strong>دقت تعیین نتیجه</strong> — مقادیر هم‌بازه یکسان.</span></li>
+    <li><span class="lang-en"><strong>Approximation error</strong> — PDF becomes step function.</span><span class="lang-fa"><strong>خطای تقریب</strong> — PDF تابع پله‌ای.</span></li>
+    <li><span class="lang-en"><strong>Fixed bins</strong> — Equal spacing may waste precision.</span><span class="lang-fa"><strong>بازه‌های ثابت</strong> — فاصله‌بندی برابر ممکن است دقت هدر دهد.</span></li>
+    <li><span class="lang-en"><strong>Taylor error</strong> — Degrades for |z| > 1.5.</span><span class="lang-fa"><strong>خطای تیلور</strong> — برای |z| > ۱.۵ تخریب.</span></li>
+    <li><span class="lang-en"><strong>Normal-only</strong> — Cannot express skew or multimodal beliefs.</span><span class="lang-fa"><strong>فقط نرمال</strong> — چولگی یا چندقله‌ای ممکن نیست.</span></li>
+  </ol>
+</div>
+
+<!-- ============================================================
+     SECTION 11: Limitations
+     ============================================================ -->
+<div class="section" id="sec11">
+  <div class="section-header">
+    <div class="section-num">11</div>
+    <div class="section-title">
+      <span class="lang-en">Limitations and Alternatives</span>
+      <span class="lang-fa">محدودیت‌ها و رویکردهای جایگزین</span>
+    </div>
+  </div>
+
+  <div class="subsection-title">
+    <span class="lang-en">11.1 Single-Bin Resolution</span>
+    <span class="lang-fa">۱۱.۱ تعیین نتیجه تک‌بازه‌ای</span>
+  </div>
+  <p class="lang-en">Bin boundary creates payout discontinuity. Alternative: pro-rata resolution — distribute payouts to nearby bins proportionally.</p>
+  <p class="lang-fa">مرز بازه ناپیوستگی پرداخت ایجاد می‌کند. جایگزین: تعیین نتیجه نسبی.</p>
+
+  <div class="subsection-title">
+    <span class="lang-en">11.2-11.6 Other Limitations</span>
+    <span class="lang-fa">۱۱.۲-۱۱.۶ سایر محدودیت‌ها</span>
+  </div>
+  <ul>
+    <li><span class="lang-en"><strong>Fixed N</strong> — Cannot refine after creation. Alt: adaptive binning / hierarchical markets.</span><span class="lang-fa"><strong>N ثابت</strong> — قابل اصلاح نیست. جایگزین: بازه‌بندی تطبیقی.</span></li>
+    <li><span class="lang-en"><strong>Normal-only</strong> — Alt: log-normal, uniform, mixture, or arbitrary weight vectors.</span><span class="lang-fa"><strong>فقط نرمال</strong> — جایگزین: لوگ‌نرمال، یکنواخت، مختلط.</span></li>
+    <li><span class="lang-en"><strong>Taylor precision</strong> — Degree-4 degrades for |z|>1.5. Alt: degree-8 or piecewise.</span><span class="lang-fa"><strong>دقت تیلور</strong> — درجه ۴ برای |z|>۱.۵. جایگزین: درجه ۸ یا قطعه‌ای.</span></li>
+    <li><span class="lang-en"><strong>Compute budget</strong> — N=256 approaches Solana CU limits. Alt: batch processing.</span><span class="lang-fa"><strong>بودجه محاسباتی</strong> — N=۲۵۶ نزدیک حد CU سولانا. جایگزین: پردازش دسته‌ای.</span></li>
+    <li><span class="lang-en"><strong>Quadratic distortion</strong> — Alt: display linear probabilities alongside quadratic prices.</span><span class="lang-fa"><strong>اعوجاج درجه دو</strong> — جایگزین: نمایش احتمال خطی در کنار قیمت‌های درجه دو.</span></li>
+  </ul>
+</div>
+
+<!-- ============================================================
+     SECTION 12: Paradigm Comparison
+     ============================================================ -->
+<div class="section" id="sec12">
+  <div class="section-header">
+    <div class="section-num">12</div>
+    <div class="section-title">
+      <span class="lang-en">Comparison with Paradigm's Distribution Markets</span>
+      <span class="lang-fa">مقایسه با بازارهای توزیعی پارادایم</span>
+    </div>
+  </div>
+
+  <p class="lang-en">Paradigm (Dave White, Dec 2024) proposes continuous markets in infinite-dimensional L&#178; function space: traders hold payout functions <span class="math-inline">$f: \mathbb{R} \to \mathbb{R}_+$</span>, invariant <span class="math-inline">$\|f\|_2 = k$</span>, solvency requires <span class="math-inline">$\max(f) \leq b$</span>.</p>
+  <p class="lang-fa">پارادایم (دیو وایت، ۲۰۲۴) بازارهای پیوسته در فضای تابعی L&#178; پیشنهاد می‌کند: معامله‌گران توابع پرداخت نگهداری می‌کنند، ناوردا <span class="math-inline">$\|f\|_2 = k$</span>، توانایی پرداخت <span class="math-inline">$\max(f) \leq b$</span>.</p>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th><span class="lang-en">Aspect</span><span class="lang-fa">جنبه</span></th>
+        <th>DekantPM</th>
+        <th><span class="lang-en">Paradigm</span><span class="lang-fa">پارادایم</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="lang-en">Outcome space</span><span class="lang-fa">فضای نتایج</span></td><td><span class="lang-en">Finite: N bins</span><span class="lang-fa">محدود: N بازه</span></td><td><span class="lang-en">Infinite: &#8477;</span><span class="lang-fa">نامحدود: &#8477;</span></td></tr>
+        <tr><td><span class="lang-en">Invariant</span><span class="lang-fa">ناوردا</span></td><td>&#8721;x&#178; = k&#178;</td><td>&#8747;f&#178;dx = k&#178;</td></tr>
+        <tr><td><span class="lang-en">Solvency</span><span class="lang-fa">توانایی پرداخت</span></td><td><span class="lang-en">Automatic</span><span class="lang-fa">خودکار</span></td><td>max(f) &#8804; b</td></tr>
+        <tr><td><span class="lang-en">Resolution</span><span class="lang-fa">تعیین نتیجه</span></td><td><span class="lang-en">Step function</span><span class="lang-fa">تابع پله‌ای</span></td><td><span class="lang-en">Smooth: f(v)</span><span class="lang-fa">هموار: f(v)</span></td></tr>
+        <tr><td><span class="lang-en">Collateral</span><span class="lang-fa">وثیقه</span></td><td><span class="lang-en">Complete-set</span><span class="lang-fa">مجموعه کامل</span></td><td><span class="lang-en">Max-loss</span><span class="lang-fa">حداکثر زیان</span></td></tr>
+        <tr><td><span class="lang-en">On-chain</span><span class="lang-fa">درون‌زنجیره‌ای</span></td><td>O(N)</td><td>O(1) + numerical</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note-box">
+    <p class="lang-en"><strong>Key insight:</strong> DekantPM's discretization sidesteps the backing constraint entirely. In finite dimensions, <span class="math-inline">$\|\mathbf{x}\|_2 = k \Rightarrow |x_i| \leq k$</span>. In infinite dimensions, <span class="math-inline">$\|f\|_2 = k$</span> does NOT bound max(f). As N&#8594;&#8734;, DekantPM converges to Paradigm.</p>
+    <p class="lang-fa"><strong>نکته کلیدی:</strong> گسسته‌سازی DekantPM از قید پشتوانه اجتناب می‌کند. در ابعاد محدود <span class="math-inline">$|x_i| \leq k$</span>. در ابعاد نامحدود max(f) نامحدود. با N&#8594;&#8734; همگرایی به پارادایم.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     SECTION 13: Summary
+     ============================================================ -->
+<div class="section" id="sec13">
+  <div class="section-header">
+    <div class="section-num">13</div>
+    <div class="section-title">
+      <span class="lang-en">Summary of Mathematical Properties</span>
+      <span class="lang-fa">خلاصه ویژگی‌های ریاضی</span>
+    </div>
+  </div>
+
+  <ol>
+    <li><span class="lang-en"><strong>Invariant preservation:</strong> Every trade preserves <span class="math-inline">$\sum x_i^2 = k^2$</span> within &#949; = 256.</span><span class="lang-fa"><strong>حفظ ناوردا:</strong> هر معامله <span class="math-inline">$\sum x_i^2 = k^2$</span> را حفظ می‌کند (&#949; = ۲۵۶).</span></li>
+    <li><span class="lang-en"><strong>Solvency:</strong> vault &#8805; k, max redemption &#8804; k. Always solvent.</span><span class="lang-fa"><strong>توانایی پرداخت:</strong> vault &#8805; k. همیشه توان پرداخت.</span></li>
+    <li><span class="lang-en"><strong>No arbitrage</strong> (within fees): Probabilities sum to 1.</span><span class="lang-fa"><strong>بدون آربیتراژ:</strong> احتمالات جمعشان ۱.</span></li>
+    <li><span class="lang-en"><strong>Market scoring rule:</strong> Equilibrium <span class="math-inline">$x \propto p$</span>.</span><span class="lang-fa"><strong>قاعده امتیازدهی:</strong> تعادل <span class="math-inline">$x \propto p$</span>.</span></li>
+  </ol>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th><span class="lang-en">Constant</span><span class="lang-fa">ثابت</span></th>
+        <th><span class="lang-en">Value</span><span class="lang-fa">مقدار</span></th>
+        <th><span class="lang-en">Meaning</span><span class="lang-fa">معنی</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td>SCALE</td><td>10&#8313;</td><td><span class="lang-en">Fixed-point denominator</span><span class="lang-fa">مخرج نقطه ثابت</span></td></tr>
+        <tr><td>INVARIANT_TOL</td><td>256</td><td><span class="lang-en">Max invariant drift</span><span class="lang-fa">حداکثر انحراف ناوردا</span></td></tr>
+        <tr><td>MAX_OUTCOMES</td><td>32</td><td><span class="lang-en">Max discrete outcomes</span><span class="lang-fa">حداکثر نتایج گسسته</span></td></tr>
+        <tr><td>MAX_BINS</td><td>256</td><td><span class="lang-en">Max continuous bins</span><span class="lang-fa">حداکثر بازه‌ها</span></td></tr>
+        <tr><td>Z_CUTOFF</td><td>5</td><td><span class="lang-en">Gaussian tail cutoff (5&#963;)</span><span class="lang-fa">برش دُم (۵&#963;)</span></td></tr>
+        <tr><td>TRADE_FEE</td><td>30 bps</td><td><span class="lang-en">0.3% per trade</span><span class="lang-fa">۰.۳٪ / معامله</span></td></tr>
+        <tr><td>LP_FEE_SHARE</td><td>5000 bps</td><td><span class="lang-en">50% of fee to LPs</span><span class="lang-fa">۵۰٪ کارمزد به LP</span></td></tr>
+        <tr><td>REDEMPTION_FEE</td><td>50 bps</td><td><span class="lang-en">0.5% on claims</span><span class="lang-fa">۰.۵٪ بازخرید</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================
+     APPENDICES
+     ============================================================ -->
+<div class="section" id="appendix">
+  <div class="section-header">
+    <div class="section-num">A</div>
+    <div class="section-title">
+      <span class="lang-en">Appendix A: Distribution Buy Quadratic Derivation</span>
+      <span class="lang-fa">پیوست A: اشتقاق معادله درجه دو خرید توزیعی</span>
+    </div>
+  </div>
+  <div class="math-block">
+    $$x'_j = x_j + \frac{\lambda W_j}{W^2}, \qquad \sum(x'_j)^2 = k'^2$$
+    $$\Downarrow$$
+    $$\lambda^2 + 2\,XW \cdot \lambda - W^2 \cdot \text{excess} = 0 \quad \Rightarrow \quad \lambda = \sqrt{XW^2 + W^2 \cdot \text{excess}} - XW$$
+  </div>
+
+  <div class="section-header" style="margin-top:40px;">
+    <div class="section-num">B</div>
+    <div class="section-title">
+      <span class="lang-en">Appendix B: Integer Square Root</span>
+      <span class="lang-fa">پیوست B: جذر صحیح</span>
+    </div>
+  </div>
+  <p class="lang-en">Newton's method for &#8970;&#8730;n&#8971; in u128: start x&#8320; = n/2 + 1, iterate x&#8346;&#8330;&#8321; = &#8970;(x&#8346; + n/x&#8346;)/2&#8971;, stop when x&#8346;&#8330;&#8321; &#8805; x&#8346;. Converges in &#8804; 64 iterations.</p>
+  <p class="lang-fa">روش نیوتن برای &#8970;&#8730;n&#8971; در u128: شروع x&#8320; = n/2 + 1، تکرار. در &#8804; ۶۴ تکرار همگرا.</p>
+
+  <div class="section-header" style="margin-top:40px;">
+    <div class="section-num">C</div>
+    <div class="section-title">
+      <span class="lang-en">Appendix C: Glossary</span>
+      <span class="lang-fa">پیوست C: واژه‌نامه</span>
+    </div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th><span class="lang-en">Symbol</span><span class="lang-fa">نماد</span></th>
+        <th><span class="lang-en">Meaning</span><span class="lang-fa">معنی</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td>N</td><td><span class="lang-en">Number of outcomes or bins</span><span class="lang-fa">تعداد نتایج یا بازه‌ها</span></td></tr>
+        <tr><td>k</td><td><span class="lang-en">Total minted collateral</span><span class="lang-fa">مجموع وثیقه ضرب‌شده</span></td></tr>
+        <tr><td>h&#7522;, x&#7522;</td><td><span class="lang-en">Reserve, position (x&#7522; = k - h&#7522;)</span><span class="lang-fa">ذخیره، موقعیت (x&#7522; = k - h&#7522;)</span></td></tr>
+        <tr><td>p&#770;&#7522;</td><td><span class="lang-en">Quadratic probability: x&#7522;&#178;/k&#178;</span><span class="lang-fa">احتمال درجه دو: x&#7522;&#178;/k&#178;</span></td></tr>
+        <tr><td>W&#11388;</td><td><span class="lang-en">Bin weight (&#8721;W&#11388; = S)</span><span class="lang-fa">وزن بازه (&#8721;W&#11388; = S)</span></td></tr>
+        <tr><td>&#956;, &#963;</td><td><span class="lang-en">Normal distribution mean, std dev</span><span class="lang-fa">میانگین، انحراف معیار</span></td></tr>
+        <tr><td>&#955;</td><td><span class="lang-en">Distribution buy scaling parameter</span><span class="lang-fa">پارامتر مقیاس خرید توزیعی</span></td></tr>
+        <tr><td>L</td><td><span class="lang-en">Total LP shares</span><span class="lang-fa">مجموع سهام LP</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <p>DekantPM — <span class="lang-en">Mathematical Analysis (Interactive Edition)</span><span class="lang-fa">تحلیل ریاضی (نسخه تعاملی)</span></p>
+  <p style="margin-top:4px;"><span class="lang-en">Solana &middot; Anchor 0.32 &middot; u128 Fixed-Point</span><span class="lang-fa">سولانا &middot; Anchor 0.32 &middot; نقطه ثابت u128</span></p>
+</div>
+
+</main>
+
+<!-- ============================================================
+     TOAST CONTAINER
+     ============================================================ -->
+<div class="toast-container" id="toastContainer"></div>
+<div class="save-indicator" id="saveIndicator"></div>
+
+<!-- ============================================================
+     SETTINGS MODAL
+     ============================================================ -->
+<div class="settings-overlay" id="settingsModal" onclick="if(event.target===this)closeSettingsModal()">
+  <div class="settings-modal">
+    <div class="settings-title">
+      <span><span class="lang-en">Settings</span><span class="lang-fa">تنظیمات</span></span>
+      <button class="settings-close" onclick="closeSettingsModal()">&times;</button>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Font Size</span><span class="lang-fa">اندازه فونت</span></div>
+      <div class="settings-row">
+        <label><input type="radio" name="setFontSize" value="xs" onchange="applySetting('fontSize','xs')">XS</label>
+        <label><input type="radio" name="setFontSize" value="sm" onchange="applySetting('fontSize','sm')">S</label>
+        <label><input type="radio" name="setFontSize" value="md" onchange="applySetting('fontSize','md')" checked>M</label>
+        <label><input type="radio" name="setFontSize" value="lg" onchange="applySetting('fontSize','lg')">L</label>
+        <label><input type="radio" name="setFontSize" value="xl" onchange="applySetting('fontSize','xl')">XL</label>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Number Format</span><span class="lang-fa">فرمت اعداد</span></div>
+      <div class="settings-row">
+        <label><input type="radio" name="setNumFmt" value="short" onchange="applySetting('numberFormat','short')" checked><span class="lang-en">Short (1.2M)</span><span class="lang-fa">کوتاه (1.2M)</span></label>
+        <label><input type="radio" name="setNumFmt" value="long" onchange="applySetting('numberFormat','long')"><span class="lang-en">Long (1,200,000)</span><span class="lang-fa">کامل (1,200,000)</span></label>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Decimal Precision</span><span class="lang-fa">دقت اعشار</span></div>
+      <div class="settings-row">
+        <input type="range" id="setPrecision" min="0" max="6" value="1" oninput="applySetting('decimalPrecision',this.value)">
+        <span class="settings-precision-val" id="setPrecisionVal">1</span>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Appearance</span><span class="lang-fa">ظاهر</span></div>
+      <div class="settings-toggle-row">
+        <span><span class="lang-en">Dark Mode</span><span class="lang-fa">حالت تیره</span></span>
+        <button class="nav-btn" onclick="applySetting('theme', currentTheme==='dark'?'light':'dark')" style="padding:4px 12px;">
+          <span id="settingsThemeIcon">&#9790;</span>
+        </button>
+      </div>
+      <div class="settings-toggle-row">
+        <span><span class="lang-en">Language</span><span class="lang-fa">زبان</span></span>
+        <button class="nav-btn" onclick="applySetting('language', currentLang==='en'?'fa':'en')" style="padding:4px 12px;">
+          <span class="lang-en">FA</span><span class="lang-fa">EN</span>
+        </button>
+      </div>
+      <div class="settings-toggle-row">
+        <span><span class="lang-en">Autosave</span><span class="lang-fa">ذخیره خودکار</span></span>
+        <input type="checkbox" id="setAutosave" onchange="applySetting('autosave',this.checked)">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     FEE CONFIGURATION MODAL
+     ============================================================ -->
+<div class="settings-overlay" id="feeModal" onclick="if(event.target===this)closeFeeModal()">
+  <div class="settings-modal">
+    <div class="settings-title">
+      <span><span class="lang-en">Market Fees</span><span class="lang-fa">کارمزدهای بازار</span></span>
+      <button class="settings-close" onclick="closeFeeModal()">&times;</button>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:16px;">
+      <span class="lang-en">Set fees for the next market you create. All default to 0.</span>
+      <span class="lang-fa">کارمزدها برای بازار بعدی که ایجاد می‌کنید تنظیم شود. همه پیش‌فرض ۰ هستند.</span>
+    </p>
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Trade Fee (bps)</span><span class="lang-fa">کارمزد معامله (bps)</span></div>
+      <div class="settings-row">
+        <input type="number" class="control-input" id="feeTradeFeeBps" value="0" min="0" max="1000" style="width:100px;">
+        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">
+          <span class="lang-en">1 bps = 0.01%. E.g. 30 = 0.3%</span>
+          <span class="lang-fa">۱ bps = ۰٫۰۱٪. مثال: ۳۰ = ۰٫۳٪</span>
+        </span>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">LP Fee Share (%)</span><span class="lang-fa">سهم LP از کارمزد (٪)</span></div>
+      <div class="settings-row">
+        <input type="number" class="control-input" id="feeLpFeeSharePct" value="0" min="0" max="100" style="width:100px;">
+        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">
+          <span class="lang-en">% of trade fee directed to LPs</span>
+          <span class="lang-fa">٪ کارمزد معامله به LPها</span>
+        </span>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-label"><span class="lang-en">Redemption Fee (bps)</span><span class="lang-fa">کارمزد بازخرید (bps)</span></div>
+      <div class="settings-row">
+        <input type="number" class="control-input" id="feeRedemptionFeeBps" value="0" min="0" max="1000" style="width:100px;">
+        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">
+          <span class="lang-en">Deducted from winning tokens at resolution</span>
+          <span class="lang-fa">از توکن‌های برنده هنگام تعیین نتیجه کسر می‌شود</span>
+        </span>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn btn-primary" onclick="closeFeeModal()">
+        <span class="lang-en">Done</span><span class="lang-fa">تمام</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     ACTION LOG BOTTOM PANEL
+     ============================================================ -->
+<div class="action-log-panel" id="actionLogPanel">
+  <div class="action-log-header" onclick="toggleActionLog()">
+    <div class="action-log-title">
+      <span style="font-size:1rem;">&#9776;</span>
+      <span class="lang-en">Action Log</span><span class="lang-fa">گزارش عملیات</span>
+      <span class="action-log-count" id="logCount">(0)</span>
+    </div>
+    <div class="action-log-actions">
+      <button class="btn-sm" onclick="event.stopPropagation(); clearActionLog()">
+        <span class="lang-en">Clear</span><span class="lang-fa">پاک‌سازی</span>
+      </button>
+      <span class="expand-arrow" id="logArrow" style="font-size:0.9rem;">&#9650;</span>
+    </div>
+  </div>
+  <div class="action-log-body" id="actionLogBody"></div>
+</div>
+
+<script src="math_doc_script.js"></script>
+
+</body>
+</html>
