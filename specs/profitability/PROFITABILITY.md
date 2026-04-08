@@ -2,9 +2,7 @@
 
 A unified analysis of when, how, and how much traders and LPs can profit in the current DekantPM continuous-market implementation, what is structurally broken, how the design compares to Paradigm's distribution-market article, and how forward-looking V2/V3 distribution families would shift the economics.
 
-This document merges the practitioner-oriented [`PROFIT_ANALYSIS.md`](../archived/PROFIT_ANALYSIS.md) and the diagnostic [`DEKANT_PROFITABILITY.md`](../archived/DEKANT_PROFITABILITY.md), deduplicating the overlap. Both source files have been moved to [`specs/archived/`](../archived/) if you want to read either author's voice in isolation.
-
-Compiled and cross-checked on 2026-04-07 against:
+Compiled and cross-checked against:
 
 - the JS playground in [`specs/math/math_doc_script.js`](../math/math_doc_script.js)
 - the on-chain implementation in [`programs/dekant-pm/src/state/market.rs`](../../programs/dekant-pm/src/state/market.rs)
