@@ -4,8 +4,6 @@
 /// Accurate to ~0.1% for |z| ≤ 1.5; degrades gracefully for larger |z|.
 /// Tails clamped to 0 for |z| > Z_CUTOFF.
 ///
-/// Implementation: task P-3.
-
 use crate::constants::{SCALE, Z_CUTOFF};
 
 /// Approximate exp(-t/2) for t ≥ 0 in fixed-point (SCALE-denominated).
@@ -45,14 +43,12 @@ pub fn exp_neg_half_approx(t_scaled: u128) -> u128 {
     let c1: i128 = -(s / 2);
     let c0: i128 = s;
 
-    // Evaluate: r = ((((c4 * t / s + c3) * t / s + c2) * t / s + c1) * t / s + c0)
     let mut r = c4;
     r = r * t / s + c3;
     r = r * t / s + c2;
     r = r * t / s + c1;
     r = r * t / s + c0;
 
-    // Clamp to [0, SCALE].
     if r <= 0 {
         0
     } else if r > s {
@@ -103,8 +99,7 @@ pub fn compute_bin_weights(
             continue;
         }
 
-        // z² * SCALE = diff² * SCALE / sigma²
-        // Safe: |diff| ≤ cutoff_dist = 5*sigma, so diff² ≤ 25*sigma², fits in u128.
+        // Safe: |diff| ≤ 5*sigma, so diff² ≤ 25*sigma², fits in u128.
         let diff_sq = (diff * diff) as u128;
         let sigma_sq = (sigma_i128 * sigma_i128) as u128;
         let z_sq_scaled = diff_sq * SCALE / sigma_sq;
@@ -114,7 +109,6 @@ pub fn compute_bin_weights(
         total += w;
     }
 
-    // Normalize so weights sum to SCALE.
     if total == 0 {
         // All weights are zero (mu far outside range). Return zeros.
         return vec![0; num_bins as usize];
@@ -141,10 +135,8 @@ pub fn compute_bin_weights(
         {
             let target = SCALE as u64;
             if current_sum < target {
-                // Rounding left a shortfall; add the difference to the largest weight.
                 weights[max_idx] = weights[max_idx].saturating_add(target - current_sum);
             } else {
-                // Rounding overshot; subtract the excess from the largest weight.
                 weights[max_idx] = weights[max_idx].saturating_sub(current_sum - target);
             }
         }

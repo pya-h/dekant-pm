@@ -187,7 +187,6 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
         args.initial_liquidity,
     )?;
 
-    // AMM starts uniform: reserves[i] = net_liquidity, equal probabilities.
     let clock = Clock::get()?;
     let market_id = ctx.accounts.protocol_config.market_count;
     let market = &mut ctx.accounts.market;

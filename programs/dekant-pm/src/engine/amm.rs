@@ -6,8 +6,6 @@
 /// Invariant: Σ (total_minted - reserves[i])² = total_minted² (within tolerance).
 /// The L2-norm is on positions x[i] = total_minted - reserves[i], not on reserves.
 ///
-/// Implementation: tasks P-5 (discrete) and P-6 (distribution).
-
 use anchor_lang::prelude::*;
 use crate::errors::DekantPmError;
 use crate::constants::SCALE;
@@ -22,11 +20,7 @@ pub fn verify_invariant(reserves: &[u64], total_minted: u128) -> Result<()> {
     let expected = total_minted
         .checked_mul(total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-    let diff = if actual > expected {
-        actual - expected
-    } else {
-        expected - actual
-    };
+    let diff = actual.abs_diff(expected);
     require!(
         diff <= crate::constants::INVARIANT_TOLERANCE,
         DekantPmError::InvariantViolation
@@ -84,32 +78,27 @@ pub fn compute_buy(
         }
     }
 
-    // Mint complete sets (add effective_collateral to all reserves).
     for r in reserves.iter_mut() {
         *r = r
             .checked_add(effective_collateral)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     }
 
-    // k_new = total_minted + C; k_new² = k_new * k_new
     let k_new = total_minted + effective_collateral as u128;
     let k_new_sq = k_new
         .checked_mul(k_new)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    // x_new[i] = isqrt(k_new² - Σ_{j≠i} x[j]²)
     require!(
         k_new_sq >= sum_others_x_sq,
         DekantPmError::InsufficientLiquidity
     );
     let x_new_i = isqrt(k_new_sq - sum_others_x_sq);
 
-    // tokens_out = x_new[i] - x[i] (position grows → trader receives tokens)
     require!(x_new_i >= x_i, DekantPmError::InsufficientLiquidity);
     let tokens_out = (x_new_i - x_i) as u64;
     require!(tokens_out > 0, DekantPmError::TradeTooSmall);
 
-    // Set reserve for outcome i: h_final = k_new - x_new_i
     reserves[outcome] = (k_new - x_new_i) as u64;
 
     Ok(tokens_out)
@@ -139,19 +128,16 @@ pub fn compute_sell(
     require!(outcome < n, DekantPmError::InvalidOutcome);
     require!(tokens_in > 0, DekantPmError::TradeTooSmall);
 
-    // Current position for outcome i.
     let x_i = total_minted.saturating_sub(reserves[outcome] as u128);
     require!(
         x_i >= tokens_in as u128,
         DekantPmError::InsufficientLiquidity
     );
 
-    // Add tokens back to reserves[outcome].
     reserves[outcome] = reserves[outcome]
         .checked_add(tokens_in)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    // Compute k_new_sq = Σ (total_minted - h_new[j])²
     let mut k_new_sq: u128 = 0;
     for &h in reserves.iter() {
         let x = total_minted.saturating_sub(h as u128);
@@ -166,7 +152,6 @@ pub fn compute_sell(
     let collateral_out = (total_minted - k_new) as u64;
     require!(collateral_out > 0, DekantPmError::TradeTooSmall);
 
-    // Burn complete sets: subtract collateral_out from all reserves.
     for r in reserves.iter_mut() {
         *r = r
             .checked_sub(collateral_out)
@@ -200,7 +185,7 @@ pub fn compute_distribution_buy(
     require!(weights.len() == n, DekantPmError::InvalidNumOutcomes);
     require!(effective_collateral > 0, DekantPmError::TradeTooSmall);
 
-    // Compute XW = Σ x[b]*w[b] and W2 = Σ w[b]² BEFORE mint.
+    // Must compute XW and W2 BEFORE mint (positions change after minting).
     let mut xw: u128 = 0;
     let mut w2: u128 = 0;
     for (&h, &w) in reserves.iter().zip(weights.iter()) {
@@ -211,14 +196,12 @@ pub fn compute_distribution_buy(
 
     require!(w2 > 0, DekantPmError::DivisionByZero);
 
-    // Mint complete sets.
     for r in reserves.iter_mut() {
         *r = r
             .checked_add(effective_collateral)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     }
 
-    // k_new = total_minted + C
     let k_new = total_minted + effective_collateral as u128;
     let k_new_sq = k_new
         .checked_mul(k_new)
@@ -229,7 +212,6 @@ pub fn compute_distribution_buy(
 
     let excess = k_new_sq - k_old_sq; // always positive
 
-    // disc = XW² + W2 * excess
     let xw_sq = xw
         .checked_mul(xw)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
@@ -242,11 +224,10 @@ pub fn compute_distribution_buy(
 
     let sqrt_disc = isqrt(disc);
 
-    // numerator = sqrt(disc) - XW (always ≥ 0 since disc ≥ XW²)
+    // Always ≥ 0 since disc ≥ XW².
     require!(sqrt_disc >= xw, DekantPmError::MathOverflow);
     let numerator = sqrt_disc - xw;
 
-    // tokens_out[b] = numerator * W[b] / W2
     let mut tokens_out = Vec::with_capacity(n);
     for (i, &w) in weights.iter().enumerate() {
         let out = numerator
@@ -286,7 +267,6 @@ pub fn compute_distribution_sell(
     require!(weights.len() == n, DekantPmError::InvalidNumOutcomes);
     require!(total_tokens > 0, DekantPmError::TradeTooSmall);
 
-    // Add tokens back to reserves and compute k_new_sq from new positions.
     let mut k_new_sq: u128 = 0;
     for (i, &w) in weights.iter().enumerate() {
         let tokens_for_bin = (total_tokens as u128)
@@ -309,7 +289,6 @@ pub fn compute_distribution_sell(
     let collateral_out = (total_minted - k_new) as u64;
     require!(collateral_out > 0, DekantPmError::TradeTooSmall);
 
-    // Burn complete sets: subtract collateral_out from all reserves.
     for r in reserves.iter_mut() {
         *r = r
             .checked_sub(collateral_out)
@@ -367,13 +346,11 @@ pub fn compute_collateral_for_target_prob(
         DekantPmError::InvalidProbability
     );
 
-    // Current probability for outcome i.
     let x_i = total_minted.saturating_sub(reserves[outcome] as u128);
     let k_sq = total_minted
         .checked_mul(total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    // current_prob = x_i² * SCALE / k_sq
     let x_i_sq = x_i.checked_mul(x_i)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     let current_prob = if k_sq > 0 {
@@ -384,7 +361,6 @@ pub fn compute_collateral_for_target_prob(
     };
     require!(target_prob > current_prob, DekantPmError::TargetAlreadyMet);
 
-    // sum_others_x_sq = Σ_{j≠i} (total_minted - reserves[j])²
     let mut sum_others_x_sq: u128 = 0;
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
@@ -394,7 +370,6 @@ pub fn compute_collateral_for_target_prob(
     }
     require!(sum_others_x_sq > 0, DekantPmError::InsufficientLiquidity);
 
-    // k_new² = sum_others_x_sq * SCALE / (SCALE - target_prob)
     let denom = SCALE - target_prob; // > 0 since target_prob < SCALE
     let k_new_sq = sum_others_x_sq
         .checked_mul(SCALE)
@@ -432,7 +407,6 @@ pub fn compute_tokens_for_target_prob(
         DekantPmError::InvalidProbability
     );
 
-    // Current position and probability for outcome i.
     let x_i = total_minted.saturating_sub(reserves[outcome] as u128);
     let k_sq = total_minted
         .checked_mul(total_minted)
@@ -448,7 +422,6 @@ pub fn compute_tokens_for_target_prob(
     };
     require!(target_prob < current_prob, DekantPmError::TargetAlreadyMet);
 
-    // sum_others_x_sq = Σ_{j≠i} (total_minted - reserves[j])²
     let mut sum_others_x_sq: u128 = 0;
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
@@ -457,8 +430,7 @@ pub fn compute_tokens_for_target_prob(
         }
     }
 
-    // x_target² = target_prob * sum_others_x_sq / (SCALE - target_prob)
-    // Special case: target_prob == 0 → x_target = 0, sell everything.
+    // target_prob == 0 means sell the entire position.
     let x_target = if target_prob == 0 {
         0u128
     } else {
@@ -501,7 +473,6 @@ pub fn scale_reserves(
         *r = new_r as u64;
     }
 
-    // k_squared = total_minted_new² = numerator²
     numerator
         .checked_mul(numerator)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))

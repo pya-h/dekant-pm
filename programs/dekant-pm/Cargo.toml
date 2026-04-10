@@ -25,3 +25,9 @@ anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
 
 [dev-dependencies]
 anchor-lang = "0.32.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("custom-heap", "custom-panic", "anchor-debug"))',
+] }

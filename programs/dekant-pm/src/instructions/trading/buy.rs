@@ -81,7 +81,6 @@ pub fn handle_buy(ctx: Context<Buy>, args: BuyArgs) -> Result<()> {
     let clock = Clock::get()?;
     let market = &mut ctx.accounts.market;
 
-    // ── Guards ────────────────────────────────────────────────────────
     // Lazy deadline enforcement: if expired, transition to PendingResolution.
     if market.is_active() && market.is_expired(clock.unix_timestamp) {
         market.transition_to_pending()?;

@@ -5,9 +5,7 @@
 ///   - Probability weights and ratios: u128 scaled by SCALE (10^9).
 ///   - Squared values (k_squared, sum_of_squares): u128 unscaled.
 ///
-/// All functions return Result<T, ProgramError> using checked arithmetic
-/// to prevent overflow. Implementation in task P-2.
-
+/// All functions return Option<T> using checked arithmetic to prevent overflow.
 use crate::constants::SCALE;
 
 /// Multiply two SCALE-denominated values: result = a * b / SCALE.
@@ -28,7 +26,7 @@ pub fn div_ceil(a: u128, b: u128) -> Option<u128> {
     if b == 0 {
         return None;
     }
-    Some(a.checked_add(b.checked_sub(1)?)?.checked_div(b)?)
+    a.checked_add(b.checked_sub(1)?)?.checked_div(b)
 }
 
 /// Floor division: ⌊a / b⌋.
