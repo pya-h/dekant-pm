@@ -79,7 +79,7 @@ FRONTEND
 
 ## Infrastructure Tasks
 
-### I-1: Monorepo Scaffolding
+### I-1: Monorepo Scaffolding ✅
 
 **Goal:** Set up the top-level project structure so all layers can coexist.
 
@@ -105,7 +105,7 @@ FRONTEND
 
 ---
 
-### I-2: Anchor Project Initialization
+### I-2: Anchor Project Initialization ✅
 
 **Goal:** Create a buildable Anchor program skeleton.
 
@@ -119,7 +119,7 @@ FRONTEND
 
 ---
 
-### I-3: Local Dev Environment Config
+### I-3: Local Dev Environment Config ✅
 
 **Goal:** Everything needed to develop, build, and test locally.
 
@@ -141,7 +141,7 @@ FRONTEND
 
 ## On-Chain Program Tasks
 
-### P-1: Constants & Error Definitions
+### P-1: Constants & Error Definitions ✅
 
 **Goal:** Define all program constants and custom error codes used across instructions.
 
@@ -169,7 +169,7 @@ FRONTEND
 
 ---
 
-### P-2: Fixed-Point Math Library
+### P-2: Fixed-Point Math Library ✅
 
 **Goal:** Implement the core arithmetic primitives that all AMM math depends on.
 
@@ -193,7 +193,7 @@ FRONTEND
 
 ---
 
-### P-3: Normal PDF Approximation
+### P-3: Normal PDF Approximation ✅
 
 **Goal:** Implement on-chain Gaussian bin weight computation for continuous markets.
 
@@ -214,7 +214,7 @@ FRONTEND
 
 ---
 
-### P-4: Account State Structs
+### P-4: Account State Structs ✅
 
 **Goal:** Define all Anchor `#[account]` structs with correct sizing and serialization.
 
@@ -244,7 +244,7 @@ FRONTEND
 
 ---
 
-### P-5: AMM Engine — Core L2-Norm Operations
+### P-5: AMM Engine — Core L2-Norm Operations ✅
 
 **Goal:** Implement the pure-computation AMM engine that instructions call into. No Anchor context — just math functions on slices.
 
@@ -303,7 +303,7 @@ FRONTEND
 
 ---
 
-### P-6: AMM Engine — Distribution Buy/Sell
+### P-6: AMM Engine — Distribution Buy/Sell ✅
 
 **Goal:** Implement the multi-bin trade operations for continuous markets.
 
@@ -343,7 +343,7 @@ FRONTEND
 
 ---
 
-### P-7: Initialize Instruction
+### P-7: Initialize Instruction ✅
 
 **Goal:** Implement the one-time protocol setup instruction.
 
@@ -366,7 +366,7 @@ FRONTEND
 
 ---
 
-### P-8: Role Management Instructions
+### P-8: Role Management Instructions ✅
 
 **Goal:** Implement assign_role, revoke_role, and update_fees.
 
@@ -403,7 +403,7 @@ FRONTEND
 
 ---
 
-### P-9: Create Market Instruction
+### P-9: Create Market Instruction ✅
 
 **Goal:** Implement market creation with initial liquidity deposit.
 
@@ -444,7 +444,7 @@ FRONTEND
 
 ---
 
-### P-10: Buy Instruction (Discrete)
+### P-10: Buy Instruction (Discrete) ✅
 
 **Goal:** Implement discrete single-outcome buy.
 
@@ -482,7 +482,7 @@ FRONTEND
 
 ---
 
-### P-11: Sell Instruction (Discrete)
+### P-11: Sell Instruction (Discrete) ✅
 
 **Goal:** Implement discrete single-outcome sell.
 
@@ -511,7 +511,7 @@ FRONTEND
 
 ---
 
-### P-12: Buy Distribution Instruction (Continuous)
+### P-12: Buy Distribution Instruction (Continuous) ✅
 
 **Goal:** Implement continuous market distribution buy.
 
@@ -543,7 +543,7 @@ FRONTEND
 
 ---
 
-### P-13: Sell Distribution Instruction (Continuous)
+### P-13: Sell Distribution Instruction (Continuous) ✅
 
 **Goal:** Implement continuous market distribution sell.
 
@@ -568,7 +568,7 @@ FRONTEND
 
 ---
 
-### P-14: Liquidity Instructions (Add & Remove)
+### P-14: Liquidity Instructions (Add & Remove) ✅
 
 **Goal:** Implement proportional LP deposit and withdrawal.
 
@@ -610,7 +610,7 @@ FRONTEND
 
 ---
 
-### P-15: Pause & Unpause Instructions
+### P-15: Pause & Unpause Instructions ✅
 
 **Goal:** Implement admin market controls.
 
@@ -641,7 +641,7 @@ FRONTEND
 
 ---
 
-### P-16: Resolve Market Instruction
+### P-16: Resolve Market Instruction ✅
 
 **Goal:** Implement oracle resolution.
 
@@ -673,7 +673,7 @@ FRONTEND
 
 ---
 
-### P-17: Claim Payout Instruction
+### P-17: Claim Payout Instruction ✅
 
 **Goal:** Implement post-resolution payout redemption.
 
@@ -708,7 +708,7 @@ FRONTEND
 
 ---
 
-### P-18: Anchor Events
+### P-18: Anchor Events ✅
 
 **Goal:** Define and emit all program events listed in TDD §9.2.
 
@@ -722,7 +722,7 @@ FRONTEND
 
 ---
 
-### P-19: Integration Tests — Full Market Lifecycle
+### P-19: Integration Tests — Full Market Lifecycle ✅
 
 **Goal:** End-to-end tests covering the complete lifecycle of each market type.
 
@@ -775,7 +775,7 @@ FRONTEND
 
 ## Backend Tasks
 
-### B-1: NestJS Project Scaffolding
+### B-1: NestJS Project Scaffolding ✅
 
 **Goal:** Create the backend project with all dependencies and base configuration.
 
@@ -793,7 +793,7 @@ FRONTEND
 
 ---
 
-### B-2: Database Entities & Migrations
+### B-2: Database Entities & Migrations ✅
 
 **Goal:** Create TypeORM entities matching the DB schema in TDD §9.3.
 
@@ -811,7 +811,7 @@ FRONTEND
 
 ---
 
-### B-3: Solana Provider & IDL Setup
+### B-3: Solana Provider & IDL Setup ✅
 
 **Goal:** Configure the backend's Solana connection and import the program IDL.
 
@@ -831,7 +831,7 @@ FRONTEND
 
 ---
 
-### B-4: Auth Module (Wallet Signature Verification)
+### B-4: Auth Module (Wallet Signature Verification) ✅
 
 **Goal:** Implement wallet-based authentication for admin endpoints.
 
@@ -852,7 +852,7 @@ FRONTEND
 
 ---
 
-### B-5: Market Module (CRUD + Search)
+### B-5: Market Module (CRUD + Search) ✅
 
 **Goal:** Implement market metadata storage and discovery API.
 
@@ -880,7 +880,7 @@ FRONTEND
 
 ---
 
-### B-6: Indexer Service
+### B-6: Indexer Service ✅
 
 **Goal:** Implement on-chain event listener that populates the database.
 
@@ -910,7 +910,7 @@ FRONTEND
 
 ---
 
-### B-7: AMM Estimation Service
+### B-7: AMM Estimation Service ✅
 
 **Goal:** Off-chain AMM simulation for instant cost previews.
 
@@ -936,7 +936,7 @@ FRONTEND
 
 ---
 
-### B-8: User & Admin Endpoints
+### B-8: User & Admin Endpoints ✅
 
 **Goal:** Implement remaining API routes for user positions and admin operations.
 
@@ -962,7 +962,7 @@ FRONTEND
 
 ## Frontend Tasks
 
-### F-1: Next.js Project Scaffolding
+### F-1: Next.js Project Scaffolding ⬅️
 
 **Goal:** Create the frontend project with all base dependencies and configuration.
 
@@ -1294,13 +1294,13 @@ FRONTEND
 
 ## Summary: Task Count & Ordering
 
-| Layer | Tasks | IDs |
-|-------|-------|-----|
-| Infrastructure | 3 | I-1 → I-3 |
-| On-chain Program | 19 | P-1 → P-19 |
-| Backend | 8 | B-1 → B-8 |
-| Frontend | 13 | F-1 → F-13 |
-| **Total** | **43** | |
+| Layer | Tasks | IDs | Status |
+|-------|-------|-----|--------|
+| Infrastructure | 3 | I-1 → I-3 | ✅ Done |
+| On-chain Program | 19 | P-1 → P-19 | ✅ Done |
+| Backend | 8 | B-1 → B-8 | ✅ Done |
+| Frontend | 13 | F-1 → F-13 | ⬅️ Next |
+| **Total** | **43** | | |
 
 ### Critical Path (longest dependency chain):
 
