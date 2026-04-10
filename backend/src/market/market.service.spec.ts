@@ -222,11 +222,12 @@ describe('MarketService', () => {
       });
     });
 
-    it('should apply ILIKE search filter', async () => {
+    it('should apply ILIKE search filter with ESCAPE clause', async () => {
       await service.findAll({ search: 'ETH' });
-      expect(qb.andWhere).toHaveBeenCalledWith('m.title ILIKE :search', {
-        search: '%ETH%',
-      });
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        "m.title ILIKE :search ESCAPE '\\'",
+        { search: '%ETH%' },
+      );
     });
 
     it('should sort by deadline when requested', async () => {
@@ -326,10 +327,11 @@ describe('MarketService', () => {
   });
 
   describe('incrementVolume', () => {
-    it('should build a raw update query for volume', async () => {
+    it('should build a parameterized update query for volume', async () => {
       const qb = {
         update: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
+        setParameters: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue({ affected: 1 }),
       };
@@ -338,6 +340,7 @@ describe('MarketService', () => {
       await service.incrementVolume(1, '5000', 'TraderAddress');
 
       expect(qb.update).toHaveBeenCalledWith(MarketEntity);
+      expect(qb.setParameters).toHaveBeenCalledWith({ amount: '5000' });
       expect(qb.where).toHaveBeenCalledWith('id = :id', { id: '1' });
       expect(qb.execute).toHaveBeenCalled();
     });

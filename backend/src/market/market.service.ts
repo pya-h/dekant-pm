@@ -24,7 +24,7 @@ export class MarketService {
       id: String(dto.marketId),
       pubkey: dto.pubkey,
       marketType: dto.marketType,
-      state: 0, // Active
+      state: 0,
       creator: dto.creator,
       oracle: dto.oracle,
       collateralMint: dto.collateralMint,
@@ -70,8 +70,9 @@ export class MarketService {
     }
 
     if (filters.search) {
-      qb.andWhere('m.title ILIKE :search', {
-        search: `%${filters.search}%`,
+      const escaped = filters.search.replace(/[\\%_]/g, '\\$&');
+      qb.andWhere("m.title ILIKE :search ESCAPE '\\'", {
+        search: `%${escaped}%`,
       });
     }
 
@@ -161,9 +162,10 @@ export class MarketService {
       .createQueryBuilder()
       .update(MarketEntity)
       .set({
-        totalVolume: () => `total_volume + ${amount}`,
+        totalVolume: () => 'total_volume + :amount',
         lastTradeAt: new Date(),
       })
+      .setParameters({ amount })
       .where('id = :id', { id: String(id) })
       .execute();
   }

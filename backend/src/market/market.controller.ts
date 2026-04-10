@@ -54,7 +54,11 @@ export class MarketController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.marketService.getHistory(id, page ?? 1, limit ?? 50);
+    return this.marketService.getHistory(
+      id,
+      Math.max(1, Number(page) || 1),
+      Math.min(Math.max(1, Number(limit) || 50), 100),
+    );
   }
 
   @Post()

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Connection, PublicKey, Logs } from '@solana/web3.js';
+import { Connection, Logs } from '@solana/web3.js';
 import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { PROGRAM_ID } from '../common/idl';
 import { IndexerStateEntity } from './entity/indexer-state.entity';
@@ -81,10 +81,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         'confirmed',
       );
 
-      // Filter to only process signatures after our last processed slot
       const newSigs = signatures
         .filter((sig) => (sig.slot ?? 0) > lastSlot)
-        .reverse(); // oldest first
+        .reverse();
 
       this.logger.log(`Found ${newSigs.length} new transactions to process`);
 
@@ -130,7 +129,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
             await this.handleEvent(event, logs.signature, 0);
           }
 
-          // Get slot from the signature
           const sigStatus = await this.connection.getSignatureStatus(
             logs.signature,
           );
@@ -209,7 +207,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const marketId = String(data.marketId);
 
-    // Upsert on-chain fields only; metadata comes from B-5 POST /markets
     await this.marketRepo
       .createQueryBuilder()
       .update(MarketEntity)
@@ -237,11 +234,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const marketId = String(data.marketId);
 
-    // Insert trade record
     const existingTrade = await this.tradeRepo.findOne({
       where: { txSignature },
     });
-    if (existingTrade) return; // idempotent
+    if (existingTrade) return;
 
     const trade = this.tradeRepo.create({
       marketId,
@@ -259,20 +255,16 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     });
     await this.tradeRepo.save(trade);
 
-    // Update market volume
     await this.marketRepo
       .createQueryBuilder()
       .update(MarketEntity)
       .set({
-        totalVolume: () =>
-          `total_volume + ${data.collateralAmount}`,
+        totalVolume: () => 'total_volume + :collateralAmount',
         lastTradeAt: new Date(),
       })
+      .setParameters({ collateralAmount: String(data.collateralAmount) })
       .where('id = :id', { id: marketId })
       .execute();
-
-    // Refresh cached reserves from on-chain state
-    await this.refreshMarketReserves(marketId);
 
     this.logger.log(`Trade recorded for market ${marketId}: ${txSignature}`);
   }
@@ -282,7 +274,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const marketId = String(data.marketId);
     await this.marketRepo.update(marketId, {
-      state: 3, // Resolved
+      state: 3,
       resolvedOutcome: Number(data.resolvedOutcome),
       resolvedValue: String(data.resolvedValue),
       resolvedAt: new Date(Number(data.timestamp) * 1000),
@@ -332,8 +324,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    // Refresh cached reserves
-    await this.refreshMarketReserves(marketId);
   }
 
   private async handleRoleAssigned(
@@ -359,26 +349,4 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async refreshMarketReserves(marketId: string): Promise<void> {
-    // Fetch on-chain market account and update cached reserves
-    try {
-      const marketNum = Number(marketId);
-      const buf = Buffer.alloc(8);
-      buf.writeBigUInt64LE(BigInt(marketNum));
-
-      const [marketPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('market'), buf],
-        PROGRAM_ID,
-      );
-
-      const accountInfo = await this.connection.getAccountInfo(marketPda);
-      if (!accountInfo) return;
-
-      // Anchor discriminator is 8 bytes, then we need to parse the Market struct
-      // For now, we log that a refresh was triggered — full parsing needs the IDL decoder
-      this.logger.debug(`Refresh triggered for market ${marketId}`);
-    } catch (err) {
-      this.logger.warn(`Failed to refresh reserves for market ${marketId}: ${err}`);
-    }
-  }
 }

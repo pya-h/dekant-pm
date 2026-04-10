@@ -34,7 +34,11 @@ export class UserController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.userService.getTradeHistory(address, page ?? 1, limit ?? 50);
+    return this.userService.getTradeHistory(
+      address,
+      Math.max(1, Number(page) || 1),
+      Math.min(Math.max(1, Number(limit) || 50), 100),
+    );
   }
 
   @Get(':address/lp-positions')

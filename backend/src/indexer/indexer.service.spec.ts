@@ -26,7 +26,6 @@ describe('IndexerService', () => {
       onLogs: jest.fn().mockReturnValue(42),
       removeOnLogsListener: jest.fn(),
       getSlot: jest.fn().mockResolvedValue(100),
-      getAccountInfo: jest.fn().mockResolvedValue(null),
       getSignatureStatus: jest.fn().mockResolvedValue({ value: { slot: 50 } }),
     };
 
@@ -38,6 +37,7 @@ describe('IndexerService', () => {
     const qbMock = {
       update: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
+      setParameters: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       execute: jest.fn().mockResolvedValue({ affected: 1 }),
     };
