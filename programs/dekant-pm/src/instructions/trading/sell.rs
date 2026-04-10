@@ -115,6 +115,10 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         .checked_mul(market.total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
+    market.trader_token_totals[args.outcome as usize] = market.trader_token_totals
+        [args.outcome as usize]
+        .checked_sub(args.token_amount)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
     let position = &mut ctx.accounts.user_position;
     position.holdings[args.outcome as usize] = position.holdings[args.outcome as usize]

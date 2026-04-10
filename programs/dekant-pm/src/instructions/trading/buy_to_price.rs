@@ -88,6 +88,10 @@ pub fn handle_buy_to_price(ctx: Context<Buy>, args: BuyToPriceArgs) -> Result<()
         .checked_mul(market.total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
+    market.trader_token_totals[args.outcome as usize] = market.trader_token_totals
+        [args.outcome as usize]
+        .checked_add(tokens_out)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
     // ── Update user position ──────────────────────────────────────────
     let position = &mut ctx.accounts.user_position;

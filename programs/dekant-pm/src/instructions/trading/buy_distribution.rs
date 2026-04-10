@@ -127,6 +127,11 @@ pub fn handle_buy_distribution(
         .checked_mul(market.total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
+    for (i, &out) in tokens_out.iter().enumerate() {
+        market.trader_token_totals[i] = market.trader_token_totals[i]
+            .checked_add(out)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+    }
 
     let position = &mut ctx.accounts.user_position;
     if position.version == 0 {

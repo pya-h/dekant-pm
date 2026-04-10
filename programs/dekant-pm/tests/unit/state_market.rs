@@ -34,6 +34,7 @@ fn blank_market() -> Market {
         vault_authority_bump: 254,
         _padding: [0u8; 30],
         reserves: vec![],
+        trader_token_totals: vec![],
     }
 }
 
@@ -515,17 +516,17 @@ fn test_implied_probability_out_of_bounds() {
 
 #[test]
 fn test_space_binary() {
-    assert_eq!(Market::space(2), 307 + 2 * 8);
+    assert_eq!(Market::space(2), 311 + 2 * 16);
 }
 
 #[test]
 fn test_space_multi_32() {
-    assert_eq!(Market::space(32), 307 + 32 * 8);
+    assert_eq!(Market::space(32), 311 + 32 * 16);
 }
 
 #[test]
 fn test_space_continuous_256() {
-    assert_eq!(Market::space(256), 307 + 256 * 8);
+    assert_eq!(Market::space(256), 311 + 256 * 16);
 }
 
 // ── Enum Tests ───────────────────────────────────────────────────
