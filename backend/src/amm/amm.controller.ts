@@ -1,7 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AmmService } from './amm.service';
-import { EstimateBuyDto, EstimateSellDto } from './amm.dto';
+import { EstimateBuyDto, EstimateSellDto } from './dto/amm.dto';
 
 @ApiTags('amm')
 @Controller('amm')

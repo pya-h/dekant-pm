@@ -1,5 +1,5 @@
 import { getMetadataArgsStorage } from 'typeorm';
-import { IndexerStateEntity } from './indexer-state.entity';
+import { IndexerStateEntity } from './entity/indexer-state.entity';
 
 describe('IndexerStateEntity', () => {
   it('should map to "indexer_state" table', () => {

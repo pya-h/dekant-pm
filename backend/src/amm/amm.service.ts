@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MarketService } from '../market/market.service';
-import { computeBinWeights } from './normal';
+import { computeBinWeights } from './util/normal';
 
 const SCALE = 1_000_000_000;
 

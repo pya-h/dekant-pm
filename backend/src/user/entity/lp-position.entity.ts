@@ -7,11 +7,11 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { MarketEntity } from '../market/market.entity';
+import { MarketEntity } from '../../market/entity/market.entity';
 
-@Entity('user_positions')
+@Entity('lp_positions')
 @Unique(['marketId', 'userAddress'])
-export class UserPositionEntity {
+export class LpPositionEntity {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: string;
 
@@ -25,17 +25,11 @@ export class UserPositionEntity {
   @Column({ type: 'varchar', length: 44, name: 'user_address' })
   userAddress!: string;
 
-  @Column({ type: 'bigint', array: true })
-  holdings!: string[];
+  @Column({ type: 'numeric' })
+  shares!: string;
 
-  @Column({ type: 'bigint', default: 0, name: 'total_deposited' })
-  totalDeposited!: string;
-
-  @Column({ type: 'bigint', default: 0, name: 'total_withdrawn' })
-  totalWithdrawn!: string;
-
-  @Column({ type: 'boolean', default: false })
-  claimed!: boolean;
+  @Column({ type: 'bigint', default: 0, name: 'deposited_collateral' })
+  depositedCollateral!: string;
 
   @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
   updatedAt!: Date;

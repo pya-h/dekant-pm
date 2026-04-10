@@ -7,12 +7,12 @@ import { MarketModule } from './market/market.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { AmmModule } from './amm/amm.module';
 import { UserModule } from './user/user.module';
-import { MarketEntity } from './market/market.entity';
-import { TradeEntity } from './market/trade.entity';
-import { UserPositionEntity } from './user/user-position.entity';
-import { LpPositionEntity } from './user/lp-position.entity';
-import { UserRoleEntity } from './user/user-role.entity';
-import { IndexerStateEntity } from './indexer/indexer-state.entity';
+import { MarketEntity } from './market/entity/market.entity';
+import { TradeEntity } from './market/entity/trade.entity';
+import { UserPositionEntity } from './user/entity/user-position.entity';
+import { LpPositionEntity } from './user/entity/lp-position.entity';
+import { UserRoleEntity } from './user/entity/user-role.entity';
+import { IndexerStateEntity } from './indexer/entity/indexer-state.entity';
 
 @Module({
   imports: [
