@@ -45,8 +45,7 @@ pub mod umbra {
 
     /// Create a new prediction market with initial liquidity.
     pub fn create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) -> Result<()> {
-        // Implementation in task P-9.
-        todo!()
+        handle_create_market(ctx, args)
     }
 
     /// Pause an active market (freezes all trading).
