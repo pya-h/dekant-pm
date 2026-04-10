@@ -91,7 +91,6 @@ pub fn handle_sell_distribution(
     require!(args.sigma > 0, UmbraError::InvalidSigma);
     require!(args.token_amount > 0, UmbraError::TradeTooSmall);
 
-    // ── Compute bin weights ──────────────────────────────────────────
     let weights = normal_pdf::compute_bin_weights(
         market.range_min,
         market.range_max,
@@ -110,7 +109,6 @@ pub fn handle_sell_distribution(
         );
     }
 
-    // ── AMM computation ──────────────────────────────────────────────
     let k_sq = market.k_squared;
     let collateral_out = amm::compute_distribution_sell(
         &mut market.reserves,
@@ -126,7 +124,6 @@ pub fn handle_sell_distribution(
         ctx.accounts.protocol_config.lp_fee_share_bps,
     )?;
 
-    // Update market state.
     market.total_minted = market
         .total_minted
         .checked_sub(collateral_out as u128)
@@ -134,7 +131,6 @@ pub fn handle_sell_distribution(
     market.k_squared = amm::sum_of_squares(&market.reserves);
     market.accrue_fees(&fees)?;
 
-    // ── UserPosition ─────────────────────────────────────────────────
     let position = &mut ctx.accounts.user_position;
     for (i, &w) in weights.iter().enumerate() {
         let tokens_for_bin = (args.token_amount as u128) * (w as u128) / SCALE;
@@ -147,7 +143,6 @@ pub fn handle_sell_distribution(
         .checked_add(fees.net_amount)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── CPI: transfer net collateral from vault to trader ────────────
     let market_key = ctx.accounts.market.key();
     let seeds = &[
         VAULT_AUTHORITY_SEED,
@@ -169,7 +164,6 @@ pub fn handle_sell_distribution(
         fees.net_amount,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(TradePlaced {
         market_id: ctx.accounts.market.market_id,
         trader: ctx.accounts.trader.key(),

@@ -54,13 +54,9 @@ pub struct AssignRole<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_assign_role(ctx: Context<AssignRole>, args: AssignRoleArgs) -> Result<()> {
-    // Validate role type.
     let role = Role::from_u8(args.role).ok_or(error!(UmbraError::InvalidRole))?;
 
-    // ── Authorization ──────────────────────────────────────────────────
-    //
-    // Superadmin can assign any role (Admin, Oracle, Creator).
-    // Admin can only assign Oracle and Creator (not Admin).
+    // Superadmin can assign any role. Admin can only assign Oracle/Creator.
     let is_superadmin = ctx.accounts.authority.key() == ctx.accounts.protocol_config.superadmin;
 
     if !is_superadmin {
@@ -70,26 +66,23 @@ pub fn handle_assign_role(ctx: Context<AssignRole>, args: AssignRoleArgs) -> Res
             .as_ref()
             .ok_or(error!(UmbraError::Unauthorized))?;
 
-        // Must be owned by this program.
         require!(
             role_info.owner == ctx.program_id,
             UmbraError::Unauthorized
         );
 
-        // Deserialize with discriminator check.
         let data = role_info.try_borrow_data()?;
         let mut data_ref: &[u8] = &data;
         let admin_role = UserRole::try_deserialize(&mut data_ref)
             .map_err(|_| error!(UmbraError::Unauthorized))?;
 
-        // Authority must hold the Admin role.
         require!(admin_role.role == ROLE_ADMIN, UmbraError::Unauthorized);
         require!(
             admin_role.user == ctx.accounts.authority.key(),
             UmbraError::Unauthorized
         );
 
-        // Re-derive PDA (O(1) with known bump).
+        // Re-derive PDA (O(1) with stored bump) to verify account key.
         let expected = Pubkey::create_program_address(
             &[
                 USER_ROLE_SEED,
@@ -103,11 +96,9 @@ pub fn handle_assign_role(ctx: Context<AssignRole>, args: AssignRoleArgs) -> Res
 
         require!(role_info.key() == expected, UmbraError::Unauthorized);
 
-        // Admin cannot assign the Admin role — only superadmin can.
         require!(role.admin_can_assign(), UmbraError::AdminCannotAssignAdmin);
     }
 
-    // ── Initialize UserRole PDA ────────────────────────────────────────
     let clock = Clock::get()?;
     let user_role = &mut ctx.accounts.user_role;
     user_role.version = SCHEMA_VERSION;
@@ -117,7 +108,6 @@ pub fn handle_assign_role(ctx: Context<AssignRole>, args: AssignRoleArgs) -> Res
     user_role.assigned_at = clock.unix_timestamp;
     user_role.bump = ctx.bumps.user_role;
 
-    // ── Emit event ─────────────────────────────────────────────────────
     emit!(RoleAssigned {
         user: ctx.accounts.target_user.key(),
         role: args.role,

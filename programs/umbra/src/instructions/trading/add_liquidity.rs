@@ -79,10 +79,8 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) 
         UmbraError::LiquidityTooSmall
     );
 
-    // ── Compute LP shares ────────────────────────────────────────────
     let new_shares = market.compute_lp_shares_for_deposit(args.amount)?;
 
-    // ── Scale reserves proportionally ────────────────────────────────
     let total_before = market.total_minted;
     let numerator = total_before
         .checked_add(args.amount as u128)
@@ -94,7 +92,6 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) 
         total_before,
     )?;
 
-    // Update market state.
     market.k_squared = new_k_squared;
     market.total_minted = numerator;
     market.lp_shares_total = market
@@ -102,7 +99,6 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) 
         .checked_add(new_shares)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── LpPosition ───────────────────────────────────────────────────
     let lp = &mut ctx.accounts.lp_position;
     if lp.version == 0 {
         lp.version = SCHEMA_VERSION;
@@ -120,7 +116,6 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) 
         .checked_add(args.amount)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── CPI: transfer collateral from provider to vault ──────────────
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -133,7 +128,6 @@ pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) 
         args.amount,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(LiquidityChanged {
         market_id: market.market_id,
         provider: ctx.accounts.provider.key(),

@@ -30,7 +30,6 @@ pub struct UnpauseMarket<'info> {
 // ── Handler ──────────────────────────────────────────────────────────
 
 pub fn handle_unpause_market(ctx: Context<UnpauseMarket>) -> Result<()> {
-    // ── 1. Validate admin authorization ────────────────────────────────
     validate_admin_authority(
         &ctx.accounts.authority,
         &ctx.accounts.protocol_config,
@@ -38,15 +37,11 @@ pub fn handle_unpause_market(ctx: Context<UnpauseMarket>) -> Result<()> {
         ctx.program_id,
     )?;
 
-    // ── 2. Transition state ───────────────────────────────────────────
-    //
-    // Paused → Active if deadline has not passed.
-    // Paused → PendingResolution if deadline has passed (lazy enforcement).
+    // Paused → Active, or PendingResolution if deadline passed (lazy enforcement).
     let clock = Clock::get()?;
     let market = &mut ctx.accounts.market;
     market.unpause(clock.unix_timestamp)?;
 
-    // ── 3. Emit event ─────────────────────────────────────────────────
     emit!(MarketUnpaused {
         market_id: market.market_id,
         admin: ctx.accounts.authority.key(),

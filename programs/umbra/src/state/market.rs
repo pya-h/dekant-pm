@@ -201,7 +201,6 @@ impl Market {
             require!(range_max > range_min, UmbraError::InvalidRange);
         }
 
-        // ── Scalar fields ────────────────────────────────────────────
         self.version = SCHEMA_VERSION;
         self.market_id = market_id;
         self.market_type = market_type;

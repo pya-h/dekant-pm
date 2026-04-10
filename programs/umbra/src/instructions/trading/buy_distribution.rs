@@ -96,7 +96,6 @@ pub fn handle_buy_distribution(
         UmbraError::TradeTooSmall
     );
 
-    // ── Compute bin weights ──────────────────────────────────────────
     let weights = normal_pdf::compute_bin_weights(
         market.range_min,
         market.range_max,
@@ -105,14 +104,12 @@ pub fn handle_buy_distribution(
         args.sigma,
     );
 
-    // ── Fees ─────────────────────────────────────────────────────────
     let fees = Market::compute_fees(
         args.collateral_amount,
         ctx.accounts.protocol_config.trade_fee_bps,
         ctx.accounts.protocol_config.lp_fee_share_bps,
     )?;
 
-    // ── AMM computation ──────────────────────────────────────────────
     let k_sq = market.k_squared;
     let tokens_out = amm::compute_distribution_buy(
         &mut market.reserves,
@@ -121,7 +118,6 @@ pub fn handle_buy_distribution(
         fees.net_amount,
     )?;
 
-    // Update market state.
     market.total_minted = market
         .total_minted
         .checked_add(fees.net_amount as u128)
@@ -129,7 +125,6 @@ pub fn handle_buy_distribution(
     market.k_squared = amm::sum_of_squares(&market.reserves);
     market.accrue_fees(&fees)?;
 
-    // ── UserPosition ─────────────────────────────────────────────────
     let position = &mut ctx.accounts.user_position;
     if position.version == 0 {
         position.version = SCHEMA_VERSION;
@@ -154,7 +149,6 @@ pub fn handle_buy_distribution(
         .checked_add(args.collateral_amount)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── CPI: transfer collateral from trader to vault ────────────────
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -167,7 +161,6 @@ pub fn handle_buy_distribution(
         args.collateral_amount,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(TradePlaced {
         market_id: market.market_id,
         trader: ctx.accounts.trader.key(),

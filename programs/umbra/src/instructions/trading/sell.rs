@@ -86,13 +86,11 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
     market.validate_outcome(args.outcome)?;
     require!(args.token_amount > 0, UmbraError::TradeTooSmall);
 
-    // Check holdings.
     require!(
         ctx.accounts.user_position.holdings[args.outcome as usize] >= args.token_amount,
         UmbraError::InsufficientHoldings
     );
 
-    // ── AMM computation ──────────────────────────────────────────────
     // compute_sell returns gross collateral before fees.
     let k_sq = market.k_squared;
     let collateral_out = amm::compute_sell(
@@ -109,7 +107,6 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         ctx.accounts.protocol_config.lp_fee_share_bps,
     )?;
 
-    // Update market state.
     market.total_minted = market
         .total_minted
         .checked_sub(collateral_out as u128)
@@ -117,7 +114,6 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
     market.k_squared = amm::sum_of_squares(&market.reserves);
     market.accrue_fees(&fees)?;
 
-    // ── UserPosition ─────────────────────────────────────────────────
     let position = &mut ctx.accounts.user_position;
     position.holdings[args.outcome as usize] = position.holdings[args.outcome as usize]
         .checked_sub(args.token_amount)
@@ -127,7 +123,6 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         .checked_add(fees.net_amount)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // ── CPI: transfer net collateral from vault to trader ────────────
     let market_key = ctx.accounts.market.key();
     let seeds = &[
         VAULT_AUTHORITY_SEED,
@@ -149,7 +144,6 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         fees.net_amount,
     )?;
 
-    // ── Event ────────────────────────────────────────────────────────
     emit!(TradePlaced {
         market_id: ctx.accounts.market.market_id,
         trader: ctx.accounts.trader.key(),

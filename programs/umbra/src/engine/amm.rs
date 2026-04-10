@@ -56,14 +56,12 @@ pub fn compute_buy(
     require!(outcome < n, UmbraError::InvalidOutcome);
     require!(effective_collateral > 0, UmbraError::TradeTooSmall);
 
-    // Step 1: Mint complete sets (add effective_collateral to all reserves).
     for r in reserves.iter_mut() {
         *r = r
             .checked_add(effective_collateral)
             .ok_or_else(|| error!(UmbraError::MathOverflow))?;
     }
 
-    // Step 2: Compute sum of squares for all outcomes except the target.
     let mut sum_others_sq: u128 = 0;
     for (i, &r) in reserves.iter().enumerate() {
         if i != outcome {
@@ -86,7 +84,6 @@ pub fn compute_buy(
 
     require!(tokens_out > 0, UmbraError::TradeTooSmall);
 
-    // Update reserve.
     reserves[outcome] = new_r as u64;
 
     Ok(tokens_out)
@@ -114,16 +111,13 @@ pub fn compute_sell(
     require!(outcome < n, UmbraError::InvalidOutcome);
     require!(tokens_in > 0, UmbraError::TradeTooSmall);
 
-    // Step 1: Add tokens back to reserves.
     reserves[outcome] = reserves[outcome]
         .checked_add(tokens_in)
         .ok_or_else(|| error!(UmbraError::MathOverflow))?;
 
-    // Step 2: Solve for burn amount.
     let burn = solve_burn_amount(reserves, k_squared)?;
     require!(burn > 0, UmbraError::TradeTooSmall);
 
-    // Step 3: Subtract burn from all reserves.
     for r in reserves.iter_mut() {
         *r = r
             .checked_sub(burn)
@@ -156,14 +150,13 @@ pub fn compute_distribution_buy(
     require!(weights.len() == n, UmbraError::InvalidNumOutcomes);
     require!(effective_collateral > 0, UmbraError::TradeTooSmall);
 
-    // Step 1: Mint complete sets.
     for r in reserves.iter_mut() {
         *r = r
             .checked_add(effective_collateral)
             .ok_or_else(|| error!(UmbraError::MathOverflow))?;
     }
 
-    // Step 2: Compute R2, RW, W2.
+    // Compute R2, RW, W2 for the quadratic.
     let r2 = sum_of_squares(reserves);
 
     let rw: u128 = reserves
@@ -179,7 +172,7 @@ pub fn compute_distribution_buy(
 
     require!(w2 > 0, UmbraError::DivisionByZero);
 
-    // Step 3: Solve quadratic for λ.
+    // Solve quadratic for λ.
     // λ = (RW - sqrt(RW² - W2·(R2 - k²))) / W2
     require!(r2 >= k_squared, UmbraError::InsufficientLiquidity);
     let excess = r2 - k_squared;
@@ -198,7 +191,6 @@ pub fn compute_distribution_buy(
     require!(rw >= sqrt_disc, UmbraError::MathOverflow);
     let numerator = rw - sqrt_disc;
 
-    // Step 4: Compute tokens per bin.
     // tokens_out[b] = numerator * W[b] / W2
     let mut tokens_out = Vec::with_capacity(n);
     for (i, &w) in weights.iter().enumerate() {
@@ -209,7 +201,6 @@ pub fn compute_distribution_buy(
         let out = out as u64;
         tokens_out.push(out);
 
-        // Drain from reserve.
         reserves[i] = reserves[i]
             .checked_sub(out)
             .ok_or_else(|| error!(UmbraError::InsufficientLiquidity))?;
@@ -239,7 +230,6 @@ pub fn compute_distribution_sell(
     require!(weights.len() == n, UmbraError::InvalidNumOutcomes);
     require!(total_tokens > 0, UmbraError::TradeTooSmall);
 
-    // Step 1: Add tokens back proportionally.
     for (i, &w) in weights.iter().enumerate() {
         let tokens_for_bin = (total_tokens as u128)
             .checked_mul(w as u128)
@@ -250,11 +240,9 @@ pub fn compute_distribution_sell(
             .ok_or_else(|| error!(UmbraError::MathOverflow))?;
     }
 
-    // Step 2: Solve for burn amount.
     let burn = solve_burn_amount(reserves, k_squared)?;
     require!(burn > 0, UmbraError::TradeTooSmall);
 
-    // Step 3: Subtract burn from all reserves.
     for r in reserves.iter_mut() {
         *r = r
             .checked_sub(burn)
