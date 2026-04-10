@@ -1,12 +1,33 @@
 use anchor_lang::prelude::*;
 use crate::constants::*;
+use crate::errors::UmbraError;
+use crate::engine::amm::sum_of_squares;
+use crate::engine::fixed_point::mul_div;
+
+// ── Fee Computation ──────────────────────────────────────────────────────
+
+/// Ephemeral result of splitting a trade fee into LP and protocol portions.
+/// Not stored on-chain — used by instruction handlers during trade execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeeBreakdown {
+    /// Total fee deducted from the trader's gross collateral.
+    pub total_fee: u64,
+    /// Portion of the fee accruing to the LP pool.
+    pub lp_fee: u64,
+    /// Portion of the fee accruing to the protocol treasury.
+    pub protocol_fee: u64,
+    /// Collateral remaining after fee deduction (gross - total_fee).
+    pub net_amount: u64,
+}
+
+// ── Market Account ───────────────────────────────────────────────────────
 
 /// A prediction market with its AMM state.
 /// Unified struct for binary, multi-outcome, and continuous (binned) markets.
 /// Seeds: ["market", market_id.to_le_bytes()]
 #[account]
 pub struct Market {
-    /// Schema version.
+    /// Schema version for upgrade-safe deserialization.
     pub version: u8,
 
     /// Unique, auto-incremented market identifier.
@@ -92,7 +113,9 @@ pub struct Market {
     /// Vault authority PDA bump seed (for CPI signing).
     pub vault_authority_bump: u8,
 
-    /// Reserved for future fields.
+    /// Reserved for future schema versions. Consumed from the front
+    /// when new fields are added; total byte offset of `reserves` stays
+    /// constant for a given padding size.
     pub _padding: [u8; 30],
 
     // ── Variable-Length ──────────────────────────────────────────────
@@ -103,6 +126,8 @@ pub struct Market {
 }
 
 impl Market {
+    // ── Space Calculation ────────────────────────────────────────────
+
     /// Total account size for a market with `n` outcomes/bins.
     pub fn space(n: u16) -> usize {
         8   // anchor discriminator
@@ -134,28 +159,442 @@ impl Market {
         + (n as usize) * 8  // reserves data
     }
 
-    /// Whether the market accepts trades right now.
+    // ── Initialization ───────────────────────────────────────────────
+
+    /// Populate a freshly-allocated Market account and set up uniform AMM state.
+    ///
+    /// After this call: `reserves[i] = initial_liquidity` for all i,
+    /// `k_squared = num_outcomes * initial_liquidity²`, and the creating LP
+    /// receives `initial_liquidity` shares.
+    #[allow(clippy::too_many_arguments)]
+    pub fn initialize(
+        &mut self,
+        market_id: u64,
+        market_type: u8,
+        creator: Pubkey,
+        oracle: Pubkey,
+        collateral_mint: Pubkey,
+        vault: Pubkey,
+        deadline: i64,
+        created_at: i64,
+        num_outcomes: u16,
+        initial_liquidity: u64,
+        range_min: i64,
+        range_max: i64,
+        bump: u8,
+        vault_authority_bump: u8,
+    ) -> Result<()> {
+        let mtype = MarketType::from_u8(market_type)
+            .ok_or_else(|| error!(UmbraError::InvalidMarketType))?;
+
+        require!(
+            mtype.valid_num_outcomes(num_outcomes),
+            UmbraError::InvalidNumOutcomes
+        );
+        require!(
+            initial_liquidity >= MIN_LIQUIDITY,
+            UmbraError::LiquidityTooSmall
+        );
+        require!(deadline > created_at, UmbraError::InvalidDeadline);
+
+        if mtype.is_continuous() {
+            require!(range_max > range_min, UmbraError::InvalidRange);
+        }
+
+        // ── Scalar fields ────────────────────────────────────────────
+        self.version = SCHEMA_VERSION;
+        self.market_id = market_id;
+        self.market_type = market_type;
+        self.state = STATE_ACTIVE;
+        self.creator = creator;
+        self.oracle = oracle;
+        self.collateral_mint = collateral_mint;
+        self.vault = vault;
+        self.deadline = deadline;
+        self.created_at = created_at;
+        self.resolved_at = 0;
+        self.num_outcomes = num_outcomes;
+        self.protocol_fee_accumulated = 0;
+        self.lp_fee_accumulated = 0;
+        self.resolved_outcome = 0;
+        self.resolved_value = 0;
+        self.bump = bump;
+        self.vault_authority_bump = vault_authority_bump;
+        self._padding = [0u8; 30];
+
+        if mtype.is_continuous() {
+            self.range_min = range_min;
+            self.range_max = range_max;
+        } else {
+            self.range_min = 0;
+            self.range_max = 0;
+        }
+
+        // ── AMM initial state (uniform distribution) ─────────────────
+        let liq = initial_liquidity as u128;
+        let n = num_outcomes as u128;
+
+        let liq_sq = liq
+            .checked_mul(liq)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        let k_squared = n
+            .checked_mul(liq_sq)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+        self.reserves = vec![initial_liquidity; num_outcomes as usize];
+        self.k_squared = k_squared;
+        self.total_minted = liq;
+        self.lp_shares_total = liq;
+
+        Ok(())
+    }
+
+    // ── State Predicates ─────────────────────────────────────────────
+
     pub fn is_active(&self) -> bool {
         self.state == STATE_ACTIVE
     }
 
-    /// Whether the market is past its deadline.
+    pub fn is_paused(&self) -> bool {
+        self.state == STATE_PAUSED
+    }
+
+    pub fn is_pending_resolution(&self) -> bool {
+        self.state == STATE_PENDING_RESOLUTION
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        self.state == STATE_RESOLVED
+    }
+
     pub fn is_expired(&self, clock_timestamp: i64) -> bool {
         clock_timestamp >= self.deadline
     }
 
-    /// Implied probability for outcome `i` as a SCALE-denominated value.
-    /// Returns reserves[i]² * SCALE / k_squared.
-    pub fn implied_probability(&self, i: u16) -> Option<u128> {
-        let r = *self.reserves.get(i as usize)? as u128;
-        let r_sq = r.checked_mul(r)?;
-        r_sq.checked_mul(SCALE)?.checked_div(self.k_squared)
+    // ── State Transitions ────────────────────────────────────────────
+
+    /// Active → Paused.
+    pub fn pause(&mut self) -> Result<()> {
+        require!(self.state == STATE_ACTIVE, UmbraError::MarketNotActive);
+        self.state = STATE_PAUSED;
+        Ok(())
+    }
+
+    /// Paused → Active, or Paused → PendingResolution if deadline has passed.
+    pub fn unpause(&mut self, clock_timestamp: i64) -> Result<()> {
+        require!(self.state == STATE_PAUSED, UmbraError::MarketNotPaused);
+        if clock_timestamp >= self.deadline {
+            self.state = STATE_PENDING_RESOLUTION;
+        } else {
+            self.state = STATE_ACTIVE;
+        }
+        Ok(())
+    }
+
+    /// Active|Paused → PendingResolution.
+    ///
+    /// Used for lazy deadline enforcement: the first instruction to touch
+    /// the market after deadline calls this to transition the state.
+    pub fn transition_to_pending(&mut self) -> Result<()> {
+        require!(
+            self.state == STATE_ACTIVE || self.state == STATE_PAUSED,
+            UmbraError::MarketAlreadyResolved
+        );
+        self.state = STATE_PENDING_RESOLUTION;
+        Ok(())
+    }
+
+    /// PendingResolution → Resolved.
+    ///
+    /// For discrete markets, `outcome` is the winning index.
+    /// For continuous markets, `value` is the realized value and the
+    /// winning bin is derived via [`value_to_bin`].
+    pub fn resolve(
+        &mut self,
+        outcome: u16,
+        value: i64,
+        clock_timestamp: i64,
+    ) -> Result<()> {
+        require!(
+            self.state == STATE_PENDING_RESOLUTION,
+            UmbraError::MarketNotPendingResolution
+        );
+
+        let mtype = MarketType::from_u8(self.market_type)
+            .ok_or_else(|| error!(UmbraError::InvalidMarketType))?;
+
+        match mtype {
+            MarketType::Binary | MarketType::MultiOutcome => {
+                require!(outcome < self.num_outcomes, UmbraError::InvalidOutcome);
+                self.resolved_outcome = outcome;
+                self.resolved_value = 0;
+            }
+            MarketType::Continuous => {
+                require!(
+                    value >= self.range_min && value <= self.range_max,
+                    UmbraError::ResolvedValueOutOfRange
+                );
+                self.resolved_value = value;
+                self.resolved_outcome = self.value_to_bin(value)?;
+            }
+        }
+
+        self.state = STATE_RESOLVED;
+        self.resolved_at = clock_timestamp;
+        Ok(())
+    }
+
+    // ── Trading Guards ───────────────────────────────────────────────
+
+    /// Assert the market is Active and before its deadline.
+    pub fn require_trading_allowed(&self, clock_timestamp: i64) -> Result<()> {
+        require!(self.state == STATE_ACTIVE, UmbraError::MarketNotActive);
+        require!(clock_timestamp < self.deadline, UmbraError::MarketClosed);
+        Ok(())
+    }
+
+    /// Assert `outcome` is a valid index for this market.
+    pub fn validate_outcome(&self, outcome: u16) -> Result<()> {
+        require!(outcome < self.num_outcomes, UmbraError::InvalidOutcome);
+        Ok(())
+    }
+
+    /// Assert this is a discrete (binary or multi-outcome) market.
+    pub fn require_discrete(&self) -> Result<()> {
+        require!(
+            self.market_type == MARKET_TYPE_BINARY
+                || self.market_type == MARKET_TYPE_MULTI,
+            UmbraError::WrongMarketType
+        );
+        Ok(())
+    }
+
+    /// Assert this is a continuous (binned) market.
+    pub fn require_continuous(&self) -> Result<()> {
+        require!(
+            self.market_type == MARKET_TYPE_CONTINUOUS,
+            UmbraError::WrongMarketType
+        );
+        Ok(())
+    }
+
+    /// Assert the market has been resolved.
+    pub fn require_resolved(&self) -> Result<()> {
+        require!(self.state == STATE_RESOLVED, UmbraError::MarketNotResolved);
+        Ok(())
+    }
+
+    /// Assert the reserves Vec length matches num_outcomes.
+    /// Call after deserialization to catch corrupt account data.
+    pub fn validate_reserves_integrity(&self) -> Result<()> {
+        require!(
+            self.reserves.len() == self.num_outcomes as usize,
+            UmbraError::InvalidNumOutcomes
+        );
+        Ok(())
+    }
+
+    // ── Fee Computation ──────────────────────────────────────────────
+
+    /// Split a gross collateral amount into fee components.
+    ///
+    /// Fee parameters come from ProtocolConfig (not Market), so this is
+    /// an associated function.
+    ///
+    /// `trade_fee_bps`: total fee (0–5000 bps).
+    /// `lp_fee_share_bps`: LP share of fee (0–10000 bps).
+    ///
+    /// Fees are floored (favorable to trader). The protocol receives
+    /// `total_fee - lp_fee`, absorbing any rounding remainder.
+    pub fn compute_fees(
+        gross_amount: u64,
+        trade_fee_bps: u16,
+        lp_fee_share_bps: u16,
+    ) -> Result<FeeBreakdown> {
+        // u128 intermediate: max u64 * 5000 ≈ 9.2e22, fits in u128.
+        let total_fee = (gross_amount as u128)
+            .checked_mul(trade_fee_bps as u128)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?
+            / 10_000;
+        // total_fee ≤ gross_amount / 2, always fits u64.
+        let total_fee = total_fee as u64;
+
+        let lp_fee = (total_fee as u128)
+            .checked_mul(lp_fee_share_bps as u128)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?
+            / 10_000;
+        let lp_fee = lp_fee as u64;
+
+        // lp_fee ≤ total_fee by construction (share ≤ 10_000).
+        let protocol_fee = total_fee - lp_fee;
+
+        let net_amount = gross_amount
+            .checked_sub(total_fee)
+            .ok_or_else(|| error!(UmbraError::InsufficientBalance))?;
+
+        Ok(FeeBreakdown {
+            total_fee,
+            lp_fee,
+            protocol_fee,
+            net_amount,
+        })
+    }
+
+    /// Add fee amounts to the market's accumulators.
+    pub fn accrue_fees(&mut self, fees: &FeeBreakdown) -> Result<()> {
+        self.lp_fee_accumulated = self
+            .lp_fee_accumulated
+            .checked_add(fees.lp_fee as u128)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        self.protocol_fee_accumulated = self
+            .protocol_fee_accumulated
+            .checked_add(fees.protocol_fee)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        Ok(())
+    }
+
+    // ── Continuous Market Helpers ─────────────────────────────────────
+
+    /// Convert a realized continuous value to a bin index.
+    ///
+    /// `bin = (value - range_min) * num_outcomes / (range_max - range_min)`,
+    /// clamped to `[0, num_outcomes - 1]`.
+    ///
+    /// Uses i128 intermediates to avoid overflow when the range spans
+    /// a large portion of the i64 domain.
+    pub fn value_to_bin(&self, value: i64) -> Result<u16> {
+        if value <= self.range_min {
+            return Ok(0);
+        }
+        if value >= self.range_max {
+            return Ok(self.num_outcomes.saturating_sub(1));
+        }
+
+        let lo = self.range_min as i128;
+        let hi = self.range_max as i128;
+        let span = hi - lo; // Positive: range_max > range_min validated at init.
+
+        let offset = (value as i128) - lo; // Non-negative after the clamp above.
+        let n = self.num_outcomes as i128;
+
+        // Max offset * n: (2^64) * 256 = 2^72, fits in i128.
+        let bin = offset
+            .checked_mul(n)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?
+            / span;
+
+        let bin = (bin as u16).min(self.num_outcomes.saturating_sub(1));
+        Ok(bin)
+    }
+
+    // ── AMM Queries ──────────────────────────────────────────────────
+
+    /// Implied probability for outcome `i`, scaled to SCALE (10^9).
+    ///
+    /// `price[i] = reserves[i]² * SCALE / k_squared`.
+    /// Returns error if `i` is out of bounds, k_squared is zero, or
+    /// the intermediate multiplication overflows (reserves above ~10^14).
+    pub fn implied_probability(&self, i: u16) -> Result<u128> {
+        let r = *self
+            .reserves
+            .get(i as usize)
+            .ok_or_else(|| error!(UmbraError::InvalidOutcome))? as u128;
+        let r_sq = r
+            .checked_mul(r)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        r_sq.checked_mul(SCALE)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?
+            .checked_div(self.k_squared)
+            .ok_or_else(|| error!(UmbraError::DivisionByZero))
+    }
+
+    /// Recompute `k_squared` from current reserves.
+    ///
+    /// Safe for practical reserve values (≤ 10^12 per bin, 256 bins).
+    pub fn recompute_k_squared(&mut self) {
+        self.k_squared = sum_of_squares(&self.reserves);
+    }
+
+    // ── AMM Mutations ────────────────────────────────────────────────
+
+    /// Add `amount` to every reserve and increase `total_minted`.
+    ///
+    /// Step 1 of the buy algorithm (mint complete sets). After this call
+    /// the L2-norm invariant is violated; the caller must drain tokens
+    /// from the target outcome to restore it.
+    pub fn mint_complete_sets(&mut self, amount: u64) -> Result<()> {
+        for r in self.reserves.iter_mut() {
+            *r = r
+                .checked_add(amount)
+                .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        }
+        self.total_minted = self
+            .total_minted
+            .checked_add(amount as u128)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+        Ok(())
+    }
+
+    /// Subtract `amount` from every reserve and decrease `total_minted`.
+    ///
+    /// Burn step of the sell algorithm. After this call the invariant
+    /// may not hold; the caller should verify via `verify_invariant`.
+    pub fn burn_complete_sets(&mut self, amount: u64) -> Result<()> {
+        for r in self.reserves.iter_mut() {
+            *r = r
+                .checked_sub(amount)
+                .ok_or_else(|| error!(UmbraError::InsufficientLiquidity))?;
+        }
+        self.total_minted = self
+            .total_minted
+            .checked_sub(amount as u128)
+            .ok_or_else(|| error!(UmbraError::InsufficientLiquidity))?;
+        Ok(())
+    }
+
+    /// Compute proportional LP shares for a new deposit.
+    ///
+    /// First LP (when `lp_shares_total == 0`) receives shares = collateral.
+    /// Subsequent LPs receive `lp_shares_total * collateral / total_minted`.
+    pub fn compute_lp_shares_for_deposit(&self, collateral: u64) -> Result<u128> {
+        if self.lp_shares_total == 0 {
+            return Ok(collateral as u128);
+        }
+        mul_div(
+            self.lp_shares_total,
+            collateral as u128,
+            self.total_minted,
+        )
+        .ok_or_else(|| error!(UmbraError::MathOverflow))
+    }
+
+    /// Compute collateral returned for burning LP shares.
+    ///
+    /// Returns `total_minted * shares / lp_shares_total`.
+    pub fn compute_collateral_for_withdrawal(&self, shares: u128) -> Result<u128> {
+        require!(
+            shares <= self.lp_shares_total,
+            UmbraError::InsufficientShares
+        );
+        mul_div(self.total_minted, shares, self.lp_shares_total)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))
+    }
+
+    /// Compute the LP fee share for a withdrawal.
+    ///
+    /// Returns `lp_fee_accumulated * shares / lp_shares_total`.
+    pub fn compute_lp_fee_share(&self, shares: u128) -> Result<u128> {
+        if self.lp_fee_accumulated == 0 {
+            return Ok(0);
+        }
+        mul_div(self.lp_fee_accumulated, shares, self.lp_shares_total)
+            .ok_or_else(|| error!(UmbraError::MathOverflow))
     }
 }
 
-// ── Enums ────────────────────────────────────────────────────────────
+// ── Enums ────────────────────────────────────────────────────────────────
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum MarketType {
     Binary = 0,
@@ -181,9 +620,18 @@ impl MarketType {
             Self::Continuous => (2..=MAX_BINS).contains(&n),
         }
     }
+
+    pub fn is_continuous(self) -> bool {
+        matches!(self, Self::Continuous)
+    }
+
+    /// Whether this market type requires range_min/range_max to be set.
+    pub fn requires_range(self) -> bool {
+        matches!(self, Self::Continuous)
+    }
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum MarketState {
     Active = 0,
@@ -201,5 +649,605 @@ impl MarketState {
             3 => Some(Self::Resolved),
             _ => None,
         }
+    }
+
+    /// Whether trading is allowed in this state.
+    pub fn can_trade(self) -> bool {
+        matches!(self, Self::Active)
+    }
+
+    /// Whether the market can be resolved from this state.
+    pub fn can_resolve(self) -> bool {
+        matches!(self, Self::PendingResolution)
+    }
+
+    /// Whether the market is in a terminal state.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Resolved)
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_DEADLINE: i64 = 1_000_000;
+    const TEST_CREATED_AT: i64 = 500_000;
+    const TEST_LIQUIDITY: u64 = 1_000_000; // 1 USDC
+
+    fn blank_market() -> Market {
+        Market {
+            version: 0,
+            market_id: 0,
+            market_type: 0,
+            state: 0,
+            creator: Pubkey::default(),
+            oracle: Pubkey::default(),
+            collateral_mint: Pubkey::default(),
+            vault: Pubkey::default(),
+            deadline: 0,
+            created_at: 0,
+            resolved_at: 0,
+            num_outcomes: 0,
+            k_squared: 0,
+            total_minted: 0,
+            lp_shares_total: 0,
+            lp_fee_accumulated: 0,
+            protocol_fee_accumulated: 0,
+            range_min: 0,
+            range_max: 0,
+            resolved_outcome: 0,
+            resolved_value: 0,
+            bump: 255,
+            vault_authority_bump: 254,
+            _padding: [0u8; 30],
+            reserves: vec![],
+        }
+    }
+
+    fn init_binary(m: &mut Market) {
+        m.initialize(
+            1,
+            MARKET_TYPE_BINARY,
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            TEST_DEADLINE,
+            TEST_CREATED_AT,
+            2,
+            TEST_LIQUIDITY,
+            0,
+            0,
+            255,
+            254,
+        )
+        .unwrap();
+    }
+
+    fn init_continuous(m: &mut Market, num_bins: u16) {
+        m.initialize(
+            2,
+            MARKET_TYPE_CONTINUOUS,
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            TEST_DEADLINE,
+            TEST_CREATED_AT,
+            num_bins,
+            TEST_LIQUIDITY,
+            0,
+            1_000_000_000, // range: [0, 10^9]
+            255,
+            254,
+        )
+        .unwrap();
+    }
+
+    // ── Initialization ───────────────────────────────────────────────
+
+    #[test]
+    fn test_initialize_binary_market() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+
+        assert_eq!(m.version, SCHEMA_VERSION);
+        assert_eq!(m.market_type, MARKET_TYPE_BINARY);
+        assert_eq!(m.state, STATE_ACTIVE);
+        assert_eq!(m.num_outcomes, 2);
+        assert_eq!(m.reserves, vec![TEST_LIQUIDITY; 2]);
+        assert_eq!(m.k_squared, 2 * (TEST_LIQUIDITY as u128).pow(2));
+        assert_eq!(m.total_minted, TEST_LIQUIDITY as u128);
+        assert_eq!(m.lp_shares_total, TEST_LIQUIDITY as u128);
+        assert_eq!(m.range_min, 0);
+        assert_eq!(m.range_max, 0);
+    }
+
+    #[test]
+    fn test_initialize_continuous_market() {
+        let mut m = blank_market();
+        init_continuous(&mut m, 10);
+
+        assert_eq!(m.market_type, MARKET_TYPE_CONTINUOUS);
+        assert_eq!(m.num_outcomes, 10);
+        assert_eq!(m.reserves.len(), 10);
+        assert!(m.reserves.iter().all(|&r| r == TEST_LIQUIDITY));
+        assert_eq!(m.k_squared, 10 * (TEST_LIQUIDITY as u128).pow(2));
+        assert_eq!(m.range_min, 0);
+        assert_eq!(m.range_max, 1_000_000_000);
+    }
+
+    #[test]
+    fn test_initialize_rejects_invalid_type() {
+        let mut m = blank_market();
+        let err = m
+            .initialize(
+                1, 255, Pubkey::default(), Pubkey::default(),
+                Pubkey::default(), Pubkey::default(),
+                TEST_DEADLINE, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 255, 254,
+            )
+            .unwrap_err();
+        assert_eq!(err, error!(UmbraError::InvalidMarketType));
+    }
+
+    #[test]
+    fn test_initialize_rejects_wrong_num_outcomes() {
+        let mut m = blank_market();
+        let err = m
+            .initialize(
+                1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
+                Pubkey::default(), Pubkey::default(),
+                TEST_DEADLINE, TEST_CREATED_AT, 3, TEST_LIQUIDITY, 0, 0, 255, 254,
+            )
+            .unwrap_err();
+        assert_eq!(err, error!(UmbraError::InvalidNumOutcomes));
+    }
+
+    #[test]
+    fn test_initialize_rejects_low_liquidity() {
+        let mut m = blank_market();
+        let err = m
+            .initialize(
+                1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
+                Pubkey::default(), Pubkey::default(),
+                TEST_DEADLINE, TEST_CREATED_AT, 2, 999, 0, 0, 255, 254,
+            )
+            .unwrap_err();
+        assert_eq!(err, error!(UmbraError::LiquidityTooSmall));
+    }
+
+    #[test]
+    fn test_initialize_rejects_invalid_deadline() {
+        let mut m = blank_market();
+        let err = m
+            .initialize(
+                1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
+                Pubkey::default(), Pubkey::default(),
+                TEST_CREATED_AT, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 255, 254,
+            )
+            .unwrap_err();
+        assert_eq!(err, error!(UmbraError::InvalidDeadline));
+    }
+
+    #[test]
+    fn test_initialize_continuous_rejects_invalid_range() {
+        let mut m = blank_market();
+        let err = m
+            .initialize(
+                1, MARKET_TYPE_CONTINUOUS, Pubkey::default(), Pubkey::default(),
+                Pubkey::default(), Pubkey::default(),
+                TEST_DEADLINE, TEST_CREATED_AT, 10, TEST_LIQUIDITY, 100, 50, 255, 254,
+            )
+            .unwrap_err();
+        assert_eq!(err, error!(UmbraError::InvalidRange));
+    }
+
+    // ── State Transitions ────────────────────────────────────────────
+
+    #[test]
+    fn test_pause_active_market() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.pause().unwrap();
+        assert!(m.is_paused());
+    }
+
+    #[test]
+    fn test_pause_non_active_fails() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.pause().unwrap();
+        assert_eq!(m.pause().unwrap_err(), error!(UmbraError::MarketNotActive));
+    }
+
+    #[test]
+    fn test_unpause_to_active() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.pause().unwrap();
+        m.unpause(TEST_CREATED_AT + 1).unwrap();
+        assert!(m.is_active());
+    }
+
+    #[test]
+    fn test_unpause_to_pending_when_expired() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.pause().unwrap();
+        m.unpause(TEST_DEADLINE + 1).unwrap();
+        assert!(m.is_pending_resolution());
+    }
+
+    #[test]
+    fn test_transition_to_pending() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.transition_to_pending().unwrap();
+        assert!(m.is_pending_resolution());
+    }
+
+    #[test]
+    fn test_resolve_binary() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.transition_to_pending().unwrap();
+        m.resolve(1, 0, TEST_DEADLINE + 100).unwrap();
+        assert!(m.is_resolved());
+        assert_eq!(m.resolved_outcome, 1);
+        assert_eq!(m.resolved_at, TEST_DEADLINE + 100);
+    }
+
+    #[test]
+    fn test_resolve_continuous() {
+        let mut m = blank_market();
+        init_continuous(&mut m, 10);
+        m.transition_to_pending().unwrap();
+        m.resolve(0, 500_000_000, TEST_DEADLINE + 100).unwrap();
+        assert!(m.is_resolved());
+        assert_eq!(m.resolved_outcome, 5);
+        assert_eq!(m.resolved_value, 500_000_000);
+    }
+
+    #[test]
+    fn test_resolve_rejects_wrong_state() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        assert_eq!(
+            m.resolve(0, 0, TEST_DEADLINE).unwrap_err(),
+            error!(UmbraError::MarketNotPendingResolution)
+        );
+    }
+
+    #[test]
+    fn test_resolve_rejects_invalid_outcome() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.transition_to_pending().unwrap();
+        assert_eq!(
+            m.resolve(2, 0, TEST_DEADLINE).unwrap_err(),
+            error!(UmbraError::InvalidOutcome)
+        );
+    }
+
+    #[test]
+    fn test_resolve_continuous_rejects_out_of_range() {
+        let mut m = blank_market();
+        init_continuous(&mut m, 10);
+        m.transition_to_pending().unwrap();
+        assert_eq!(
+            m.resolve(0, 2_000_000_000, TEST_DEADLINE).unwrap_err(),
+            error!(UmbraError::ResolvedValueOutOfRange)
+        );
+    }
+
+    // ── Trading Guards ───────────────────────────────────────────────
+
+    #[test]
+    fn test_require_trading_allowed_active() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.require_trading_allowed(TEST_CREATED_AT + 1).unwrap();
+    }
+
+    #[test]
+    fn test_require_trading_rejects_paused() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.pause().unwrap();
+        assert_eq!(
+            m.require_trading_allowed(TEST_CREATED_AT + 1).unwrap_err(),
+            error!(UmbraError::MarketNotActive)
+        );
+    }
+
+    #[test]
+    fn test_require_trading_rejects_expired() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        assert_eq!(
+            m.require_trading_allowed(TEST_DEADLINE).unwrap_err(),
+            error!(UmbraError::MarketClosed)
+        );
+    }
+
+    #[test]
+    fn test_require_discrete_continuous_checks() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.require_discrete().unwrap();
+        assert_eq!(
+            m.require_continuous().unwrap_err(),
+            error!(UmbraError::WrongMarketType)
+        );
+
+        let mut m2 = blank_market();
+        init_continuous(&mut m2, 10);
+        m2.require_continuous().unwrap();
+        assert_eq!(
+            m2.require_discrete().unwrap_err(),
+            error!(UmbraError::WrongMarketType)
+        );
+    }
+
+    // ── Fee Computation ──────────────────────────────────────────────
+
+    #[test]
+    fn test_compute_fees_standard() {
+        let fb = Market::compute_fees(1_000_000, 30, 5_000).unwrap();
+        assert_eq!(fb.total_fee, 3_000);
+        assert_eq!(fb.lp_fee, 1_500);
+        assert_eq!(fb.protocol_fee, 1_500);
+        assert_eq!(fb.net_amount, 997_000);
+    }
+
+    #[test]
+    fn test_compute_fees_zero() {
+        let fb = Market::compute_fees(1_000_000, 0, 5_000).unwrap();
+        assert_eq!(fb.total_fee, 0);
+        assert_eq!(fb.lp_fee, 0);
+        assert_eq!(fb.protocol_fee, 0);
+        assert_eq!(fb.net_amount, 1_000_000);
+    }
+
+    #[test]
+    fn test_compute_fees_max() {
+        let fb = Market::compute_fees(1_000_000, 5_000, 5_000).unwrap();
+        assert_eq!(fb.total_fee, 500_000);
+        assert_eq!(fb.net_amount, 500_000);
+    }
+
+    #[test]
+    fn test_compute_fees_small_amount_floors_to_zero() {
+        let fb = Market::compute_fees(1, 30, 5_000).unwrap();
+        assert_eq!(fb.total_fee, 0);
+        assert_eq!(fb.net_amount, 1);
+    }
+
+    #[test]
+    fn test_accrue_fees() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        let fb = FeeBreakdown {
+            total_fee: 3_000,
+            lp_fee: 1_500,
+            protocol_fee: 1_500,
+            net_amount: 997_000,
+        };
+        m.accrue_fees(&fb).unwrap();
+        assert_eq!(m.lp_fee_accumulated, 1_500);
+        assert_eq!(m.protocol_fee_accumulated, 1_500);
+
+        m.accrue_fees(&fb).unwrap();
+        assert_eq!(m.lp_fee_accumulated, 3_000);
+        assert_eq!(m.protocol_fee_accumulated, 3_000);
+    }
+
+    // ── Continuous Helpers ────────────────────────────────────────────
+
+    #[test]
+    fn test_value_to_bin_midpoint() {
+        let mut m = blank_market();
+        init_continuous(&mut m, 10);
+        assert_eq!(m.value_to_bin(500_000_000).unwrap(), 5);
+    }
+
+    #[test]
+    fn test_value_to_bin_boundaries() {
+        let mut m = blank_market();
+        init_continuous(&mut m, 10);
+        assert_eq!(m.value_to_bin(0).unwrap(), 0);
+        assert_eq!(m.value_to_bin(1_000_000_000).unwrap(), 9);
+        assert_eq!(m.value_to_bin(999_999_999).unwrap(), 9);
+    }
+
+    #[test]
+    fn test_value_to_bin_large_i64_range() {
+        let mut m = blank_market();
+        m.initialize(
+            3,
+            MARKET_TYPE_CONTINUOUS,
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            TEST_DEADLINE,
+            TEST_CREATED_AT,
+            256,
+            TEST_LIQUIDITY,
+            i64::MIN / 2,
+            i64::MAX / 2,
+            255,
+            254,
+        )
+        .unwrap();
+
+        let bin = m.value_to_bin(0).unwrap();
+        // 0 is slightly above the midpoint of [MIN/2, MAX/2] due to asymmetry.
+        assert!(bin >= 127 && bin <= 128, "bin={bin} should be near 128");
+    }
+
+    // ── AMM Mutations ────────────────────────────────────────────────
+
+    #[test]
+    fn test_mint_complete_sets() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.mint_complete_sets(500_000).unwrap();
+        assert_eq!(m.reserves, vec![1_500_000, 1_500_000]);
+        assert_eq!(m.total_minted, 1_500_000);
+    }
+
+    #[test]
+    fn test_burn_complete_sets() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.burn_complete_sets(500_000).unwrap();
+        assert_eq!(m.reserves, vec![500_000, 500_000]);
+        assert_eq!(m.total_minted, 500_000);
+    }
+
+    #[test]
+    fn test_burn_complete_sets_underflow() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        assert_eq!(
+            m.burn_complete_sets(TEST_LIQUIDITY + 1).unwrap_err(),
+            error!(UmbraError::InsufficientLiquidity)
+        );
+    }
+
+    #[test]
+    fn test_compute_lp_shares_for_deposit() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        let shares = m.compute_lp_shares_for_deposit(500_000).unwrap();
+        assert_eq!(shares, 500_000);
+    }
+
+    #[test]
+    fn test_compute_collateral_for_withdrawal() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        let coll = m.compute_collateral_for_withdrawal(500_000).unwrap();
+        assert_eq!(coll, 500_000);
+    }
+
+    #[test]
+    fn test_compute_collateral_rejects_excess_shares() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        assert_eq!(
+            m.compute_collateral_for_withdrawal(TEST_LIQUIDITY as u128 + 1)
+                .unwrap_err(),
+            error!(UmbraError::InsufficientShares)
+        );
+    }
+
+    // ── Implied Probability ──────────────────────────────────────────
+
+    #[test]
+    fn test_implied_probability_uniform() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        let p0 = m.implied_probability(0).unwrap();
+        let p1 = m.implied_probability(1).unwrap();
+        assert_eq!(p0, 500_000_000);
+        assert_eq!(p1, 500_000_000);
+        assert_eq!(p0 + p1, SCALE);
+    }
+
+    #[test]
+    fn test_implied_probability_out_of_bounds() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        assert_eq!(
+            m.implied_probability(2).unwrap_err(),
+            error!(UmbraError::InvalidOutcome)
+        );
+    }
+
+    // ── Space Calculation ────────────────────────────────────────────
+
+    #[test]
+    fn test_space_binary() {
+        assert_eq!(Market::space(2), 307 + 2 * 8);
+    }
+
+    #[test]
+    fn test_space_multi_32() {
+        assert_eq!(Market::space(32), 307 + 32 * 8);
+    }
+
+    #[test]
+    fn test_space_continuous_256() {
+        assert_eq!(Market::space(256), 307 + 256 * 8);
+    }
+
+    // ── Enum Tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_market_type_from_u8() {
+        assert_eq!(MarketType::from_u8(0), Some(MarketType::Binary));
+        assert_eq!(MarketType::from_u8(1), Some(MarketType::MultiOutcome));
+        assert_eq!(MarketType::from_u8(2), Some(MarketType::Continuous));
+        assert_eq!(MarketType::from_u8(3), None);
+    }
+
+    #[test]
+    fn test_market_type_valid_num_outcomes() {
+        assert!(MarketType::Binary.valid_num_outcomes(2));
+        assert!(!MarketType::Binary.valid_num_outcomes(3));
+
+        assert!(MarketType::MultiOutcome.valid_num_outcomes(3));
+        assert!(MarketType::MultiOutcome.valid_num_outcomes(32));
+        assert!(!MarketType::MultiOutcome.valid_num_outcomes(2));
+        assert!(!MarketType::MultiOutcome.valid_num_outcomes(33));
+
+        assert!(MarketType::Continuous.valid_num_outcomes(2));
+        assert!(MarketType::Continuous.valid_num_outcomes(256));
+        assert!(!MarketType::Continuous.valid_num_outcomes(1));
+        assert!(!MarketType::Continuous.valid_num_outcomes(257));
+    }
+
+    #[test]
+    fn test_market_state_helpers() {
+        assert!(MarketState::Active.can_trade());
+        assert!(!MarketState::Paused.can_trade());
+        assert!(!MarketState::Resolved.can_trade());
+
+        assert!(MarketState::PendingResolution.can_resolve());
+        assert!(!MarketState::Active.can_resolve());
+
+        assert!(MarketState::Resolved.is_terminal());
+        assert!(!MarketState::Active.is_terminal());
+    }
+
+    #[test]
+    fn test_validate_reserves_integrity() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        m.validate_reserves_integrity().unwrap();
+
+        m.num_outcomes = 5;
+        assert_eq!(
+            m.validate_reserves_integrity().unwrap_err(),
+            error!(UmbraError::InvalidNumOutcomes)
+        );
+    }
+
+    #[test]
+    fn test_recompute_k_squared() {
+        let mut m = blank_market();
+        init_binary(&mut m);
+        let original = m.k_squared;
+
+        m.reserves[0] = 2_000_000;
+        m.recompute_k_squared();
+        let expected = (2_000_000u128).pow(2) + (1_000_000u128).pow(2);
+        assert_eq!(m.k_squared, expected);
+        assert_ne!(m.k_squared, original);
     }
 }
