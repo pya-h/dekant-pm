@@ -92,10 +92,10 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
     );
 
     // compute_sell returns gross collateral before fees.
-    let k_sq = market.k_squared;
+    let total_minted = market.total_minted;
     let collateral_out = amm::compute_sell(
         &mut market.reserves,
-        k_sq,
+        total_minted,
         args.outcome as usize,
         args.token_amount,
     )?;
@@ -111,7 +111,10 @@ pub fn handle_sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
         .total_minted
         .checked_sub(collateral_out as u128)
         .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
-    market.k_squared = amm::sum_of_squares(&market.reserves);
+    market.k_squared = market
+        .total_minted
+        .checked_mul(market.total_minted)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
 
     let position = &mut ctx.accounts.user_position;

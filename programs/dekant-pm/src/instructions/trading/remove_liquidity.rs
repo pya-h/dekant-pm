@@ -71,13 +71,13 @@ pub fn handle_remove_liquidity(
 
     // ── Guards ────────────────────────────────────────────────────────
     // Lazy deadline enforcement: if expired, transition to PendingResolution.
+    // Unlike buy/sell, we do NOT return an error — LPs must always be able to withdraw.
     if market.is_active() && market.is_expired(clock.unix_timestamp) {
         market.transition_to_pending()?;
-        return Err(error!(DekantPmError::MarketClosed));
     }
-    // LPs can remove liquidity from Active or Resolved markets.
+    // LPs can remove liquidity from Active, PendingResolution, or Resolved markets.
     require!(
-        market.is_active() || market.is_resolved(),
+        market.is_active() || market.is_pending_resolution() || market.is_resolved(),
         DekantPmError::MarketPaused
     );
     require!(args.shares_to_burn > 0, DekantPmError::InsufficientShares);

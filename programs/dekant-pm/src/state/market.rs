@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::DekantPmError;
-use crate::engine::amm::sum_of_squares;
 use crate::engine::fixed_point::mul_div;
+use crate::engine::sqrt::isqrt;
 
 // ── Fee Computation ──────────────────────────────────────────────────────
 
@@ -163,8 +163,8 @@ impl Market {
 
     /// Populate a freshly-allocated Market account and set up uniform AMM state.
     ///
-    /// After this call: `reserves[i] = initial_liquidity` for all i,
-    /// `k_squared = num_outcomes * initial_liquidity²`, and the creating LP
+    /// After this call: `reserves[i] = L - isqrt(L²/N)` for all i,
+    /// `k_squared = L²` (= total_minted²), and the creating LP
     /// receives `initial_liquidity` shares.
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
@@ -230,18 +230,22 @@ impl Market {
         }
 
         // ── AMM initial state (uniform distribution) ─────────────────
+        // Position-based invariant: Σ x[i]² = k² = total_minted².
+        // Uniform initial positions: x[i] = isqrt(L² / N) for all i.
+        // Reserve per outcome: h[i] = L - x[i].
         let liq = initial_liquidity as u128;
         let n = num_outcomes as u128;
 
         let liq_sq = liq
             .checked_mul(liq)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-        let k_squared = n
-            .checked_mul(liq_sq)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        let x_per_outcome = isqrt(liq_sq / n);
+        let reserve_per_outcome = liq
+            .checked_sub(x_per_outcome)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))? as u64;
 
-        self.reserves = vec![initial_liquidity; num_outcomes as usize];
-        self.k_squared = k_squared;
+        self.reserves = vec![reserve_per_outcome; num_outcomes as usize];
+        self.k_squared = liq_sq;
         self.total_minted = liq;
         self.lp_shares_total = liq;
 
@@ -490,28 +494,36 @@ impl Market {
 
     /// Implied probability for outcome `i`, scaled to SCALE (10^9).
     ///
-    /// `price[i] = reserves[i]² * SCALE / k_squared`.
-    /// Returns error if `i` is out of bounds, k_squared is zero, or
-    /// the intermediate multiplication overflows (reserves above ~10^14).
+    /// `price[i] = (total_minted - reserves[i])² * SCALE / total_minted²`.
+    /// Returns error if `i` is out of bounds, total_minted is zero, or
+    /// the intermediate multiplication overflows.
     pub fn implied_probability(&self, i: u16) -> Result<u128> {
-        let r = *self
+        let h = *self
             .reserves
             .get(i as usize)
             .ok_or_else(|| error!(DekantPmError::InvalidOutcome))? as u128;
-        let r_sq = r
-            .checked_mul(r)
+        let x = self
+            .total_minted
+            .checked_sub(h)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-        r_sq.checked_mul(SCALE)
+        let x_sq = x
+            .checked_mul(x)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        let k_sq = self
+            .total_minted
+            .checked_mul(self.total_minted)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        x_sq.checked_mul(SCALE)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?
-            .checked_div(self.k_squared)
+            .checked_div(k_sq)
             .ok_or_else(|| error!(DekantPmError::DivisionByZero))
     }
 
-    /// Recompute `k_squared` from current reserves.
+    /// Recompute `k_squared` from `total_minted`.
     ///
-    /// Safe for practical reserve values (≤ 10^12 per bin, 256 bins).
+    /// k_squared = total_minted² (position-based invariant).
     pub fn recompute_k_squared(&mut self) {
-        self.k_squared = sum_of_squares(&self.reserves);
+        self.k_squared = self.total_minted * self.total_minted;
     }
 
     // ── AMM Mutations ────────────────────────────────────────────────
