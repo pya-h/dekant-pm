@@ -46,20 +46,17 @@ pub mod umbra {
 
     /// Pause an active market (freezes all trading).
     pub fn pause_market(ctx: Context<PauseMarket>) -> Result<()> {
-        // Implementation in task P-15.
-        todo!()
+        handle_pause_market(ctx)
     }
 
     /// Unpause a paused market. If deadline has passed, transitions to PendingResolution.
     pub fn unpause_market(ctx: Context<UnpauseMarket>) -> Result<()> {
-        // Implementation in task P-15.
-        todo!()
+        handle_unpause_market(ctx)
     }
 
     /// Oracle submits the resolved outcome.
     pub fn resolve_market(ctx: Context<ResolveMarket>, args: ResolveMarketArgs) -> Result<()> {
-        // Implementation in task P-16.
-        todo!()
+        handle_resolve_market(ctx, args)
     }
 
     // ── Discrete Trading ─────────────────────────────────────────────

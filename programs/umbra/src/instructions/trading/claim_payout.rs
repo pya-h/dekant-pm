@@ -28,7 +28,7 @@ pub struct ClaimPayout<'info> {
         seeds = [USER_POSITION_SEED, market.key().as_ref(), trader.key().as_ref()],
         bump = user_position.bump,
         has_one = market,
-        has_one = user @ crate::errors::UmbraError::Unauthorized,
+        constraint = user_position.user == trader.key() @ crate::errors::UmbraError::Unauthorized,
     )]
     pub user_position: Account<'info, UserPosition>,
 
