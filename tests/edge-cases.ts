@@ -192,34 +192,47 @@ describe("Edge Cases", () => {
   });
 
   it("rejects duplicate claim", async () => {
-    const market = await ctx.program.account.market.fetch(marketPda);
-    const now = Math.floor(Date.now() / 1000);
-    const waitMs = (market.deadline.toNumber() - now + 2) * 1000;
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
+    const claimMkt = await createBinaryMarket({ deadline: Math.floor(Date.now() / 1000) + 5 });
+    const [posA] = findUserPosition(claimMkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+    await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(5_000_000));
+
+    await ctx.program.methods
+      .buy({ outcome: 0, collateralAmount: new BN(2_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: claimMkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: claimMkt.vaultAuthority,
+        vault: claimMkt.vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    await new Promise((resolve) => setTimeout(resolve, 7000));
 
     await ctx.program.methods
       .resolveMarket({ outcome: 0, value: new BN(0) })
       .accountsPartial({
         oracle: ctx.oracleKp.publicKey,
-        market: marketPda,
+        market: claimMkt.marketPda,
       })
       .signers([ctx.oracleKp])
       .rpc();
-
-    const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
-    const traderAAta = await getAssociatedTokenAddress(ctx.collateralMint, ctx.traderA.publicKey);
 
     await ctx.program.methods
       .claimPayout()
       .accountsPartial({
         trader: ctx.traderA.publicKey,
-        market: marketPda,
+        market: claimMkt.marketPda,
         protocolConfig: ctx.protocolConfig,
         userPosition: posA,
-        vaultAuthority,
-        vault,
+        vaultAuthority: claimMkt.vaultAuthority,
+        vault: claimMkt.vault,
         traderAta: traderAAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
@@ -231,11 +244,11 @@ describe("Edge Cases", () => {
         .claimPayout()
         .accountsPartial({
           trader: ctx.traderA.publicKey,
-          market: marketPda,
+          market: claimMkt.marketPda,
           protocolConfig: ctx.protocolConfig,
           userPosition: posA,
-          vaultAuthority,
-          vault,
+          vaultAuthority: claimMkt.vaultAuthority,
+          vault: claimMkt.vault,
           traderAta: traderAAta,
           tokenProgram: TOKEN_PROGRAM_ID,
         })

@@ -20,7 +20,6 @@ describe("Binary Market Lifecycle", () => {
   let traderAAta: PublicKey;
   let traderBAta: PublicKey;
   let lpProviderAta: PublicKey;
-  const deadline = Math.floor(Date.now() / 1000) + 30;
   const initialLiquidity = new BN(10_000_000);
   const buyAmountA = randomAmount(1_500_000, 4_000_000);
   const buyAmountB = randomAmount(1_500_000, 4_000_000);
@@ -28,6 +27,7 @@ describe("Binary Market Lifecycle", () => {
 
   before(async () => {
     await ensureSetup();
+    const deadline = Math.floor(Date.now() / 1000) + 30;
     const mkt = await createBinaryMarket({ deadline, liquidity: initialLiquidity });
     marketPda = mkt.marketPda;
     vaultAuthority = mkt.vaultAuthority;
