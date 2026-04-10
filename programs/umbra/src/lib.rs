@@ -63,14 +63,12 @@ pub mod umbra {
 
     /// Buy outcome tokens for a single discrete outcome.
     pub fn buy(ctx: Context<Buy>, args: BuyArgs) -> Result<()> {
-        // Implementation in task P-10.
-        todo!()
+        handle_buy(ctx, args)
     }
 
     /// Sell outcome tokens for a single discrete outcome.
     pub fn sell(ctx: Context<Sell>, args: SellArgs) -> Result<()> {
-        // Implementation in task P-11.
-        todo!()
+        handle_sell(ctx, args)
     }
 
     // ── Distribution Trading (Continuous) ────────────────────────────
@@ -80,8 +78,7 @@ pub mod umbra {
         ctx: Context<BuyDistribution>,
         args: BuyDistributionArgs,
     ) -> Result<()> {
-        // Implementation in task P-12.
-        todo!()
+        handle_buy_distribution(ctx, args)
     }
 
     /// Sell across bins proportional to a Normal(mu, sigma) distribution.
@@ -89,16 +86,14 @@ pub mod umbra {
         ctx: Context<SellDistribution>,
         args: SellDistributionArgs,
     ) -> Result<()> {
-        // Implementation in task P-13.
-        todo!()
+        handle_sell_distribution(ctx, args)
     }
 
     // ── Liquidity ────────────────────────────────────────────────────
 
     /// Deposit proportional liquidity into a market.
     pub fn add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
-        // Implementation in task P-14.
-        todo!()
+        handle_add_liquidity(ctx, args)
     }
 
     /// Withdraw proportional liquidity from a market.
@@ -106,15 +101,13 @@ pub mod umbra {
         ctx: Context<RemoveLiquidity>,
         args: RemoveLiquidityArgs,
     ) -> Result<()> {
-        // Implementation in task P-14.
-        todo!()
+        handle_remove_liquidity(ctx, args)
     }
 
     // ── Settlement ───────────────────────────────────────────────────
 
     /// Claim payout from a resolved market.
     pub fn claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
-        // Implementation in task P-17.
-        todo!()
+        handle_claim_payout(ctx)
     }
 }

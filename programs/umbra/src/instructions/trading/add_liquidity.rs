@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token::{self, Token, TokenAccount};
 use crate::state::*;
 use crate::constants::*;
+use crate::errors::UmbraError;
+use crate::events::LiquidityChanged;
+use crate::engine::amm;
 
 // ── Args ─────────────────────────────────────────────────────────────
 
@@ -57,4 +60,88 @@ pub struct AddLiquidity<'info> {
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+}
+
+// ── Handler ──────────────────────────────────────────────────────────
+
+pub fn handle_add_liquidity(ctx: Context<AddLiquidity>, args: AddLiquidityArgs) -> Result<()> {
+    let clock = Clock::get()?;
+    let market = &mut ctx.accounts.market;
+
+    // ── Guards ────────────────────────────────────────────────────────
+    if market.is_active() && market.is_expired(clock.unix_timestamp) {
+        market.transition_to_pending()?;
+        return Err(error!(UmbraError::MarketClosed));
+    }
+    market.require_trading_allowed(clock.unix_timestamp)?;
+    require!(
+        args.amount >= MIN_LIQUIDITY,
+        UmbraError::LiquidityTooSmall
+    );
+
+    // ── Compute LP shares ────────────────────────────────────────────
+    let new_shares = market.compute_lp_shares_for_deposit(args.amount)?;
+
+    // ── Scale reserves proportionally ────────────────────────────────
+    let total_before = market.total_minted;
+    let numerator = total_before
+        .checked_add(args.amount as u128)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    let new_k_squared = amm::scale_reserves(
+        &mut market.reserves,
+        numerator,
+        total_before,
+    )?;
+
+    // Update market state.
+    market.k_squared = new_k_squared;
+    market.total_minted = numerator;
+    market.lp_shares_total = market
+        .lp_shares_total
+        .checked_add(new_shares)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    // ── LpPosition ───────────────────────────────────────────────────
+    let lp = &mut ctx.accounts.lp_position;
+    if lp.version == 0 {
+        lp.version = SCHEMA_VERSION;
+        lp.market = market.key();
+        lp.user = ctx.accounts.provider.key();
+        lp.bump = ctx.bumps.lp_position;
+        lp._padding = [0u8; 16];
+    }
+    lp.shares = lp
+        .shares
+        .checked_add(new_shares)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+    lp.deposited_collateral = lp
+        .deposited_collateral
+        .checked_add(args.amount)
+        .ok_or_else(|| error!(UmbraError::MathOverflow))?;
+
+    // ── CPI: transfer collateral from provider to vault ──────────────
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.provider_ata.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+                authority: ctx.accounts.provider.to_account_info(),
+            },
+        ),
+        args.amount,
+    )?;
+
+    // ── Event ────────────────────────────────────────────────────────
+    emit!(LiquidityChanged {
+        market_id: market.market_id,
+        provider: ctx.accounts.provider.key(),
+        is_add: true,
+        collateral_amount: args.amount,
+        shares_changed: new_shares,
+        timestamp: clock.unix_timestamp,
+    });
+
+    Ok(())
 }
