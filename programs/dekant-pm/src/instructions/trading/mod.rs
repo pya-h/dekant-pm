@@ -1,5 +1,7 @@
 pub mod buy;
 pub mod sell;
+pub mod buy_to_price;
+pub mod sell_to_price;
 pub mod buy_distribution;
 pub mod sell_distribution;
 pub mod add_liquidity;
@@ -8,6 +10,8 @@ pub mod claim_payout;
 
 pub use buy::*;
 pub use sell::*;
+pub use buy_to_price::*;
+pub use sell_to_price::*;
 pub use buy_distribution::*;
 pub use sell_distribution::*;
 pub use add_liquidity::*;

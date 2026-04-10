@@ -3612,4 +3612,322 @@ describe("DekantPM Prediction Market — Full Lifecycle", () => {
       expect(diff).to.be.lessThanOrEqual(10);
     });
   });
+
+  // ── 9. Price-Targeted Trading (buyToPrice / sellToPrice) ──────────
+
+  describe("9. Price-Targeted Trading", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    let vault: PublicKey;
+    let traderAAta: PublicKey;
+    let traderBAta: PublicKey;
+    let posA: PublicKey;
+    let posB: PublicKey;
+    const deadline = Math.floor(Date.now() / 1000) + 600; // 10 minutes
+    const initialLiquidity = new BN(10_000_000); // 10 USDC
+
+    it("creates a binary market for price-targeted trading", async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(100_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(
+        oracleKp.publicKey,
+        ROLE_ORACLE,
+        program.programId
+      );
+      const [creatorRolePda] = findUserRole(
+        creatorKp.publicKey,
+        ROLE_CREATOR,
+        program.programId
+      );
+      const [creatorLpPosition] = findLpPosition(
+        marketPda,
+        creatorKp.publicKey,
+        program.programId
+      );
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+
+      const market = await program.account.market.fetch(marketPda);
+      vault = market.vault;
+      expect(market.state).to.equal(0); // Active
+
+      // Set up trader ATAs.
+      traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      traderBAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderB.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        traderAAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+      await mintTokens(
+        collateralMint,
+        traderBAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      [posA] = findUserPosition(
+        marketPda,
+        traderA.publicKey,
+        program.programId
+      );
+      [posB] = findUserPosition(
+        marketPda,
+        traderB.publicKey,
+        program.programId
+      );
+    });
+
+    it("buyToPrice: trader A buys outcome 0 to 70%", async () => {
+      await program.methods
+        .buyToPrice({
+          outcome: 0,
+          targetProbability: new BN(700_000_000), // 70%
+          maxCollateral: new BN(20_000_000), // 20 USDC max
+        })
+        .accountsPartial({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderA])
+        .rpc();
+
+      // Verify probability is ~70%.
+      const market = await program.account.market.fetch(marketPda);
+      const totalMinted = market.totalMinted.toNumber();
+      const x0 = totalMinted - market.reserves[0].toNumber();
+      const prob0 = (x0 * x0 * 1_000_000_000) / (totalMinted * totalMinted);
+      expect(prob0).to.be.greaterThan(690_000_000);
+      expect(prob0).to.be.lessThan(710_000_000);
+
+      // Trader A should have outcome 0 tokens.
+      const position = await program.account.userPosition.fetch(posA);
+      expect(position.holdings[0].toNumber()).to.be.greaterThan(0);
+    });
+
+    it("sellToPrice: trader A sells outcome 0 back to ~50%", async () => {
+      await program.methods
+        .sellToPrice({
+          outcome: 0,
+          targetProbability: new BN(500_000_000), // 50%
+          minCollateralOut: new BN(0), // accept any return
+        })
+        .accountsPartial({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([traderA])
+        .rpc();
+
+      // Verify probability is ~50%.
+      const market = await program.account.market.fetch(marketPda);
+      const totalMinted = market.totalMinted.toNumber();
+      const x0 = totalMinted - market.reserves[0].toNumber();
+      const prob0 = (x0 * x0 * 1_000_000_000) / (totalMinted * totalMinted);
+      expect(prob0).to.be.greaterThan(490_000_000);
+      expect(prob0).to.be.lessThan(510_000_000);
+    });
+
+    it("buyToPrice: error when target below current probability", async () => {
+      // Current is ~50%, trying to buy to 30% should fail.
+      try {
+        await program.methods
+          .buyToPrice({
+            outcome: 0,
+            targetProbability: new BN(300_000_000),
+            maxCollateral: new BN(10_000_000),
+          })
+          .accountsPartial({
+            trader: traderB.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posB,
+            vaultAuthority,
+            vault,
+            traderAta: traderBAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderB])
+          .rpc();
+        expect.fail("Should have thrown TargetAlreadyMet error");
+      } catch (err: any) {
+        expect(err.toString()).to.include("TargetAlreadyMet");
+      }
+    });
+
+    it("buyToPrice: error when max_collateral too low", async () => {
+      try {
+        await program.methods
+          .buyToPrice({
+            outcome: 0,
+            targetProbability: new BN(900_000_000), // 90%
+            maxCollateral: new BN(1_000), // way too low
+          })
+          .accountsPartial({
+            trader: traderB.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posB,
+            vaultAuthority,
+            vault,
+            traderAta: traderBAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderB])
+          .rpc();
+        expect.fail("Should have thrown MaxCollateralExceeded error");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MaxCollateralExceeded");
+      }
+    });
+
+    it("sellToPrice: error when target above current probability", async () => {
+      // Trader B needs tokens first — do a regular buy.
+      await program.methods
+        .buy({ outcome: 1, collateralAmount: new BN(2_000_000) })
+        .accountsPartial({
+          trader: traderB.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posB,
+          vaultAuthority,
+          vault,
+          traderAta: traderBAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderB])
+        .rpc();
+
+      // Now try to sell outcome 1 to a HIGHER probability → should fail.
+      const market = await program.account.market.fetch(marketPda);
+      const totalMinted = market.totalMinted.toNumber();
+      const x1 = totalMinted - market.reserves[1].toNumber();
+      const currentProb1 = Math.floor((x1 * x1 * 1_000_000_000) / (totalMinted * totalMinted));
+
+      try {
+        await program.methods
+          .sellToPrice({
+            outcome: 1,
+            targetProbability: new BN(currentProb1 + 100_000_000), // above current
+            minCollateralOut: new BN(0),
+          })
+          .accountsPartial({
+            trader: traderB.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posB,
+            vaultAuthority,
+            vault,
+            traderAta: traderBAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderB])
+          .rpc();
+        expect.fail("Should have thrown TargetAlreadyMet error");
+      } catch (err: any) {
+        expect(err.toString()).to.include("TargetAlreadyMet");
+      }
+    });
+
+    it("sellToPrice: error when min_collateral_out too high", async () => {
+      // Trader B holds outcome 1 tokens from previous test.
+      // Sell to slightly lower probability, but demand unreasonably high collateral.
+      const market = await program.account.market.fetch(marketPda);
+      const totalMinted = market.totalMinted.toNumber();
+      const x1 = totalMinted - market.reserves[1].toNumber();
+      const currentProb1 = Math.floor((x1 * x1 * 1_000_000_000) / (totalMinted * totalMinted));
+      // Target just a few % below current, so token requirement is small.
+      const targetProb = Math.max(currentProb1 - 50_000_000, 1);
+
+      try {
+        await program.methods
+          .sellToPrice({
+            outcome: 1,
+            targetProbability: new BN(targetProb),
+            minCollateralOut: new BN(999_999_999), // unreasonably high
+          })
+          .accountsPartial({
+            trader: traderB.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posB,
+            vaultAuthority,
+            vault,
+            traderAta: traderBAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderB])
+          .rpc();
+        expect.fail("Should have thrown MinCollateralNotMet error");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MinCollateralNotMet");
+      }
+    });
+  });
 });
