@@ -133,6 +133,12 @@ pub fn handle_sell_distribution(
         .checked_mul(market.total_minted)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     market.accrue_fees(&fees)?;
+    for (i, &w) in weights.iter().enumerate() {
+        let tokens_for_bin = (args.token_amount as u128) * (w as u128) / SCALE;
+        market.trader_token_totals[i] = market.trader_token_totals[i]
+            .checked_sub(tokens_for_bin as u64)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+    }
 
     let position = &mut ctx.accounts.user_position;
     for (i, &w) in weights.iter().enumerate() {

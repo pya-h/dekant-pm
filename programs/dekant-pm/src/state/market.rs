@@ -123,6 +123,13 @@ pub struct Market {
     /// AMM reserves per outcome/bin.
     /// Length = num_outcomes. Serialized as Borsh Vec (4-byte length prefix + data).
     pub reserves: Vec<u64>,
+
+    /// Total trader-held tokens per outcome/bin (sum of all UserPosition holdings).
+    /// Maintained by buy/sell instructions. Used at resolution to compute the
+    /// true LP residual: `total_minted - trader_token_totals[win]`.
+    /// Without this, `reserves[win]` diverges from the LP residual after LP
+    /// operations scale positions without changing trader holdings.
+    pub trader_token_totals: Vec<u64>,
 }
 
 impl Market {
@@ -155,8 +162,10 @@ impl Market {
         + 1   // bump
         + 1   // vault_authority_bump
         + 30  // _padding
-        + 4   // vec length prefix
+        + 4   // vec length prefix (reserves)
         + (n as usize) * 8  // reserves data
+        + 4   // vec length prefix (trader_token_totals)
+        + (n as usize) * 8  // trader_token_totals data
     }
 
     // ── Initialization ───────────────────────────────────────────────
@@ -245,6 +254,7 @@ impl Market {
             .ok_or_else(|| error!(DekantPmError::MathOverflow))? as u64;
 
         self.reserves = vec![reserve_per_outcome; num_outcomes as usize];
+        self.trader_token_totals = vec![0u64; num_outcomes as usize];
         self.k_squared = liq_sq;
         self.total_minted = liq;
         self.lp_shares_total = liq;
@@ -341,6 +351,25 @@ impl Market {
                 self.resolved_outcome = self.value_to_bin(value)?;
             }
         }
+
+        // Fix the winning-outcome reserve to the true LP residual.
+        //
+        // Before this correction, reserves[win] = total_minted - positions[win],
+        // where positions[win] includes the structural AMM position (initially
+        // isqrt(k²/N)) that does NOT correspond to any trader-held tokens.
+        // LP operations (add/remove liquidity) scale positions proportionally,
+        // further widening the gap between positions and actual trader holdings.
+        //
+        // The correct LP residual is: total_minted - Σ traders' holdings in win bin.
+        // This ensures LPs get back everything that isn't owed to traders.
+        let win = self.resolved_outcome as usize;
+        let trader_tokens = self.trader_token_totals[win] as u128;
+        let residual = self
+            .total_minted
+            .checked_sub(trader_tokens)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        self.reserves[win] = u64::try_from(residual)
+            .map_err(|_| error!(DekantPmError::MathOverflow))?;
 
         self.state = STATE_RESOLVED;
         self.resolved_at = clock_timestamp;
