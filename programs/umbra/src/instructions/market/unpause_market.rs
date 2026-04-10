@@ -23,7 +23,11 @@ pub struct UnpauseMarket<'info> {
     /// CHECK: Validated in handler.
     pub authority_role: Option<UncheckedAccount<'info>>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [MARKET_SEED, market.market_id.to_le_bytes().as_ref()],
+        bump = market.bump,
+    )]
     pub market: Account<'info, Market>,
 }
 

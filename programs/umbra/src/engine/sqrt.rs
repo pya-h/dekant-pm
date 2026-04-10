@@ -12,13 +12,15 @@ pub fn isqrt(n: u128) -> u128 {
         return 1;
     }
 
-    let mut x = n;
-    let mut y = (x + 1) / 2;
-    while y < x {
+    // Initial guess: n / 2 + 1 (avoids `(n + 1) / 2` which overflows at u128::MAX).
+    let mut x = n / 2 + 1;
+    loop {
+        let y = (x + n / x) / 2;
+        if y >= x {
+            return x;
+        }
         x = y;
-        y = (x + n / x) / 2;
     }
-    x
 }
 
 #[cfg(test)]

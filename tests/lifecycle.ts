@@ -1988,5 +1988,863 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
         }
       }
     });
+
+    it("rejects sell below MIN_TRADE_AMOUNT", async () => {
+      // Use market from suite 5 (binary, marketId=4, resolved)
+      // We need an active market — create a position on suite 4's market if possible
+      // Actually, let's use the existing position on market 4 to verify the guard
+      // Market 4 is now resolved, so let's verify sell on it fails with MarketClosed
+      // Instead, test using the concept: sell with amount 500 < MIN_TRADE (1000)
+      // This needs an active market with a position. We'll create a new market below.
+      // For now, just verify that the error code check works via a fresh setup.
+
+      // Create a fresh binary market (ID 5)
+      const freshMarketId = 5;
+      const [freshMarketPda] = findMarket(freshMarketId, program.programId);
+      const [freshVaultAuth] = findVaultAuthority(freshMarketPda, program.programId);
+      const freshVaultKp = Keypair.generate();
+      const freshDeadline = Math.floor(Date.now() / 1000) + 120;
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(freshMarketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(freshDeadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity: new BN(10_000_000),
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accounts({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: freshMarketPda,
+          collateralMint,
+          vaultAuthority: freshVaultAuth,
+          vault: freshVaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, freshVaultKp])
+        .rpc();
+
+      // Buy to create a position
+      const [posA] = findUserPosition(freshMarketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+      const freshMarket = await program.account.market.fetch(freshMarketPda);
+
+      await program.methods
+        .buy({ outcome: 0, collateralAmount: new BN(2_000_000) })
+        .accounts({
+          trader: traderA.publicKey,
+          market: freshMarketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority: freshVaultAuth,
+          vault: freshMarket.vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderA])
+        .rpc();
+
+      // Sell below MIN_TRADE (500 < 1000)
+      try {
+        await program.methods
+          .sell({ outcome: 0, tokenAmount: new BN(500) })
+          .accounts({
+            trader: traderA.publicKey,
+            market: freshMarketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority: freshVaultAuth,
+            vault: freshMarket.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should reject sell below MIN_TRADE_AMOUNT");
+      } catch (err: any) {
+        expect(err.toString()).to.include("TradeTooSmall");
+      }
+    });
+
+    it("rejects buy distribution on discrete market", async () => {
+      // Use the market just created (ID 5, binary)
+      const [freshMarketPda] = findMarket(5, program.programId);
+      const [freshVaultAuth] = findVaultAuthority(freshMarketPda, program.programId);
+      const freshMarket = await program.account.market.fetch(freshMarketPda);
+      const [posA] = findUserPosition(freshMarketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+
+      try {
+        await program.methods
+          .buyDistribution({
+            mu: new BN(500_000_000),
+            sigma: new BN(100_000_000),
+            collateralAmount: new BN(1_000_000),
+          })
+          .accounts({
+            trader: traderA.publicKey,
+            market: freshMarketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority: freshVaultAuth,
+            vault: freshMarket.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should reject buy_distribution on discrete market");
+      } catch (err: any) {
+        expect(err.toString()).to.include("WrongMarketType");
+      }
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 6: Revoke Role
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("6. Revoke Role", () => {
+    const tempUser1 = Keypair.generate();
+    const tempUser2 = Keypair.generate();
+
+    before(async () => {
+      await Promise.all([
+        airdropSol(tempUser1.publicKey),
+        airdropSol(tempUser2.publicKey),
+      ]);
+
+      // Assign oracle role to tempUser1 and creator role to tempUser2
+      const [oracleRolePda] = findUserRole(tempUser1.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(tempUser2.publicKey, ROLE_CREATOR, program.programId);
+
+      await program.methods
+        .assignRole({ role: ROLE_ORACLE })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempUser1.publicKey,
+          userRole: oracleRolePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      await program.methods
+        .assignRole({ role: ROLE_CREATOR })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempUser2.publicKey,
+          userRole: creatorRolePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    });
+
+    it("superadmin revokes oracle role", async () => {
+      const [oracleRolePda] = findUserRole(tempUser1.publicKey, ROLE_ORACLE, program.programId);
+
+      // Verify role exists
+      const roleBefore = await program.account.userRole.fetch(oracleRolePda);
+      expect(roleBefore.role).to.equal(ROLE_ORACLE);
+
+      await program.methods
+        .revokeRole({ role: ROLE_ORACLE })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempUser1.publicKey,
+          userRole: oracleRolePda,
+        })
+        .rpc();
+
+      // Account should be closed
+      try {
+        await program.account.userRole.fetch(oracleRolePda);
+        expect.fail("Role account should have been closed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("Account does not exist");
+      }
+    });
+
+    it("admin revokes creator role", async () => {
+      const [adminRolePda] = findUserRole(adminKp.publicKey, ROLE_ADMIN, program.programId);
+      const [creatorRolePda] = findUserRole(tempUser2.publicKey, ROLE_CREATOR, program.programId);
+
+      await program.methods
+        .revokeRole({ role: ROLE_CREATOR })
+        .accounts({
+          authority: adminKp.publicKey,
+          protocolConfig,
+          authorityRole: adminRolePda,
+          targetUser: tempUser2.publicKey,
+          userRole: creatorRolePda,
+        })
+        .signers([adminKp])
+        .rpc();
+
+      try {
+        await program.account.userRole.fetch(creatorRolePda);
+        expect.fail("Role account should have been closed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("Account does not exist");
+      }
+    });
+
+    it("admin cannot revoke admin role", async () => {
+      // First assign a second admin via superadmin
+      const tempAdmin = Keypair.generate();
+      await airdropSol(tempAdmin.publicKey);
+
+      const [tempAdminRolePda] = findUserRole(tempAdmin.publicKey, ROLE_ADMIN, program.programId);
+      await program.methods
+        .assignRole({ role: ROLE_ADMIN })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempAdmin.publicKey,
+          userRole: tempAdminRolePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Now admin tries to revoke the other admin's role
+      const [adminRolePda] = findUserRole(adminKp.publicKey, ROLE_ADMIN, program.programId);
+
+      try {
+        await program.methods
+          .revokeRole({ role: ROLE_ADMIN })
+          .accounts({
+            authority: adminKp.publicKey,
+            protocolConfig,
+            authorityRole: adminRolePda,
+            targetUser: tempAdmin.publicKey,
+            userRole: tempAdminRolePda,
+          })
+          .signers([adminKp])
+          .rpc();
+        expect.fail("Admin should not be able to revoke admin role");
+      } catch (err: any) {
+        expect(err.toString()).to.include("AdminCannotAssignAdmin");
+      }
+
+      // Cleanup: superadmin revokes the temp admin
+      await program.methods
+        .revokeRole({ role: ROLE_ADMIN })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempAdmin.publicKey,
+          userRole: tempAdminRolePda,
+        })
+        .rpc();
+    });
+
+    it("unauthorized user cannot revoke role", async () => {
+      // Re-assign oracle to tempUser1 so we have something to try revoking
+      const [oracleRolePda] = findUserRole(tempUser1.publicKey, ROLE_ORACLE, program.programId);
+      await program.methods
+        .assignRole({ role: ROLE_ORACLE })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempUser1.publicKey,
+          userRole: oracleRolePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Random user tries to revoke
+      const randomUser = Keypair.generate();
+      await airdropSol(randomUser.publicKey);
+
+      try {
+        await program.methods
+          .revokeRole({ role: ROLE_ORACLE })
+          .accounts({
+            authority: randomUser.publicKey,
+            protocolConfig,
+            authorityRole: null,
+            targetUser: tempUser1.publicKey,
+            userRole: oracleRolePda,
+          })
+          .signers([randomUser])
+          .rpc();
+        expect.fail("Random user should not be able to revoke roles");
+      } catch (err: any) {
+        expect(err.toString()).to.include("Unauthorized");
+      }
+
+      // Cleanup
+      await program.methods
+        .revokeRole({ role: ROLE_ORACLE })
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          targetUser: tempUser1.publicKey,
+          userRole: oracleRolePda,
+        })
+        .rpc();
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 7: Paused Market Cannot Be Resolved
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("7. Paused Market Cannot Be Resolved", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(10_000_000);
+
+    before(async () => {
+      // Read current market count to derive correct market ID
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 20; // short deadline
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accounts({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("admin pauses the market before deadline", async () => {
+      const [adminRolePda] = findUserRole(adminKp.publicKey, ROLE_ADMIN, program.programId);
+
+      await program.methods
+        .pauseMarket()
+        .accounts({
+          authority: adminKp.publicKey,
+          protocolConfig,
+          authorityRole: adminRolePda,
+          market: marketPda,
+        })
+        .signers([adminKp])
+        .rpc();
+
+      const market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(1); // Paused
+    });
+
+    it("oracle cannot resolve paused market after deadline", async () => {
+      // Wait for deadline to pass
+      const market = await program.account.market.fetch(marketPda);
+      const now = Math.floor(Date.now() / 1000);
+      const waitMs = (market.deadline.toNumber() - now + 2) * 1000;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      try {
+        await program.methods
+          .resolveMarket({ outcome: 0, value: new BN(0) })
+          .accounts({
+            oracle: oracleKp.publicKey,
+            market: marketPda,
+          })
+          .signers([oracleKp])
+          .rpc();
+        expect.fail("Oracle should not be able to resolve a paused market");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MarketNotPendingResolution");
+      }
+
+      // Verify market is still paused (lazy transition did NOT fire)
+      const marketAfter = await program.account.market.fetch(marketPda);
+      expect(marketAfter.state).to.equal(1); // Still Paused
+    });
+
+    it("admin unpauses, then oracle can resolve", async () => {
+      const [adminRolePda] = findUserRole(adminKp.publicKey, ROLE_ADMIN, program.programId);
+
+      await program.methods
+        .unpauseMarket()
+        .accounts({
+          authority: adminKp.publicKey,
+          protocolConfig,
+          authorityRole: adminRolePda,
+          market: marketPda,
+        })
+        .signers([adminKp])
+        .rpc();
+
+      // Deadline already passed, so unpause goes directly to PendingResolution
+      const marketUnpaused = await program.account.market.fetch(marketPda);
+      expect(marketUnpaused.state).to.equal(2); // PendingResolution
+
+      // Now oracle resolves directly (already in PendingResolution state)
+      await program.methods
+        .resolveMarket({ outcome: 0, value: new BN(0) })
+        .accounts({
+          oracle: oracleKp.publicKey,
+          market: marketPda,
+        })
+        .signers([oracleKp])
+        .rpc();
+
+      const resolved = await program.account.market.fetch(marketPda);
+      expect(resolved.state).to.equal(3); // Resolved
+      expect(resolved.resolvedOutcome).to.equal(0);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 8: Sell Distribution on Continuous Market
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("8. Sell Distribution on Continuous Market", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(20_000_000);
+    const NUM_BINS = 32;
+    const RANGE_MIN = new BN(0).mul(SCALE);
+    const RANGE_MAX = new BN(100).mul(SCALE);
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 180;
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(100_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_CONTINUOUS,
+          numOutcomes: NUM_BINS,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: RANGE_MIN,
+          rangeMax: RANGE_MAX,
+        })
+        .accounts({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("buy distribution then sell distribution", async () => {
+      const vault = (await program.account.market.fetch(marketPda)).vault;
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+
+      // Buy distribution centered at 50 with sigma=15
+      await program.methods
+        .buyDistribution({
+          mu: new BN(50).mul(SCALE),
+          sigma: new BN(15).mul(SCALE),
+          collateralAmount: new BN(5_000_000),
+        })
+        .accounts({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+        ])
+        .signers([traderA])
+        .rpc();
+
+      const positionAfterBuy = await program.account.userPosition.fetch(posA);
+      const totalBought = positionAfterBuy.holdings.reduce(
+        (sum: number, h: any) => sum + h.toNumber(), 0
+      );
+      expect(totalBought).to.be.greaterThan(0);
+
+      const ataBalBefore = (await getAccount(provider.connection, traderAAta)).amount;
+
+      // Sell distribution — sell back a portion using the same distribution shape
+      // Use a smaller amount so we don't exceed holdings
+      const sellAmount = Math.floor(totalBought / 4);
+      expect(sellAmount).to.be.greaterThan(MIN_TRADE.toNumber());
+
+      await program.methods
+        .sellDistribution({
+          mu: new BN(50).mul(SCALE),
+          sigma: new BN(15).mul(SCALE),
+          tokenAmount: new BN(sellAmount),
+        })
+        .accounts({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+        ])
+        .signers([traderA])
+        .rpc();
+
+      const positionAfterSell = await program.account.userPosition.fetch(posA);
+      const totalAfterSell = positionAfterSell.holdings.reduce(
+        (sum: number, h: any) => sum + h.toNumber(), 0
+      );
+      expect(totalAfterSell).to.be.lessThan(totalBought);
+
+      // Trader should have received collateral back
+      const ataBalAfter = (await getAccount(provider.connection, traderAAta)).amount;
+      expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    });
+
+    it("rejects sell distribution below MIN_TRADE_AMOUNT", async () => {
+      const vault = (await program.account.market.fetch(marketPda)).vault;
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+
+      try {
+        await program.methods
+          .sellDistribution({
+            mu: new BN(50).mul(SCALE),
+            sigma: new BN(15).mul(SCALE),
+            tokenAmount: new BN(500), // below MIN_TRADE (1000)
+          })
+          .accounts({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should reject sell distribution below MIN_TRADE_AMOUNT");
+      } catch (err: any) {
+        expect(err.toString()).to.include("TradeTooSmall");
+      }
+    });
+
+    it("rejects sell distribution on discrete market", async () => {
+      // Use binary market from Suite 5 (market ID 5)
+      const [discMarketPda] = findMarket(5, program.programId);
+      const [discVaultAuth] = findVaultAuthority(discMarketPda, program.programId);
+      const discMarket = await program.account.market.fetch(discMarketPda);
+      const [posA] = findUserPosition(discMarketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+
+      try {
+        await program.methods
+          .sellDistribution({
+            mu: new BN(500_000_000),
+            sigma: new BN(100_000_000),
+            tokenAmount: new BN(2_000),
+          })
+          .accounts({
+            trader: traderA.publicKey,
+            market: discMarketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority: discVaultAuth,
+            vault: discMarket.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should reject sell_distribution on discrete market");
+      } catch (err: any) {
+        expect(err.toString()).to.include("WrongMarketType");
+      }
+    });
+
+    it("rejects discrete sell on continuous market", async () => {
+      const vault = (await program.account.market.fetch(marketPda)).vault;
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const traderAAta = await getAssociatedTokenAddress(collateralMint, traderA.publicKey);
+
+      try {
+        await program.methods
+          .sell({ outcome: 0, tokenAmount: new BN(2_000) })
+          .accounts({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should reject discrete sell on continuous market");
+      } catch (err: any) {
+        expect(err.toString()).to.include("WrongMarketType");
+      }
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 9: Superadmin Pause & Non-Admin Pause Rejection
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("9. Superadmin Pause & Unauthorized Pause", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(10_000_000);
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 120;
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accounts({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("non-admin cannot pause market", async () => {
+      try {
+        await program.methods
+          .pauseMarket()
+          .accounts({
+            authority: traderA.publicKey,
+            protocolConfig,
+            authorityRole: null,
+            market: marketPda,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Non-admin should not be able to pause");
+      } catch (err: any) {
+        expect(err.toString()).to.include("Unauthorized");
+      }
+    });
+
+    it("superadmin can pause market without a role PDA", async () => {
+      await program.methods
+        .pauseMarket()
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          market: marketPda,
+        })
+        .rpc();
+
+      const market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(1); // Paused
+    });
+
+    it("superadmin can unpause market without a role PDA", async () => {
+      await program.methods
+        .unpauseMarket()
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          market: marketPda,
+        })
+        .rpc();
+
+      const market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(0); // Active
+    });
+
+    it("non-admin cannot unpause market", async () => {
+      // Pause first
+      await program.methods
+        .pauseMarket()
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          market: marketPda,
+        })
+        .rpc();
+
+      try {
+        await program.methods
+          .unpauseMarket()
+          .accounts({
+            authority: traderA.publicKey,
+            protocolConfig,
+            authorityRole: null,
+            market: marketPda,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Non-admin should not be able to unpause");
+      } catch (err: any) {
+        expect(err.toString()).to.include("Unauthorized");
+      }
+
+      // Cleanup: unpause
+      await program.methods
+        .unpauseMarket()
+        .accounts({
+          authority: superadmin.publicKey,
+          protocolConfig,
+          authorityRole: null,
+          market: marketPda,
+        })
+        .rpc();
+    });
   });
 });
