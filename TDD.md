@@ -1,4 +1,4 @@
-# Umbra Prediction Market — Technical Design Document
+# DekantPM Prediction Market — Technical Design Document
 
 **Version:** 1.0
 **Date:** 2026-02-23
@@ -65,7 +65,7 @@
 │                    SOLANA RUNTIME                                  │
 │                                                                   │
 │  ┌────────────────────────────────────────────────────────────┐   │
-│  │              Umbra Program (Anchor / Rust)                 │   │
+│  │              DekantPM Program (Anchor / Rust)                 │   │
 │  │                                                            │   │
 │  │  Instructions:                                             │   │
 │  │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐ │   │
@@ -125,10 +125,10 @@
 ### 2.1 Module Structure
 
 ```
-programs/umbra/
+programs/dekant-pm/
 ├── src/
 │   ├── lib.rs                    # Program entry, declare_id, module registration
-│   ├── errors.rs                 # Custom error codes (UmbraError enum)
+│   ├── errors.rs                 # Custom error codes (DekantPmError enum)
 │   ├── constants.rs              # Seed prefixes, scale factors, limits
 │   │
 │   ├── state/                    # Account structs (Anchor #[account])

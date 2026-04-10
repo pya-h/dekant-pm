@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 
-// ── Constants (mirrors programs/umbra/src/constants.rs) ────────────────
+// ── Constants (mirrors programs/dekant-pm/src/constants.rs) ────────────────
 
 export const MAX_OUTCOMES = 32;
 export const MAX_BINS = 256;

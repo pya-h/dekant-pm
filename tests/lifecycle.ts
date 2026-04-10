@@ -17,7 +17,7 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
-import { Umbra } from "../target/types/umbra";
+import { DekantPm } from "../target/types/dekant_pm";
 
 // ── Constants (mirror on-chain) ─────────────────────────────────────
 
@@ -105,11 +105,11 @@ function findLpPosition(
 
 // ── Test Harness ────────────────────────────────────────────────────
 
-describe("Umbra Prediction Market — Full Lifecycle", () => {
+describe("DekantPM Prediction Market — Full Lifecycle", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.Umbra as Program<Umbra>;
+  const program = anchor.workspace.DekantPm as Program<DekantPm>;
   const superadmin = provider.wallet as anchor.Wallet;
 
   // Reusable keypairs

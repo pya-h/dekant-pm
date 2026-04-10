@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "programs/umbra",
+    "programs/dekant-pm",
 ]
 resolver = "2"
 
