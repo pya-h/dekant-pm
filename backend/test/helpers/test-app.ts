@@ -1,0 +1,145 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { HealthModule } from '../../src/health/health.module';
+import { AuthService } from '../../src/auth/auth.service';
+import { AuthController } from '../../src/auth/auth.controller';
+import { AuthGuard } from '../../src/auth/guard/auth.guard';
+import { MarketService } from '../../src/market/market.service';
+import { MarketController } from '../../src/market/market.controller';
+import { AmmService } from '../../src/amm/amm.service';
+import { AmmController } from '../../src/amm/amm.controller';
+import { UserService } from '../../src/user/user.service';
+import {
+  UserController,
+  AdminController,
+} from '../../src/user/user.controller';
+import { MarketEntity } from '../../src/market/entity/market.entity';
+import { TradeEntity } from '../../src/market/entity/trade.entity';
+import { UserPositionEntity } from '../../src/user/entity/user-position.entity';
+import { LpPositionEntity } from '../../src/user/entity/lp-position.entity';
+import { UserRoleEntity } from '../../src/user/entity/user-role.entity';
+import { mockMarket } from './mock-factories';
+
+export const JWT_SECRET = 'e2e-test-secret-key-at-least-32-chars-long';
+
+export interface TestApp {
+  app: INestApplication;
+  jwtService: JwtService;
+  authService: AuthService;
+  marketRepo: Record<string, jest.Mock>;
+  tradeRepo: Record<string, jest.Mock>;
+  positionRepo: Record<string, jest.Mock>;
+  lpPositionRepo: Record<string, jest.Mock>;
+  roleRepo: Record<string, jest.Mock>;
+  getAuthToken: (wallet?: string) => string;
+}
+
+export async function createTestApp(): Promise<TestApp> {
+  const qbMock = {
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getManyAndCount: jest.fn().mockResolvedValue([[mockMarket()], 1]),
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    setParameters: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
+
+  const marketRepo: Record<string, jest.Mock> = {
+    create: jest.fn((dto: any) => dto),
+    save: jest.fn((entity: any) =>
+      Promise.resolve({ ...entity, id: entity.id ?? '1' }),
+    ),
+    findOne: jest.fn().mockResolvedValue(mockMarket()),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+    createQueryBuilder: jest.fn().mockReturnValue(qbMock),
+  };
+
+  const tradeRepo: Record<string, jest.Mock> = {
+    findAndCount: jest.fn().mockResolvedValue([[], 0]),
+  };
+
+  const positionRepo: Record<string, jest.Mock> = {
+    find: jest.fn().mockResolvedValue([]),
+  };
+
+  const lpPositionRepo: Record<string, jest.Mock> = {
+    find: jest.fn().mockResolvedValue([]),
+  };
+
+  const roleRepo: Record<string, jest.Mock> = {
+    find: jest.fn().mockResolvedValue([]),
+  };
+
+  const moduleFixture: TestingModule = await Test.createTestingModule({
+    imports: [
+      ConfigModule.forRoot({ isGlobal: true }),
+      JwtModule.register({
+        secret: JWT_SECRET,
+        signOptions: { expiresIn: '1h' },
+      }),
+      HealthModule,
+    ],
+    controllers: [
+      AuthController,
+      MarketController,
+      AmmController,
+      UserController,
+      AdminController,
+    ],
+    providers: [
+      AuthService,
+      AuthGuard,
+      MarketService,
+      AmmService,
+      UserService,
+      { provide: getRepositoryToken(MarketEntity), useValue: marketRepo },
+      { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
+      {
+        provide: getRepositoryToken(UserPositionEntity),
+        useValue: positionRepo,
+      },
+      {
+        provide: getRepositoryToken(LpPositionEntity),
+        useValue: lpPositionRepo,
+      },
+      { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
+    ],
+  }).compile();
+
+  const app = moduleFixture.createNestApplication();
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+  await app.init();
+
+  const jwtService = moduleFixture.get<JwtService>(JwtService);
+  const authService = moduleFixture.get<AuthService>(AuthService);
+
+  function getAuthToken(wallet = 'TestWallet1111111111111111111111111111111111'): string {
+    return jwtService.sign({ sub: wallet });
+  }
+
+  return {
+    app,
+    jwtService,
+    authService,
+    marketRepo,
+    tradeRepo,
+    positionRepo,
+    lpPositionRepo,
+    roleRepo,
+    getAuthToken,
+  };
+}
