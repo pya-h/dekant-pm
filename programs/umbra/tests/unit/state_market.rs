@@ -928,3 +928,248 @@ fn test_require_resolved_on_resolved() {
     m.resolve(0, 0, TEST_DEADLINE + 1).unwrap();
     m.require_resolved().unwrap();
 }
+
+// ── Fee accumulation overflow boundaries ────────────────────
+
+#[test]
+fn test_accrue_fees_protocol_fee_overflow() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.protocol_fee_accumulated = u64::MAX;
+    let fb = FeeBreakdown {
+        total_fee: 2,
+        lp_fee: 1,
+        protocol_fee: 1,
+        net_amount: 998,
+    };
+    assert_eq!(
+        m.accrue_fees(&fb).unwrap_err(),
+        error!(UmbraError::MathOverflow)
+    );
+}
+
+#[test]
+fn test_accrue_fees_lp_fee_overflow() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.lp_fee_accumulated = u128::MAX;
+    let fb = FeeBreakdown {
+        total_fee: 2,
+        lp_fee: 1,
+        protocol_fee: 1,
+        net_amount: 998,
+    };
+    assert_eq!(
+        m.accrue_fees(&fb).unwrap_err(),
+        error!(UmbraError::MathOverflow)
+    );
+}
+
+// ── LP share dilution ───────────────────────────────────────
+
+#[test]
+fn test_lp_shares_diluted_by_total_minted_growth() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    // Initial: lp_shares_total = 1M, total_minted = 1M.
+    // Simulate trading that increases total_minted (complete sets minted).
+    m.total_minted = 5_000_000;
+    // New LP deposits 1_000_000 collateral.
+    // shares = 1_000_000 * 1_000_000 / 5_000_000 = 200_000.
+    let shares = m.compute_lp_shares_for_deposit(1_000_000).unwrap();
+    assert_eq!(shares, 200_000);
+    // The new LP gets only 200k shares vs the initial LP's 1M shares,
+    // even though they deposited the same amount — this is dilution.
+}
+
+// ── Deadline boundary tests ─────────────────────────────────
+
+#[test]
+fn test_is_expired_one_tick_before() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    assert!(!m.is_expired(TEST_DEADLINE - 1));
+    // Trading should still be allowed.
+    m.require_trading_allowed(TEST_DEADLINE - 1).unwrap();
+}
+
+#[test]
+fn test_require_trading_exactly_at_deadline() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    // At deadline, trading should be rejected.
+    assert_eq!(
+        m.require_trading_allowed(TEST_DEADLINE).unwrap_err(),
+        error!(UmbraError::MarketClosed)
+    );
+}
+
+// ── compute_collateral_for_withdrawal rounding ──────────────
+
+#[test]
+fn test_compute_collateral_withdrawal_rounding() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    // Simulate odd total_minted and shares that don't divide evenly.
+    m.total_minted = 1_000_001;
+    m.lp_shares_total = 3;
+    // collateral = 1_000_001 * 1 / 3 = 333_333.666... → floor to 333_333.
+    let coll = m.compute_collateral_for_withdrawal(1).unwrap();
+    assert_eq!(coll, 333_333);
+}
+
+#[test]
+fn test_compute_collateral_withdrawal_full_odd() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.total_minted = 999_999;
+    m.lp_shares_total = 999_999;
+    let coll = m.compute_collateral_for_withdrawal(999_999).unwrap();
+    assert_eq!(coll, 999_999);
+}
+
+// ── value_to_bin all-bins coverage ──────────────────────────
+
+#[test]
+fn test_value_to_bin_all_bins_reachable() {
+    let mut m = blank_market();
+    init_continuous(&mut m, 10);
+    // Range [0, 1B], 10 bins, each 100M wide.
+    // Check that values in each bin map correctly.
+    let expected_bins: Vec<(i64, u16)> = vec![
+        (50_000_000, 0),
+        (150_000_000, 1),
+        (250_000_000, 2),
+        (350_000_000, 3),
+        (450_000_000, 4),
+        (550_000_000, 5),
+        (650_000_000, 6),
+        (750_000_000, 7),
+        (850_000_000, 8),
+        (950_000_000, 9),
+    ];
+    for (val, expected_bin) in expected_bins {
+        let bin = m.value_to_bin(val).unwrap();
+        assert_eq!(
+            bin, expected_bin,
+            "value_to_bin({val}) = {bin}, expected {expected_bin}"
+        );
+    }
+}
+
+// ── Exhaustive invalid state transitions ────────────────────
+
+#[test]
+fn test_resolve_from_active_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    assert_eq!(
+        m.resolve(0, 0, TEST_DEADLINE + 1).unwrap_err(),
+        error!(UmbraError::MarketNotPendingResolution)
+    );
+}
+
+#[test]
+fn test_resolve_from_paused_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.pause().unwrap();
+    assert_eq!(
+        m.resolve(0, 0, TEST_DEADLINE + 1).unwrap_err(),
+        error!(UmbraError::MarketNotPendingResolution)
+    );
+}
+
+#[test]
+fn test_pause_from_pending_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    assert_eq!(
+        m.pause().unwrap_err(),
+        error!(UmbraError::MarketNotActive)
+    );
+}
+
+#[test]
+fn test_pause_from_resolved_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    m.resolve(0, 0, TEST_DEADLINE + 1).unwrap();
+    assert_eq!(
+        m.pause().unwrap_err(),
+        error!(UmbraError::MarketNotActive)
+    );
+}
+
+#[test]
+fn test_unpause_from_pending_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    assert_eq!(
+        m.unpause(TEST_CREATED_AT + 1).unwrap_err(),
+        error!(UmbraError::MarketNotPaused)
+    );
+}
+
+#[test]
+fn test_unpause_from_resolved_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    m.resolve(0, 0, TEST_DEADLINE + 1).unwrap();
+    assert_eq!(
+        m.unpause(TEST_CREATED_AT + 1).unwrap_err(),
+        error!(UmbraError::MarketNotPaused)
+    );
+}
+
+#[test]
+fn test_double_resolve_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    m.resolve(0, 0, TEST_DEADLINE + 1).unwrap();
+    assert_eq!(
+        m.resolve(1, 0, TEST_DEADLINE + 2).unwrap_err(),
+        error!(UmbraError::MarketNotPendingResolution)
+    );
+}
+
+#[test]
+fn test_transition_to_pending_from_pending_fails() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.transition_to_pending().unwrap();
+    // Already in PendingResolution, can't transition again.
+    assert_eq!(
+        m.transition_to_pending().unwrap_err(),
+        error!(UmbraError::MarketAlreadyResolved)
+    );
+}
+
+// ── validate_outcome edge cases ─────────────────────────────
+
+#[test]
+fn test_validate_outcome_boundary() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.validate_outcome(0).unwrap();
+    m.validate_outcome(1).unwrap();
+    assert_eq!(
+        m.validate_outcome(2).unwrap_err(),
+        error!(UmbraError::InvalidOutcome)
+    );
+}
+
+#[test]
+fn test_validate_outcome_max_u16() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    assert_eq!(
+        m.validate_outcome(u16::MAX).unwrap_err(),
+        error!(UmbraError::InvalidOutcome)
+    );
+}

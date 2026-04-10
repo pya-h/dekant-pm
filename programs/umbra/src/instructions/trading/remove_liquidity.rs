@@ -70,6 +70,11 @@ pub fn handle_remove_liquidity(
     let market = &mut ctx.accounts.market;
 
     // ── Guards ────────────────────────────────────────────────────────
+    // Lazy deadline enforcement: if expired, transition to PendingResolution.
+    if market.is_active() && market.is_expired(clock.unix_timestamp) {
+        market.transition_to_pending()?;
+        return Err(error!(UmbraError::MarketClosed));
+    }
     // LPs can remove liquidity from Active or Resolved markets.
     require!(
         market.is_active() || market.is_resolved(),

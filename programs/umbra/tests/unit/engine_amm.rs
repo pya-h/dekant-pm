@@ -668,3 +668,151 @@ fn test_sum_of_squares_max_u64() {
     let result = sum_of_squares(&[u64::MAX]);
     assert_eq!(result, (u64::MAX as u128) * (u64::MAX as u128));
 }
+
+// ── Cross-outcome trades ─────────────────────────────────────
+
+#[test]
+fn test_buy_different_outcomes_prices_diverge() {
+    let mut reserves = vec![1_000_000u64; 3];
+    let k_squared = 3 * (1_000_000u128).pow(2);
+
+    // Buy outcome 0.
+    compute_buy(&mut reserves, k_squared, 0, 50_000).unwrap();
+    let k2 = sum_of_squares(&reserves);
+
+    // Buy outcome 2.
+    compute_buy(&mut reserves, k2, 2, 50_000).unwrap();
+    let k2 = sum_of_squares(&reserves);
+
+    let probs = compute_probabilities(&reserves, k2);
+    // Outcome 1 (unbought) should have highest reserve → lowest probability.
+    // Outcomes 0 and 2 (bought) should have lower reserve → lower probability.
+    // In L2-norm: p_i = r_i² / Σ r_j². Lower reserve → lower probability.
+    assert!(
+        probs[1] > probs[0],
+        "untouched outcome 1 should have higher prob: p0={}, p1={}",
+        probs[0],
+        probs[1]
+    );
+    assert!(
+        probs[1] > probs[2],
+        "untouched outcome 1 should have higher prob: p1={}, p2={}",
+        probs[1],
+        probs[2]
+    );
+}
+
+// ── Slippage proportionality ────────────────────────────────
+
+#[test]
+fn test_slippage_larger_trade_worse_price() {
+    // A single large buy should get fewer tokens per unit collateral
+    // than many small buys totaling the same collateral.
+    let mut reserves_big = vec![1_000_000u64; 2];
+    let k_squared = 2 * (1_000_000u128).pow(2);
+
+    let tokens_big = compute_buy(&mut reserves_big, k_squared, 0, 200_000).unwrap();
+    let price_big = 200_000u128 * SCALE / tokens_big as u128; // collateral per token
+
+    let mut reserves_small = vec![1_000_000u64; 2];
+    let mut k2 = k_squared;
+    let mut total_tokens_small: u64 = 0;
+    for _ in 0..10 {
+        let tokens = compute_buy(&mut reserves_small, k2, 0, 20_000).unwrap();
+        total_tokens_small += tokens;
+        k2 = sum_of_squares(&reserves_small);
+    }
+    let price_small = 200_000u128 * SCALE / total_tokens_small as u128;
+
+    // Many small buys should yield more total tokens (lower effective price).
+    assert!(
+        total_tokens_small > tokens_big,
+        "small trades should yield more tokens: small={total_tokens_small}, big={tokens_big}"
+    );
+    assert!(
+        price_small < price_big,
+        "small trade price should be better: small={price_small}, big={price_big}"
+    );
+}
+
+// ── 100-trade drift measurement ─────────────────────────────
+
+#[test]
+fn test_100_trade_roundtrip_invariant_drift() {
+    let mut reserves = vec![1_000_000u64; 2];
+    let original_k2 = 2 * (1_000_000u128).pow(2);
+    let mut k2 = original_k2;
+
+    for _ in 0..100 {
+        let tokens = compute_buy(&mut reserves, k2, 0, 5_000).unwrap();
+        k2 = sum_of_squares(&reserves);
+        let _coll = compute_sell(&mut reserves, k2, 0, tokens).unwrap();
+        k2 = sum_of_squares(&reserves);
+    }
+
+    let drift = if k2 > original_k2 {
+        k2 - original_k2
+    } else {
+        original_k2 - k2
+    };
+    let max_reserve = *reserves.iter().max().unwrap() as u128;
+    // Allow drift up to 100 * 2 * max_reserve (accumulated isqrt rounding).
+    assert!(
+        drift <= 200 * max_reserve,
+        "excessive invariant drift after 100 roundtrips: drift={drift}"
+    );
+}
+
+// ── verify_invariant after roundtrip ────────────────────────
+
+#[test]
+fn test_verify_invariant_after_buy_sell_roundtrip() {
+    let mut reserves = vec![1_000_000u64; 2];
+    let k_squared = 2 * (1_000_000u128).pow(2);
+
+    let tokens = compute_buy(&mut reserves, k_squared, 0, 100_000).unwrap();
+    let k2 = sum_of_squares(&reserves);
+    compute_sell(&mut reserves, k2, 0, tokens).unwrap();
+    let k2_final = sum_of_squares(&reserves);
+
+    // Explicit verify_invariant should pass with the recomputed k2.
+    verify_invariant(&reserves, k2_final).unwrap();
+}
+
+// ── Five-outcome buy ────────────────────────────────────────
+
+#[test]
+fn test_compute_buy_all_five_outcomes_sequentially() {
+    let mut reserves = vec![1_000_000u64; 5];
+    let mut k2 = 5 * (1_000_000u128).pow(2);
+
+    for outcome in 0..5 {
+        let tokens = compute_buy(&mut reserves, k2, outcome, 10_000).unwrap();
+        assert!(tokens > 0, "outcome {outcome} should yield tokens");
+        k2 = sum_of_squares(&reserves);
+    }
+
+    // After buying all outcomes equally, reserves should be roughly uniform
+    // (each had equal collateral added, then equal draining).
+    let probs = compute_probabilities(&reserves, k2);
+    let avg = SCALE / 5;
+    for (i, &p) in probs.iter().enumerate() {
+        let diff = if p > avg { p - avg } else { avg - p };
+        assert!(
+            diff < avg / 5,
+            "outcome {i} probability {p} too far from avg {avg}"
+        );
+    }
+}
+
+// ── scale_reserves truncation to zero ───────────────────────
+
+#[test]
+fn test_scale_reserves_tiny_values_truncate_to_zero() {
+    // Reserves of 1 scaled by 1/1000 → 0.
+    let mut reserves = vec![1u64; 2];
+    let new_k2 = scale_reserves(&mut reserves, 1, 1000).unwrap();
+    assert_eq!(reserves[0], 0);
+    assert_eq!(reserves[1], 0);
+    assert_eq!(new_k2, 0);
+}

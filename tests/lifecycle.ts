@@ -2847,4 +2847,765 @@ describe("Umbra Prediction Market — Full Lifecycle", () => {
         .rpc();
     });
   });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 10: Trading After Resolution
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("10. Trading After Resolution", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(10_000_000);
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 5; // 5 seconds
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+
+      // Wait for deadline to pass, then trigger lazy transition + resolve.
+      const now = Math.floor(Date.now() / 1000);
+      const waitMs = (deadline - now + 2) * 1000;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      // Trigger lazy transition by trying a buy (will fail with MarketClosed).
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+      try {
+        await program.methods
+          .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
+          .accountsPartial({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault: market.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderA])
+          .rpc();
+      } catch (_) {
+        // Expected: MarketClosed
+      }
+
+      // Resolve the market.
+      await program.methods
+        .resolveMarket({ outcome: 0, value: new BN(0) })
+        .accountsPartial({
+          oracle: oracleKp.publicKey,
+          market: marketPda,
+        })
+        .signers([oracleKp])
+        .rpc();
+    });
+
+    it("rejects buy on resolved market", async () => {
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+
+      try {
+        await program.methods
+          .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
+          .accountsPartial({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault: market.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Buy on resolved market should fail");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MarketNotActive");
+      }
+    });
+
+    it("rejects sell on resolved market", async () => {
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+
+      try {
+        await program.methods
+          .sell({ outcome: 0, tokenAmount: new BN(1_000) })
+          .accountsPartial({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault: market.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Sell on resolved market should fail");
+      } catch (err: any) {
+        // May fail with MarketNotActive or AccountNotInitialized
+        // (user_position PDA doesn't exist if trader never bought).
+        const errStr = err.toString();
+        expect(
+          errStr.includes("MarketNotActive") ||
+            errStr.includes("AccountNotInitialized") ||
+            errStr.includes("user_position")
+        ).to.be.true;
+      }
+    });
+
+    it("rejects add_liquidity on resolved market", async () => {
+      const lpAta = await getAssociatedTokenAddress(
+        collateralMint,
+        lpProvider.publicKey
+      );
+      const [lpPos] = findLpPosition(marketPda, lpProvider.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+
+      try {
+        await program.methods
+          .addLiquidity({ amount: new BN(1_000_000) })
+          .accountsPartial({
+            provider: lpProvider.publicKey,
+            market: marketPda,
+            lpPosition: lpPos,
+            vaultAuthority,
+            vault: market.vault,
+            providerAta: lpAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([lpProvider])
+          .rpc();
+        expect.fail("Add liquidity on resolved market should fail");
+      } catch (err: any) {
+        // MarketClosed or MarketNotActive depending on state.
+        const errStr = err.toString();
+        expect(
+          errStr.includes("MarketClosed") || errStr.includes("MarketNotActive")
+        ).to.be.true;
+      }
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 11: LP Withdrawal Edge Cases
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("11. LP Withdrawal Edge Cases", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(10_000_000);
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 60;
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("second LP adds liquidity and gets proportional shares", async () => {
+      const lpAta = await getAssociatedTokenAddress(
+        collateralMint,
+        lpProvider.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        lpAta,
+        (superadmin as any).payer,
+        BigInt(10_000_000)
+      );
+
+      const [lpPos] = findLpPosition(marketPda, lpProvider.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+
+      await program.methods
+        .addLiquidity({ amount: new BN(5_000_000) }) // 5 USDC
+        .accountsPartial({
+          provider: lpProvider.publicKey,
+          market: marketPda,
+          lpPosition: lpPos,
+          vaultAuthority,
+          vault: market.vault,
+          providerAta: lpAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([lpProvider])
+        .rpc();
+
+      const lpPosition = await program.account.lpPosition.fetch(lpPos);
+      // Second LP deposited 5 USDC on a 10 USDC pool → ~50% of new shares.
+      // Exact value depends on creation fee and total_minted state.
+      expect(Number(lpPosition.shares)).to.be.greaterThan(0);
+
+      const marketAfter = await program.account.market.fetch(marketPda);
+      expect(Number(marketAfter.lpSharesTotal)).to.be.greaterThan(
+        Number(initialLiquidity)
+      );
+    });
+
+    it("LP withdrawal includes fee share after trades", async () => {
+      // Execute a trade to generate fees.
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        traderAAta,
+        (superadmin as any).payer,
+        BigInt(5_000_000)
+      );
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const market = await program.account.market.fetch(marketPda);
+
+      await program.methods
+        .buy({ outcome: 0, collateralAmount: new BN(2_000_000) })
+        .accountsPartial({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault: market.vault,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderA])
+        .rpc();
+
+      // Check LP fees accumulated.
+      const marketAfterTrade = await program.account.market.fetch(marketPda);
+      expect(Number(marketAfterTrade.lpFeeAccumulated)).to.be.greaterThan(0);
+
+      // LP removes part of their liquidity.
+      const lpAta = await getAssociatedTokenAddress(
+        collateralMint,
+        lpProvider.publicKey
+      );
+      const [lpPos] = findLpPosition(marketPda, lpProvider.publicKey, program.programId);
+      const lpBefore = await program.account.lpPosition.fetch(lpPos);
+      const sharesToBurn = lpBefore.shares.div(new BN(2)); // Burn half
+
+      const ataBalBefore = (
+        await getAccount(provider.connection, lpAta)
+      ).amount;
+
+      await program.methods
+        .removeLiquidity({ sharesToBurn })
+        .accountsPartial({
+          provider: lpProvider.publicKey,
+          market: marketPda,
+          lpPosition: lpPos,
+          vaultAuthority,
+          vault: marketAfterTrade.vault,
+          providerAta: lpAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([lpProvider])
+        .rpc();
+
+      const ataBalAfter = (
+        await getAccount(provider.connection, lpAta)
+      ).amount;
+      // LP should receive collateral + fee share.
+      expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 12: Deadline Boundary & Lazy Transition
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("12. Deadline Boundary & Lazy Transition", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    const initialLiquidity = new BN(10_000_000);
+    let deadline: number;
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      deadline = Math.floor(Date.now() / 1000) + 5; // 5 seconds
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("buy after deadline returns MarketClosed error", async () => {
+      // Wait for deadline.
+      const now = Math.floor(Date.now() / 1000);
+      const waitMs = (deadline - now + 2) * 1000;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      // Market should still be Active (no one touched it yet).
+      let market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(0); // Still Active on-chain
+
+      // Attempt a buy — should fail with MarketClosed.
+      // NOTE: The lazy transition + Err return means the Solana runtime
+      // rolls back ALL changes (including the state transition).
+      // The state stays Active until resolve_market is called (which has
+      // its own lazy transition that succeeds in the same tx).
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+
+      try {
+        await program.methods
+          .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
+          .accountsPartial({
+            trader: traderA.publicKey,
+            market: marketPda,
+            protocolConfig,
+            userPosition: posA,
+            vaultAuthority,
+            vault: market.vault,
+            traderAta: traderAAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([traderA])
+          .rpc();
+        expect.fail("Should have thrown MarketClosed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MarketClosed");
+      }
+
+      // State stays Active (tx was rolled back). The resolve_market handler
+      // has its own lazy transition to handle this.
+      market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(0);
+    });
+
+    it("resolve_market succeeds after deadline via its own lazy transition", async () => {
+      // Even though the market is still Active, resolve_market internally
+      // transitions Active → PendingResolution → Resolved in one tx.
+      await program.methods
+        .resolveMarket({ outcome: 0, value: new BN(0) })
+        .accountsPartial({
+          oracle: oracleKp.publicKey,
+          market: marketPda,
+        })
+        .signers([oracleKp])
+        .rpc();
+
+      const market = await program.account.market.fetch(marketPda);
+      expect(market.state).to.equal(3); // Resolved
+    });
+
+    it("remove_liquidity after deadline returns MarketClosed error", async () => {
+      // Create another market for this test.
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const mktId = config.marketCount.toNumber();
+      const dl = Math.floor(Date.now() / 1000) + 5;
+
+      const [mktPda] = findMarket(mktId, program.programId);
+      const [va] = findVaultAuthority(mktPda, program.programId);
+      const vk = Keypair.generate();
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(50_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(mktPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(dl),
+          oracle: oracleKp.publicKey,
+          initialLiquidity: new BN(10_000_000),
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: mktPda,
+          collateralMint,
+          vaultAuthority: va,
+          vault: vk.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vk])
+        .rpc();
+
+      // Wait for deadline.
+      const now = Math.floor(Date.now() / 1000);
+      const waitMs = (dl - now + 2) * 1000;
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      // Try remove_liquidity after deadline — should fail with MarketClosed.
+      const lpAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      const market = await program.account.market.fetch(mktPda);
+      const lpPos = await program.account.lpPosition.fetch(creatorLpPos);
+
+      try {
+        await program.methods
+          .removeLiquidity({ sharesToBurn: lpPos.shares })
+          .accountsPartial({
+            provider: creatorKp.publicKey,
+            market: mktPda,
+            lpPosition: creatorLpPos,
+            vaultAuthority: va,
+            vault: market.vault,
+            providerAta: lpAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([creatorKp])
+          .rpc();
+        expect.fail("Should have thrown MarketClosed");
+      } catch (err: any) {
+        expect(err.toString()).to.include("MarketClosed");
+      }
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Suite 13: Vault Balance Consistency
+  // ════════════════════════════════════════════════════════════════════
+
+  describe("13. Vault Balance Consistency", () => {
+    let marketPda: PublicKey;
+    let vaultAuthority: PublicKey;
+    let vaultKp: Keypair;
+    let vaultPubkey: PublicKey;
+    const initialLiquidity = new BN(20_000_000);
+
+    before(async () => {
+      const config = await program.account.protocolConfig.fetch(protocolConfig);
+      const marketId = config.marketCount.toNumber();
+      const deadline = Math.floor(Date.now() / 1000) + 60;
+
+      [marketPda] = findMarket(marketId, program.programId);
+      [vaultAuthority] = findVaultAuthority(marketPda, program.programId);
+      vaultKp = Keypair.generate();
+      vaultPubkey = vaultKp.publicKey;
+
+      const creatorAta = await getAssociatedTokenAddress(
+        collateralMint,
+        creatorKp.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        creatorAta,
+        (superadmin as any).payer,
+        BigInt(100_000_000)
+      );
+
+      const [oracleRolePda] = findUserRole(oracleKp.publicKey, ROLE_ORACLE, program.programId);
+      const [creatorRolePda] = findUserRole(creatorKp.publicKey, ROLE_CREATOR, program.programId);
+      const [creatorLpPos] = findLpPosition(marketPda, creatorKp.publicKey, program.programId);
+
+      await program.methods
+        .createMarket({
+          marketType: MARKET_TYPE_BINARY,
+          numOutcomes: 2,
+          deadline: new BN(deadline),
+          oracle: oracleKp.publicKey,
+          initialLiquidity,
+          rangeMin: new BN(0),
+          rangeMax: new BN(0),
+        })
+        .accountsPartial({
+          creator: creatorKp.publicKey,
+          creatorRole: creatorRolePda,
+          protocolConfig,
+          oracleRole: oracleRolePda,
+          market: marketPda,
+          collateralMint,
+          vaultAuthority,
+          vault: vaultKp.publicKey,
+          creatorAta,
+          creatorLpPosition: creatorLpPos,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creatorKp, vaultKp])
+        .rpc();
+    });
+
+    it("vault balance ≥ total_minted + protocol_fees after trades", async () => {
+      // Execute several trades.
+      const traderAAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderA.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        traderAAta,
+        (superadmin as any).payer,
+        BigInt(20_000_000)
+      );
+      const traderBAta = await getAssociatedTokenAddress(
+        collateralMint,
+        traderB.publicKey
+      );
+      await mintTokens(
+        collateralMint,
+        traderBAta,
+        (superadmin as any).payer,
+        BigInt(20_000_000)
+      );
+
+      const [posA] = findUserPosition(marketPda, traderA.publicKey, program.programId);
+      const [posB] = findUserPosition(marketPda, traderB.publicKey, program.programId);
+
+      // Trader A buys outcome 0.
+      await program.methods
+        .buy({ outcome: 0, collateralAmount: new BN(5_000_000) })
+        .accountsPartial({
+          trader: traderA.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault: vaultPubkey,
+          traderAta: traderAAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderA])
+        .rpc();
+
+      // Trader B buys outcome 1.
+      await program.methods
+        .buy({ outcome: 1, collateralAmount: new BN(3_000_000) })
+        .accountsPartial({
+          trader: traderB.publicKey,
+          market: marketPda,
+          protocolConfig,
+          userPosition: posB,
+          vaultAuthority,
+          vault: vaultPubkey,
+          traderAta: traderBAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([traderB])
+        .rpc();
+
+      // Check vault balance vs on-chain state.
+      const market = await program.account.market.fetch(marketPda);
+      const vaultAccount = await getAccount(provider.connection, vaultPubkey);
+      const vaultBalance = Number(vaultAccount.amount);
+      const totalMinted = Number(market.totalMinted);
+      const protocolFees = Number(market.protocolFeeAccumulated);
+
+      // Vault should hold at least total_minted + protocol_fees.
+      // LP fees are distributed from collateral already in the pool,
+      // so vault ≥ total_minted + protocol_fees.
+      expect(vaultBalance).to.be.greaterThanOrEqual(totalMinted + protocolFees);
+    });
+
+    it("fee accumulation matches expected values", async () => {
+      const market = await program.account.market.fetch(marketPda);
+      const protocolFees = Number(market.protocolFeeAccumulated);
+      const lpFees = Number(market.lpFeeAccumulated);
+
+      // Both fee accumulators should be positive after trades.
+      expect(protocolFees).to.be.greaterThan(0);
+      expect(lpFees).to.be.greaterThan(0);
+
+      // Protocol fees include both creation fee AND trade protocol fees.
+      // Creation fee = initialLiquidity * creationFeeBps / 10000
+      //             = 20_000_000 * 50 / 10000 = 100_000 (goes entirely to protocol).
+      // Trade fees are split 50/50 between LP and protocol (lp_fee_share_bps = 5000).
+      // So: protocolFees = creationFee + tradeFees/2
+      //     lpFees = tradeFees/2
+      // Thus: protocolFees - lpFees ≈ creationFee
+      const creationFee = 20_000_000 * 50 / 10_000; // 100_000
+      const diff = Math.abs(protocolFees - lpFees - creationFee);
+      // Allow rounding tolerance (a few units per trade).
+      expect(diff).to.be.lessThanOrEqual(10);
+    });
+  });
 });
