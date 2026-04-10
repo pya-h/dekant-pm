@@ -580,12 +580,28 @@ ContinuousMarket.prototype.resolve = function(value) {
   this.lastResolveValue = value;
 
   var payouts = [];
-  var hWin = this.k - this.positions[bin];
 
+  // FIX: LP residual must be computed from actual trader-held tokens,
+  // NOT from positions[bin].  positions[i] is the AMM state variable
+  // (starts at k/sqrt(N) even with zero traders, and is independently
+  // scaled by LP add/remove).  Using it here was the root cause of the
+  // deterministic 1/sqrt(N) LP loss documented in PROFITABILITY.md §4.4.
+  //
+  // Correct identity:  vault = trader_claims + lp_residual + protocol_fees
+  //   trader_claims  = sum of traderHoldings[*].holdings[winBin]  (gross)
+  //   lp_residual    = k - trader_claims                          (before fees)
+  var totalTraderTokensInWinBin = 0;
+  for (var name in this.traderHoldings) {
+    totalTraderTokensInWinBin += this.traderHoldings[name].holdings[bin];
+  }
+  var lpResidual = this.k - totalTraderTokensInWinBin;
+
+  var totalRedemptionFees = 0;
   for (var name in this.traderHoldings) {
     var th = this.traderHoldings[name];
     var winTokens = th.holdings[bin];
     var redemptionFee = winTokens * this.redemptionFeeBps / 10000;
+    totalRedemptionFees += redemptionFee;
     var payout = winTokens - redemptionFee;
     payouts.push({
       name: name, type: 'Trader',
@@ -595,11 +611,13 @@ ContinuousMarket.prototype.resolve = function(value) {
     });
   }
 
+  // Redemption fees stay in the vault; they belong to LPs as extra residual.
+  var lpPool = lpResidual + totalRedemptionFees;
   for (var name in this.lpProviders) {
     var lp = this.lpProviders[name];
     if (lp.shares <= 0 && lp.deposited <= 0) continue;
     var fraction = (this.totalLpShares > 0) ? lp.shares / this.totalLpShares : 0;
-    var reserveShare = hWin * fraction;
+    var reserveShare = lpPool * fraction;
     var feeShare = this.accumulatedLpFees * fraction;
     var totalPayout = reserveShare + feeShare;
     payouts.push({
