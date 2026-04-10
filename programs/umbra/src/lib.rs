@@ -9,7 +9,7 @@ pub mod engine;
 
 use instructions::*;
 
-declare_id!("UMBRAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+declare_id!("Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf");
 
 #[program]
 pub mod umbra {
@@ -35,6 +35,11 @@ pub mod umbra {
     /// Update protocol fee parameters (superadmin only).
     pub fn update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {
         handle_update_fees(ctx, args)
+    }
+
+    /// Sweep accumulated protocol fees from a market's vault to the treasury.
+    pub fn collect_fees(ctx: Context<CollectFees>) -> Result<()> {
+        handle_collect_fees(ctx)
     }
 
     // ── Market Management ────────────────────────────────────────────

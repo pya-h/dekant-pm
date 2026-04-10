@@ -103,9 +103,10 @@ pub fn handle_buy(ctx: Context<Buy>, args: BuyArgs) -> Result<()> {
     )?;
 
     // ── AMM computation ──────────────────────────────────────────────
+    let k_sq = market.k_squared;
     let tokens_out = amm::compute_buy(
         &mut market.reserves,
-        market.k_squared,
+        k_sq,
         args.outcome as usize,
         fees.net_amount,
     )?;

@@ -111,9 +111,10 @@ pub fn handle_sell_distribution(
     }
 
     // ── AMM computation ──────────────────────────────────────────────
+    let k_sq = market.k_squared;
     let collateral_out = amm::compute_distribution_sell(
         &mut market.reserves,
-        market.k_squared,
+        k_sq,
         &weights,
         args.token_amount,
     )?;
