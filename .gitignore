@@ -13,3 +13,4 @@ CONTEXT.md
 target/
 *keypair*.json
 .anchor
+test-ledger/

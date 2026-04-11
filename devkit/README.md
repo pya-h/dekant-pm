@@ -555,3 +555,42 @@ npx ts-node src/resolve.ts market 1 --value 185
 # 5. Claim
 npx ts-node src/market.ts claim 1
 ```
+
+---
+
+## Commands Summary
+
+| Script | Command | Result |
+|--------|---------|--------|
+| **setup.ts** | `init` | Protocol initialized |
+| | `assign-role` (oracle, creator) | Roles assigned |
+| | `revoke-role` | Role revoked |
+| | `update-fees` | Fees updated |
+| | `collect-fees` | Fees collected |
+| | `info` | Config displayed |
+| **market.ts** | `create-binary` | Market created |
+| | `create-multi` (4 outcomes) | Market created |
+| | `create-continuous` (16 bins) | Market created |
+| | `pause` / `unpause` | Market paused & unpaused |
+| | `info` | Full market details shown |
+| | `claim` | Payout claimed (binary + continuous) |
+| | `claim` (double) | "Already claimed" detected |
+| **trade.ts** | `fund` | Tokens minted |
+| | `buy` | Discrete buy with prob shift |
+| | `sell` | Discrete sell with refund |
+| | `buy-dist` | Distribution buy (continuous) |
+| | `sell-dist` | Distribution sell (continuous) |
+| | `buy-to-price` | Target price reached (70%) |
+| | `add-lp` / `remove-lp` | LP shares added & removed |
+| | `position` | Holdings displayed |
+| **resolve.ts** | `market` (binary) | Resolved with outcome |
+| | `market` (continuous, --value) | Resolved with value |
+| | `info` | Resolution details + winner marker |
+| **query.ts** | `config` | Protocol config shown |
+| | `markets` | Paginated list |
+| | `markets --state/--type` | Filters working |
+| | `market <id>` | Full details |
+| | `position <id>` | User position |
+| | `lp <id>` | LP position with share % |
+| | `roles <wallet>` | Role checklist + superadmin |
+| | `vault <id>` | Vault balance & fees |
