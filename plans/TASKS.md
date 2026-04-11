@@ -77,6 +77,10 @@ FRONTEND                                                    │
                                                   (E2E smoke)
 
   F-7 + B-9 ──► F-14 (continuous sell UI)
+
+DEVKIT (program interaction scripts)
+  S-1 ──► S-2 ──► S-3 ──► S-4
+  (setup)  (market)  (trade)  (resolve/claim)
 ```
 
 ---
@@ -1342,6 +1346,96 @@ FRONTEND                                                    │
 
 ---
 
+## Devkit Tasks (Program Interaction Scripts)
+
+> **Directory:** `devkit/`
+> **Purpose:** Standalone TypeScript scripts for interacting directly with the on-chain program without using the backend or frontend. Useful for development, testing, demos, and operations.
+> **Reuses:** `tests/helpers/` (context, PDA derivation, accounts, constants) and `target/idl/dekant_pm.json`.
+
+### S-1: Devkit Scaffolding & Protocol Setup Script
+
+**Goal:** Set up the devkit directory structure and a script for protocol initialization + role assignment.
+
+**Deliverable — `devkit/`:**
+- `package.json` — dependencies: `@coral-xyz/anchor`, `@solana/web3.js`, `@solana/spl-token`, `bn.js`, `dotenv`, `commander`
+- `tsconfig.json` — TS config for scripts (ESM or CommonJS, matching root)
+- `.env.example` — `RPC_URL`, `PROGRAM_ID`, `KEYPAIR_PATH` (defaults to `~/.config/solana/id.json`)
+- `src/common.ts` — shared setup: load keypair, create connection, load IDL, derive PDAs (adapt from `tests/helpers/`)
+- `src/setup.ts` — CLI script:
+  - `setup init` — Initialize protocol (calls `initialize` instruction)
+  - `setup assign-role <wallet> <role>` — Assign Admin/Oracle/Creator role
+  - `setup revoke-role <wallet> <role>` — Revoke a role
+  - `setup update-fees <creation> <trade> <redemption> <lp-share>` — Update protocol fees (bps)
+  - `setup collect-fees <market-id>` — Sweep fees to treasury
+  - Each subcommand: derives PDAs, builds tx, signs with loaded keypair, confirms, logs result
+
+**Depends on:** P-19 (program must be built)
+
+---
+
+### S-2: Market Management Scripts
+
+**Goal:** Scripts for creating, pausing, unpausing, and inspecting markets.
+
+**Deliverable — `devkit/src/market.ts`:**
+- `market create-binary <title> <oracle> <liquidity> <deadline>` — Create a binary market
+- `market create-multi <title> <oracle> <liquidity> <deadline> <outcomes...>` — Create multi-outcome market with named outcomes
+- `market create-continuous <title> <oracle> <liquidity> <deadline> <range-min> <range-max> [--bins N]` — Create continuous market
+  - Automatically converts range values to SCALE-denominated i64
+  - Default bins: 64
+- `market pause <market-id>` — Pause an active market
+- `market unpause <market-id>` — Unpause a paused market
+- `market info <market-id>` — Fetch and display market state (reserves, prices, status, deadline)
+  - Pretty-prints current probabilities, total volume, traders, range info for continuous
+
+**Notes:**
+- Title/description/category stored off-chain (backend) — these scripts only interact with the program. Title is passed as informational output only.
+- All scripts create the collateral mint and necessary ATAs if they don't exist (or accept `--mint <address>`)
+- Deadline can be relative (`+1h`, `+7d`) or absolute ISO 8601
+
+**Depends on:** S-1
+
+---
+
+### S-3: Trading Scripts
+
+**Goal:** Scripts for executing all trade types directly against the program.
+
+**Deliverable — `devkit/src/trade.ts`:**
+- `trade buy <market-id> <outcome> <amount>` — Discrete buy (binary/multi)
+- `trade sell <market-id> <outcome> <amount>` — Discrete sell (binary/multi)
+- `trade buy-dist <market-id> <mu> <sigma> <amount>` — Distribution buy (continuous)
+  - Converts mu/sigma to SCALE-denominated i64/u64 before sending
+- `trade sell-dist <market-id> <mu> <sigma> <amount>` — Distribution sell (continuous)
+- `trade buy-to-price <market-id> <outcome> <target-prob>` — Buy to target probability
+- `trade sell-to-price <market-id> <outcome> <target-prob>` — Sell to target probability
+- `trade add-lp <market-id> <amount>` — Add liquidity
+- `trade remove-lp <market-id> <shares>` — Remove liquidity
+
+**Common behavior:**
+- Each command: fetches current market state, derives PDAs, builds instruction, signs, confirms
+- Prints: before/after probabilities, tokens received/sent, fees paid
+- Amount is human-readable (e.g., "10" = 10 USDC), script converts to raw (×10^6)
+
+**Depends on:** S-2
+
+---
+
+### S-4: Resolution & Settlement Scripts
+
+**Goal:** Scripts for resolving markets and claiming payouts.
+
+**Deliverable — `devkit/src/resolve.ts`:**
+- `resolve market <market-id> <outcome>` — Resolve binary/multi market (signer must be oracle)
+- `resolve market <market-id> --value <number>` — Resolve continuous market with exact value
+  - Converts value to SCALE-denominated i64
+- `resolve claim <market-id>` — Claim payout from resolved market
+- `resolve info <market-id>` — Show resolution details (resolved outcome, winning bin, vault balance)
+
+**Depends on:** S-3
+
+---
+
 ## Summary: Task Count & Ordering
 
 | Layer | Tasks | IDs | Status |
@@ -1350,7 +1444,8 @@ FRONTEND                                                    │
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 9 | B-1 → B-9 | ⬅️ B-1→B-8 done, B-9 next |
 | Frontend | 14 | F-1 → F-14 | ⬅️ F-1→F-7 done, F-8 next |
-| **Total** | **45** | | |
+| Devkit | 4 | S-1 → S-4 | ⬅️ Pending |
+| **Total** | **49** | | |
 
 ### Critical Path (longest dependency chain):
 
@@ -1370,3 +1465,5 @@ Once P-9 (create_market) is done:
 Backend and frontend can start scaffolding (B-1, F-1) in parallel with program work, but substantive backend work (B-3+) needs the built IDL from program compilation.
 
 Frontend discovery (F-4) and admin (F-10) can proceed in parallel once F-3 is done.
+
+Devkit (S-1→S-4) can proceed independently of frontend/backend — only requires the built program (P-19 done). Can run in parallel with F-8+ and B-9.
