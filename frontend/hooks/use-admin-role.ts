@@ -20,6 +20,7 @@ export function useAdminRole() {
       let isSuperadmin = false;
       let isAdmin = false;
       let isCreator = false;
+      let isOracle = false;
 
       try {
         const config = await program.account.protocolConfig.fetch(configPda);
@@ -48,7 +49,16 @@ export function useAdminRole() {
         }
       }
 
-      return { isSuperadmin, isAdmin, isCreator };
+      // Oracle is a separate role — check independently of admin/creator
+      try {
+        const [oracleRolePda] = deriveUserRole(publicKey, Role.Oracle);
+        const role = await program.account.userRole.fetchNullable(oracleRolePda);
+        isOracle = role !== null;
+      } catch {
+        // UserRole fetch failed — not oracle
+      }
+
+      return { isSuperadmin, isAdmin, isCreator, isOracle };
     },
     enabled: !!program && !!publicKey,
     staleTime: 60_000,
@@ -58,6 +68,7 @@ export function useAdminRole() {
     isSuperadmin: data?.isSuperadmin ?? false,
     isAdmin: data?.isAdmin ?? false,
     isCreator: data?.isCreator ?? false,
+    isOracle: data?.isOracle ?? false,
     isAuthorized: (data?.isSuperadmin || data?.isAdmin) ?? false,
     isLoading,
   };

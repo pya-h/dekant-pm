@@ -1273,7 +1273,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-12: Oracle Dashboard
+### F-12: Oracle Dashboard ✅
 
 **Goal:** Build the oracle's view for resolving markets.
 

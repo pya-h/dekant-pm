@@ -14,7 +14,7 @@ const navLinks: { href: string; label: string; soon?: boolean }[] = [
   { href: "/markets", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/admin", label: "Admin" },
-  { href: "/oracle", label: "Oracle", soon: true },
+  { href: "/oracle", label: "Oracle" },
 ];
 
 export function Navbar() {
