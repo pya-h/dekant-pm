@@ -1,0 +1,154 @@
+import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { Program, BN } from "@coral-xyz/anchor";
+import type { DekantPm } from "./program/dekant_pm";
+import {
+  deriveProtocolConfig,
+  deriveUserPosition,
+  deriveVaultAuthority,
+} from "./solana";
+import { USDC_DECIMALS, SCALE } from "./types";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const TOKEN_PROGRAM_ID = new PublicKey(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+);
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Derive Associated Token Address (mirrors @solana/spl-token). */
+function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
+  const [address] = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  return address;
+}
+
+/** Human-readable amount → token base units (6 decimals for USDC). */
+function toBaseUnits(amount: string): BN {
+  return new BN(Math.floor(Number(amount) * 10 ** USDC_DECIMALS));
+}
+
+/** Human-readable value → SCALE-denominated BN (for distribution mu/sigma). */
+function toScaled(value: number): BN {
+  return new BN(Math.round(value * SCALE));
+}
+
+/** Resolve the common set of accounts needed for all trading instructions. */
+async function resolveAccounts(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+) {
+  const marketAccount = await program.account.market.fetch(marketPubkey);
+
+  const [protocolConfig] = deriveProtocolConfig();
+  const [userPosition] = deriveUserPosition(marketPubkey, trader);
+  const [vaultAuthority] = deriveVaultAuthority(marketPubkey);
+  const traderAta = getAta(marketAccount.collateralMint, trader);
+
+  return {
+    trader,
+    market: marketPubkey,
+    protocolConfig,
+    userPosition,
+    vaultAuthority,
+    vault: marketAccount.vault as PublicKey,
+    traderAta,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Transaction builders — each returns the tx signature string
+// ---------------------------------------------------------------------------
+
+/** Buy discrete outcome tokens (Binary / MultiOutcome markets). */
+export async function executeBuy(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  outcome: number,
+  amount: string,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .buy({ outcome, collateralAmount: toBaseUnits(amount) })
+    .accountsPartial({
+      ...accounts,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+/** Sell discrete outcome tokens (Binary / MultiOutcome markets). */
+export async function executeSell(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  outcome: number,
+  amount: string,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .sell({ outcome, tokenAmount: toBaseUnits(amount) })
+    .accountsPartial(accounts)
+    .rpc();
+}
+
+/** Buy distribution position (Continuous markets). */
+export async function executeBuyDistribution(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  mu: number,
+  sigma: number,
+  amount: string,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .buyDistribution({
+      mu: toScaled(mu),
+      sigma: toScaled(sigma),
+      collateralAmount: toBaseUnits(amount),
+    })
+    .accountsPartial({
+      ...accounts,
+      systemProgram: SystemProgram.programId,
+    })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+    ])
+    .rpc();
+}
+
+/** Sell distribution position (Continuous markets). */
+export async function executeSellDistribution(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  mu: number,
+  sigma: number,
+  amount: string,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .sellDistribution({
+      mu: toScaled(mu),
+      sigma: toScaled(sigma),
+      tokenAmount: toBaseUnits(amount),
+    })
+    .accountsPartial(accounts)
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+    ])
+    .rpc();
+}
