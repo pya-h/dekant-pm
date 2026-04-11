@@ -364,9 +364,5 @@ The core mathematical economics are identical — both L2 spheres. The differenc
 
 ## References
 
-- [`COMPARE.md`](COMPARE.md) — four-model comparison (DekantPM/Paradigm/Polymarket)
-- [`PROFITABILITY_V2.md`](PROFITABILITY_V2.md) — post-fix LP/trader profitability
-- [`DEKANT_V2_PROTOCOL_SPEC.md`](DEKANT_V2_PROTOCOL_SPEC.md) — improved BIN v2 specification
-- [`INITIAL_LIQUIDITY_COMPARISON.md`](INITIAL_LIQUIDITY_COMPARISON.md) — capital comparison across models
 - [Paradigm — *Distribution Markets*, Dec 2024](https://www.paradigm.xyz/2024/12/distribution-markets)
 - [Hanson — *Logarithmic Market Scoring Rules*, 2003](https://mason.gmu.edu/~rhanson/mktscore.pdf)
