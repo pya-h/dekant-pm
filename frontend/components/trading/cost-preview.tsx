@@ -85,12 +85,22 @@ export function CostPreview({
             setEstimate(res);
           }
         } else {
-          const res = await api.post<SellEstimate>("/amm/estimate-sell", {
-            marketId: Number(marketId),
-            outcome: outcome ?? 0,
-            amount: rawAmount,
-          });
-          setEstimate(res);
+          if (isDistribution) {
+            const res = await api.post<SellEstimate>("/amm/estimate-sell", {
+              marketId: Number(marketId),
+              mu: mu! * SCALE,
+              sigma: sigma! * SCALE,
+              amount: rawAmount,
+            });
+            setEstimate(res);
+          } else {
+            const res = await api.post<SellEstimate>("/amm/estimate-sell", {
+              marketId: Number(marketId),
+              outcome: outcome ?? 0,
+              amount: rawAmount,
+            });
+            setEstimate(res);
+          }
         }
         setError(null);
       } catch (err) {

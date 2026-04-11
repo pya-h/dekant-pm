@@ -8,6 +8,7 @@ import { computeProbabilities, SCALE, type MarketDetail } from "@/lib/types";
 
 interface DistributionInputProps {
   market: MarketDetail;
+  side?: "buy" | "sell";
   onParamsChange: (
     params: { mu: number; sigma: number; amount: string } | null,
   ) => void;
@@ -15,6 +16,7 @@ interface DistributionInputProps {
 
 export function DistributionInput({
   market,
+  side = "buy",
   onParamsChange,
 }: DistributionInputProps) {
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
@@ -127,7 +129,7 @@ export function DistributionInput({
       {/* Amount input */}
       <div>
         <label className="mb-2 block text-xs font-medium text-muted-foreground">
-          Amount (USDC)
+          {side === "sell" ? "Shares to sell" : "Amount (USDC)"}
         </label>
         <div className="relative">
           <Input
@@ -140,7 +142,7 @@ export function DistributionInput({
             className="pr-14"
           />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            USDC
+            {side === "sell" ? "shares" : "USDC"}
           </span>
         </div>
       </div>
@@ -217,9 +219,7 @@ function DistributionPreview({
     <div className="rounded-lg border border-border/40 bg-muted/10 p-2">
       <svg
         viewBox={`0 0 ${VIEW_W} ${PREVIEW_H}`}
-        className="w-full"
-        preserveAspectRatio="none"
-        style={{ height: PREVIEW_H }}
+        className="w-full h-auto"
       >
         <defs>
           <linearGradient id="traderGradient" x1="0" x2="0" y1="0" y2="1">
@@ -284,7 +284,7 @@ function DistributionPreview({
             y={PREVIEW_H - 2}
             textAnchor="middle"
             className="fill-muted-foreground"
-            fontSize={7}
+            fontSize={9}
           >
             {formatValue(value)}
           </text>
