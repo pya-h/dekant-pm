@@ -7,7 +7,8 @@
     "setup": "ts-node src/setup.ts",
     "market": "ts-node src/market.ts",
     "trade": "ts-node src/trade.ts",
-    "resolve": "ts-node src/resolve.ts"
+    "resolve": "ts-node src/resolve.ts",
+    "query": "ts-node src/query.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

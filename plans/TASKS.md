@@ -1352,7 +1352,7 @@ DEVKIT (program interaction scripts)
 > **Purpose:** Standalone TypeScript scripts for interacting directly with the on-chain program without using the backend or frontend. Useful for development, testing, demos, and operations.
 > **Reuses:** `tests/helpers/` (context, PDA derivation, accounts, constants) and `target/idl/dekant_pm.json`.
 
-### S-1: Devkit Scaffolding & Protocol Setup Script
+### S-1: Devkit Scaffolding & Protocol Setup Script ✅
 
 **Goal:** Set up the devkit directory structure and a script for protocol initialization + role assignment.
 
@@ -1373,7 +1373,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### S-2: Market Management Scripts
+### S-2: Market Management Scripts ✅
 
 **Goal:** Scripts for creating, pausing, unpausing, and inspecting markets.
 
@@ -1397,7 +1397,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### S-3: Trading Scripts
+### S-3: Trading Scripts ✅
 
 **Goal:** Scripts for executing all trade types directly against the program.
 
@@ -1421,18 +1421,36 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### S-4: Resolution & Settlement Scripts
+### S-4: Resolution & Settlement Scripts ✅
 
 **Goal:** Scripts for resolving markets and claiming payouts.
 
-**Deliverable — `devkit/src/resolve.ts`:**
-- `resolve market <market-id> <outcome>` — Resolve binary/multi market (signer must be oracle)
-- `resolve market <market-id> --value <number>` — Resolve continuous market with exact value
+**Deliverable — `devkit/src/resolve.ts` + `devkit/src/market.ts`:**
+- `resolve market <market-id> [outcome] [--value <number>]` — Resolve binary/multi/continuous market (signer must be oracle)
   - Converts value to SCALE-denominated i64
-- `resolve claim <market-id>` — Claim payout from resolved market
 - `resolve info <market-id>` — Show resolution details (resolved outcome, winning bin, vault balance)
+- `market claim <market-id>` — Claim payout from resolved market (moved to market.ts)
 
 **Depends on:** S-3
+
+---
+
+### S-5: Read-Only Query Script (Bonus) ✅
+
+**Goal:** Consolidated read-only account queries and market listing.
+
+**Deliverable — `devkit/src/query.ts`:**
+- `query markets [--page N] [--limit N] [--type binary|multi|continuous] [--state active|paused|pending|resolved]` — Paginated market listing with filters
+- `query market <market-id>` — Detailed market view (reserves, probabilities, vault, range)
+- `query position <market-id> [--wallet <address>]` — View any user's trading position
+- `query lp <market-id> [--wallet <address>]` — View any user's LP position
+- `query roles <wallet>` — Check Admin/Oracle/Creator/Superadmin roles
+- `query config` — Protocol configuration
+- `query vault <market-id>` — Vault balance, authority, and fee accumulation
+
+**All commands are read-only (no transactions submitted).**
+
+**Depends on:** S-1
 
 ---
 
@@ -1444,8 +1462,8 @@ DEVKIT (program interaction scripts)
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 9 | B-1 → B-9 | ⬅️ B-1→B-8 done, B-9 next |
 | Frontend | 14 | F-1 → F-14 | ⬅️ F-1→F-7 done, F-8 next |
-| Devkit | 4 | S-1 → S-4 | ✅ Done |
-| **Total** | **49** | | |
+| Devkit | 5 | S-1 → S-5 | ✅ Done |
+| **Total** | **50** | | |
 
 ### Critical Path (longest dependency chain):
 

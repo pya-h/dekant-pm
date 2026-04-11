@@ -16,6 +16,7 @@ import {
   formatProbability,
   computeProbabilities,
   printTable,
+  outcomeLabel,
   MARKET_TYPE_CONTINUOUS,
   MARKET_TYPE_NAMES,
   SCALE,
@@ -63,12 +64,19 @@ async function loadTradeContext(marketIdStr: string) {
 function printBeforeAfter(label: string, market: any, newMarket: any) {
   const probsBefore = computeProbabilities(market.reserves, market.totalMinted);
   const probsAfter = computeProbabilities(newMarket.reserves, newMarket.totalMinted);
+  const maxDisplay = probsBefore.length <= 10 ? probsBefore.length : 32;
 
   console.log(`\n  ${label} probabilities:`);
-  for (let i = 0; i < probsBefore.length; i++) {
+  for (let i = 0; i < Math.min(probsBefore.length, maxDisplay); i++) {
+    // For large markets, skip bins with negligible change
+    if (probsBefore.length > 10 && Math.abs(probsAfter[i] - probsBefore[i]) < 0.0001 && probsBefore[i] < 0.001) continue;
+    const tag = outcomeLabel(market.marketType, i);
     console.log(
-      `    ${String(i).padStart(3)}: ${formatProbability(probsBefore[i]).padStart(8)} -> ${formatProbability(probsAfter[i]).padStart(8)}`
+      `    ${tag.padEnd(12)} ${formatProbability(probsBefore[i]).padStart(8)} -> ${formatProbability(probsAfter[i]).padStart(8)}`
     );
+  }
+  if (probsBefore.length > maxDisplay) {
+    console.log(`    ... (${probsBefore.length - maxDisplay} more bins)`);
   }
 }
 
@@ -445,11 +453,7 @@ program_
       for (let i = 0; i < position.holdings.length; i++) {
         const h = position.holdings[i];
         if (h.toNumber() > 0) {
-          const label = market.marketType === 0
-            ? (i === 0 ? "Yes" : "No")
-            : market.marketType === 2
-              ? `Bin ${i}`
-              : `Outcome ${i}`;
+          const label = outcomeLabel(market.marketType, i);
           console.log(`    ${label.padEnd(12)} ${h.toString()}`);
         }
       }
