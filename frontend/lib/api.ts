@@ -9,7 +9,11 @@ class ApiClient {
     this.baseUrl = env.backendUrl;
   }
 
-  async get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
+  async get<T>(
+    path: string,
+    params?: Record<string, unknown>,
+    token?: string,
+  ): Promise<T> {
     const url = new URL(path, this.baseUrl);
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -23,12 +27,16 @@ class ApiClient {
       }
     }
 
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
       const res = await fetch(url.toString(), {
         cache: "no-store",
+        headers,
         signal: controller.signal,
       });
       if (!res.ok) {

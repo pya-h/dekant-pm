@@ -1219,7 +1219,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-10: Admin Dashboard
+### F-10: Admin Dashboard ✅
 
 **Goal:** Build the admin panel for role management, fee config, and market controls.
 
@@ -1377,7 +1377,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-16: Pre-Trade Validation & User-Friendly Error Messages
+### F-16: Pre-Trade Validation & User-Friendly Error Messages ✅
 
 **Goal:** Add client-side validation checks before submitting transactions, replacing raw Anchor/Solana errors with clear, actionable messages users can understand.
 
@@ -1547,7 +1547,7 @@ DEVKIT (program interaction scripts)
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
 | Backend | 9 | B-1 → B-9 | ✅ Done |
-| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-8, F-14 done; F-9→F-13, F-15, F-16 remaining |
+| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-9, F-14, F-16 done; F-10→F-13, F-15 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | **Total** | **51** | | |
 
