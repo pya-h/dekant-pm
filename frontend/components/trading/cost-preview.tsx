@@ -7,13 +7,16 @@ import { USDC_DECIMALS, SCALE } from "@/lib/types";
 interface CostPreviewProps {
   marketId: string;
   side: "buy" | "sell";
-  /** Human-readable amount (e.g. "10" for $10 USDC) */
+  /** Human-readable amount (e.g. "10" for $10 USDC or 10 shares) */
   amount: string;
+  inputUnit?: "collateral" | "shares";
   outcome?: number;
   /** Distribution center (human-readable, for continuous markets) */
   mu?: number;
   /** Distribution width (human-readable, for continuous markets) */
   sigma?: number;
+  /** Reports the computed amount (base units) for reverse trades, null for standard */
+  onEstimate?: (computedAmount: number | null) => void;
 }
 
 interface BuyEstimate {
@@ -34,22 +37,46 @@ interface SellEstimate {
   newProbabilities: number[];
 }
 
+interface BuyBySharesEstimate {
+  collateralNeeded: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
+interface SellByCollateralEstimate {
+  tokensNeeded: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
+type Estimate =
+  | BuyEstimate
+  | DistributionBuyEstimate
+  | SellEstimate
+  | BuyBySharesEstimate
+  | SellByCollateralEstimate;
+
 export function CostPreview({
   marketId,
   side,
   amount,
+  inputUnit,
   outcome,
   mu,
   sigma,
+  onEstimate,
 }: CostPreviewProps) {
-  type Estimate = BuyEstimate | DistributionBuyEstimate | SellEstimate;
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<string>("");
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const requestIdRef = useRef(0);
 
   const isDistribution = mu !== undefined && sigma !== undefined;
+  const unit = inputUnit ?? (side === "buy" ? "collateral" : "shares");
+  const isBuyByShares = side === "buy" && unit === "shares" && !isDistribution;
+  const isSellByCollateral = side === "sell" && unit === "collateral";
 
   useEffect(() => {
     setError(null);
@@ -57,6 +84,7 @@ export function CostPreview({
     const rawAmount = Math.floor(Number(amount) * 10 ** USDC_DECIMALS);
     if (!rawAmount || rawAmount <= 0) {
       setEstimate(null);
+      onEstimate?.(null);
       return;
     }
 
@@ -67,7 +95,38 @@ export function CostPreview({
       setIsLoading(true);
       try {
         let res: Estimate;
-        if (side === "buy") {
+        let currentMode: string;
+
+        if (isBuyByShares) {
+          // Buy-by-shares: amount is in shares (tokens)
+          res = await api.post<BuyBySharesEstimate>(
+            "/amm/estimate-buy-by-shares",
+            {
+              marketId,
+              outcome: outcome ?? 0,
+              desiredTokens: rawAmount,
+            },
+          );
+          currentMode = "buyByShares";
+        } else if (isSellByCollateral) {
+          // Sell-by-collateral: amount is in USDC
+          res = await api.post<SellByCollateralEstimate>(
+            "/amm/estimate-sell-by-collateral",
+            isDistribution
+              ? {
+                  marketId,
+                  mu: mu! * SCALE,
+                  sigma: sigma! * SCALE,
+                  desiredCollateral: rawAmount,
+                }
+              : {
+                  marketId,
+                  outcome: outcome ?? 0,
+                  desiredCollateral: rawAmount,
+                },
+          );
+          currentMode = "sellByCollateral";
+        } else if (side === "buy") {
           if (isDistribution) {
             res = await api.post<DistributionBuyEstimate>(
               "/amm/estimate-buy",
@@ -78,12 +137,14 @@ export function CostPreview({
                 amount: rawAmount,
               },
             );
+            currentMode = "distributionBuy";
           } else {
             res = await api.post<BuyEstimate>("/amm/estimate-buy", {
               marketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });
+            currentMode = "buy";
           }
         } else {
           if (isDistribution) {
@@ -93,23 +154,36 @@ export function CostPreview({
               sigma: sigma! * SCALE,
               amount: rawAmount,
             });
+            currentMode = "distributionSell";
           } else {
             res = await api.post<SellEstimate>("/amm/estimate-sell", {
               marketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });
+            currentMode = "sell";
           }
         }
-        // Only apply if this is still the latest request
+
         if (currentRequestId === requestIdRef.current) {
           setEstimate(res);
+          setMode(currentMode);
           setError(null);
+
+          // Report computed amount for reverse trades
+          if (currentMode === "buyByShares") {
+            onEstimate?.((res as BuyBySharesEstimate).collateralNeeded);
+          } else if (currentMode === "sellByCollateral") {
+            onEstimate?.((res as SellByCollateralEstimate).tokensNeeded);
+          } else {
+            onEstimate?.(null);
+          }
         }
       } catch (err) {
         if (currentRequestId === requestIdRef.current) {
           setError(err instanceof Error ? err.message : "Estimation failed");
           setEstimate(null);
+          onEstimate?.(null);
         }
       } finally {
         if (currentRequestId === requestIdRef.current) {
@@ -121,7 +195,8 @@ export function CostPreview({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [marketId, side, outcome, amount, mu, sigma, isDistribution]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketId, side, outcome, amount, mu, sigma, isDistribution, isBuyByShares, isSellByCollateral]);
 
   if (!estimate && !isLoading && !error) return null;
 
@@ -136,7 +211,35 @@ export function CostPreview({
         <p className="text-xs text-destructive">{error}</p>
       ) : estimate ? (
         <dl className="space-y-1.5">
-          {"tokensPerBin" in estimate ? (
+          {mode === "buyByShares" && "collateralNeeded" in estimate ? (
+            <>
+              <PreviewRow
+                label="Cost"
+                value={formatUsdcRaw(
+                  (estimate as BuyBySharesEstimate).collateralNeeded,
+                )}
+                highlight
+              />
+              <PreviewRow
+                label="Trade fee"
+                value={formatUsdcRaw(estimate.fee)}
+              />
+            </>
+          ) : mode === "sellByCollateral" && "tokensNeeded" in estimate ? (
+            <>
+              <PreviewRow
+                label="Shares to sell"
+                value={formatTokens(
+                  (estimate as SellByCollateralEstimate).tokensNeeded,
+                )}
+              />
+              <PreviewRow
+                label="Trade fee"
+                value={formatUsdcRaw(estimate.fee)}
+              />
+            </>
+          ) : mode === "distributionBuy" &&
+            "tokensPerBin" in estimate ? (
             <>
               <PreviewRow
                 label="Trade fee"
@@ -152,13 +255,11 @@ export function CostPreview({
                 highlight
               />
             </>
-          ) : "tokensOut" in estimate ? (
+          ) : mode === "buy" && "tokensOut" in estimate ? (
             <>
               <PreviewRow
                 label="Shares received"
-                value={formatTokens(
-                  (estimate as BuyEstimate).tokensOut,
-                )}
+                value={formatTokens((estimate as BuyEstimate).tokensOut)}
               />
               <PreviewRow
                 label="Trade fee"
@@ -166,9 +267,7 @@ export function CostPreview({
               />
               <PreviewRow
                 label="Max payout"
-                value={formatUsdcRaw(
-                  (estimate as BuyEstimate).tokensOut,
-                )}
+                value={formatUsdcRaw((estimate as BuyEstimate).tokensOut)}
                 highlight
               />
             </>

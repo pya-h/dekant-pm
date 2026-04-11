@@ -5,12 +5,15 @@ import {
   CardFooter,
   CardHeader,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { MarketStatus } from "./market-status";
 import { MarketTypeBadge } from "./market-type-badge";
 import {
   MarketType,
   SCALE,
+  USDC_DECIMALS,
   type MarketSummary,
+  type UserPosition,
   computeProbabilities,
   formatUsdc,
   formatProbability,
@@ -19,9 +22,10 @@ import {
 
 interface MarketCardProps {
   market: MarketSummary;
+  userPosition?: UserPosition;
 }
 
-export function MarketCard({ market }: MarketCardProps) {
+export function MarketCard({ market, userPosition }: MarketCardProps) {
   return (
     <Link href={`/markets/${market.id}`} className="group block">
       <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5">
@@ -36,6 +40,11 @@ export function MarketCard({ market }: MarketCardProps) {
               <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                 {market.category}
               </span>
+            )}
+            {userPosition && (
+              <Badge variant="outline" className="border-primary/40 text-primary text-[10px] px-1.5 py-0">
+                Held
+              </Badge>
             )}
           </div>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -52,9 +61,13 @@ export function MarketCard({ market }: MarketCardProps) {
 
         <CardFooter className="relative justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
           <span className="tabular-nums">Vol {formatUsdc(market.totalVolume)}</span>
-          <span className="tabular-nums">
-            {market.totalTraders} trader{market.totalTraders !== 1 ? "s" : ""}
-          </span>
+          {userPosition ? (
+            <PositionPnL position={userPosition} market={market} />
+          ) : (
+            <span className="tabular-nums">
+              {market.totalTraders} trader{market.totalTraders !== 1 ? "s" : ""}
+            </span>
+          )}
         </CardFooter>
       </Card>
     </Link>
@@ -154,4 +167,38 @@ function ProbabilityDisplay({ market }: { market: MarketSummary }) {
   }
 
   return null;
+}
+
+function PositionPnL({
+  position,
+  market,
+}: {
+  position: UserPosition;
+  market: MarketSummary;
+}) {
+  const probabilities = computeProbabilities(
+    market.reserves,
+    market.totalMinted,
+    market.kSquared,
+  );
+  // Mark-to-market value: sum(holdings[i] * probability[i])
+  let value = 0;
+  const len = Math.min(position.holdings.length, probabilities.length);
+  for (let i = 0; i < len; i++) {
+    value += Number(position.holdings[i]) * probabilities[i];
+  }
+  const deposited = Number(position.totalDeposited);
+  const withdrawn = Number(position.totalWithdrawn);
+  const pnl = value - deposited + withdrawn;
+  const pnlUsdc = pnl / 10 ** USDC_DECIMALS;
+
+  return (
+    <span
+      className={`tabular-nums font-medium ${
+        pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+      }`}
+    >
+      {pnl >= 0 ? "+" : ""}${Math.abs(pnlUsdc).toFixed(2)}
+    </span>
+  );
 }

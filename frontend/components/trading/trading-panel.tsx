@@ -13,8 +13,10 @@ import { BinaryInput } from "./binary-input";
 import { MultiOutcomeInput } from "./multi-outcome-input";
 import { DistributionInput } from "./distribution-input";
 import { CostPreview } from "./cost-preview";
-import { MarketType, MarketState, type MarketDetail } from "@/lib/types";
+import { MarketType, MarketState, USDC_DECIMALS, type MarketDetail } from "@/lib/types";
 import { useProgram } from "@/lib/solana";
+import { useUserMarketPosition } from "@/hooks/use-user-position";
+import { useTokenBalance } from "@/hooks/use-token-balance";
 import {
   executeBuy,
   executeSell,
@@ -28,8 +30,8 @@ import {
 import { cn } from "@/lib/utils";
 
 type TradeParams =
-  | { outcome: number; amount: string }
-  | { mu: number; sigma: number; amount: string };
+  | { outcome: number; amount: string; inputUnit: "collateral" | "shares" }
+  | { mu: number; sigma: number; amount: string; inputUnit: "collateral" | "shares" };
 
 interface TradingPanelProps {
   market: MarketDetail;
@@ -39,20 +41,74 @@ export function TradingPanel({ market }: TradingPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [params, setParams] = useState<TradeParams | null>(null);
   const [loading, setLoading] = useState(false);
+  // For reverse trades: stores the computed amount from CostPreview's estimate
+  const [computedAmount, setComputedAmount] = useState<number | null>(null);
 
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
   const program = useProgram();
   const queryClient = useQueryClient();
 
+  const address = publicKey?.toBase58();
+  const { data: position } = useUserMarketPosition(address, market.id);
+  const { data: collateralBalance = 0 } = useTokenBalance(
+    market.collateralMint,
+    address,
+  );
+
   const handleParamsChange = useCallback(
-    (p: TradeParams | null) => setParams(p),
+    (p: TradeParams | null) => {
+      setParams(p);
+      setComputedAmount(null); // Reset when params change; CostPreview will re-estimate
+    },
+    [],
+  );
+
+  const handleEstimate = useCallback(
+    (amount: number | null) => setComputedAmount(amount),
     [],
   );
 
   const isDisabled = market.state !== MarketState.Active;
   const isContinuous = market.marketType === MarketType.Continuous;
   const hasValidParams = params !== null && Number(params.amount) > 0;
+
+  const inputUnit = params?.inputUnit ?? (side === "buy" ? "collateral" : "shares");
+  const isReverseUnit =
+    (side === "buy" && inputUnit === "shares") ||
+    (side === "sell" && inputUnit === "collateral");
+
+  // Validation: exceeds balance / holdings (but still show CostPreview)
+  // For reverse trades, use computedAmount from the estimate
+  const exceedsBalance =
+    connected &&
+    side === "buy" &&
+    hasValidParams &&
+    (inputUnit === "collateral"
+      ? Number(params!.amount) * 10 ** USDC_DECIMALS > collateralBalance
+      : computedAmount != null && computedAmount > collateralBalance);
+
+  const exceedsHoldings =
+    connected &&
+    side === "sell" &&
+    hasValidParams &&
+    position != null &&
+    "outcome" in params! &&
+    (inputUnit === "shares"
+      ? Number(params!.amount) * 10 ** USDC_DECIMALS >
+        Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0")
+      : computedAmount != null &&
+        computedAmount >
+        Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0"));
+
+  const validationError = exceedsBalance
+    ? "Insufficient USDC balance"
+    : exceedsHoldings
+      ? "Insufficient holdings"
+      : null;
+
+  // For reverse trades, button needs estimate before submitting
+  const needsEstimate = isReverseUnit && computedAmount == null && hasValidParams;
 
   const handleSubmit = useCallback(async () => {
     if (!connected || !publicKey || !program) {
@@ -66,6 +122,19 @@ export function TradingPanel({ market }: TradingPanelProps) {
       const marketPubkey = new PublicKey(market.pubkey);
       let signature: string;
 
+      // For reverse trades, derive the actual amount from the estimate with 0.5% slippage buffer
+      const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
+      const isReverse =
+        (side === "buy" && unit === "shares") ||
+        (side === "sell" && unit === "collateral");
+
+      let effectiveAmount = params.amount;
+      if (isReverse && computedAmount != null) {
+        // Add 0.5% buffer for slippage, convert back to human-readable
+        const buffered = Math.ceil(computedAmount * 1.005);
+        effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
+      }
+
       if (side === "buy") {
         if (isContinuous && "mu" in params) {
           signature = await executeBuyDistribution(
@@ -74,7 +143,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
             publicKey,
             params.mu,
             params.sigma,
-            params.amount,
+            effectiveAmount,
           );
         } else if ("outcome" in params) {
           signature = await executeBuy(
@@ -82,7 +151,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
             marketPubkey,
             publicKey,
             params.outcome,
-            params.amount,
+            effectiveAmount,
           );
         } else {
           return;
@@ -95,7 +164,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
             publicKey,
             params.mu,
             params.sigma,
-            params.amount,
+            effectiveAmount,
           );
         } else if ("outcome" in params) {
           signature = await executeSell(
@@ -103,7 +172,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
             marketPubkey,
             publicKey,
             params.outcome,
-            params.amount,
+            effectiveAmount,
           );
         } else {
           return;
@@ -114,10 +183,16 @@ export function TradingPanel({ market }: TradingPanelProps) {
       // Immediate refresh attempt
       queryClient.invalidateQueries({ queryKey: ["market", market.id] });
       queryClient.invalidateQueries({ queryKey: ["markets"] });
+      queryClient.invalidateQueries({ queryKey: ["userPosition", address, market.id] });
+      queryClient.invalidateQueries({ queryKey: ["userPositions", address] });
+      queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
       // Delayed refresh to catch indexer processing lag
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["market", market.id] });
         queryClient.invalidateQueries({ queryKey: ["markets"] });
+        queryClient.invalidateQueries({ queryKey: ["userPosition", address, market.id] });
+        queryClient.invalidateQueries({ queryKey: ["userPositions", address] });
+        queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
       }, 3000);
       setParams(null);
     } catch (error) {
@@ -131,9 +206,12 @@ export function TradingPanel({ market }: TradingPanelProps) {
     program,
     params,
     side,
+    address,
     market.pubkey,
     market.id,
+    market.collateralMint,
     isContinuous,
+    computedAmount,
     setVisible,
     queryClient,
   ]);
@@ -142,13 +220,15 @@ export function TradingPanel({ market }: TradingPanelProps) {
     ? "Connect Wallet"
     : loading
       ? "Confirming..."
-      : side === "buy"
-        ? "Place Buy Order"
-        : "Place Sell Order";
+      : needsEstimate
+        ? "Estimating..."
+        : side === "buy"
+          ? "Place Buy Order"
+          : "Place Sell Order";
 
   const buttonIcon = !connected ? (
     <Wallet className="mr-2 h-4 w-4" />
-  ) : loading ? (
+  ) : loading || needsEstimate ? (
     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
   ) : null;
 
@@ -168,6 +248,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
             onValueChange={(v) => {
               setSide(v as "buy" | "sell");
               setParams(null);
+              setComputedAmount(null);
             }}
           >
             <TabsList className="w-full">
@@ -192,6 +273,8 @@ export function TradingPanel({ market }: TradingPanelProps) {
               market={market}
               side={side}
               onParamsChange={handleParamsChange}
+              collateralBalance={collateralBalance}
+              position={position ?? null}
             />
 
             {hasValidParams && params && "mu" in params && (
@@ -201,7 +284,13 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 mu={params.mu}
                 sigma={params.sigma}
                 amount={params.amount}
+                inputUnit={params.inputUnit}
+                onEstimate={handleEstimate}
               />
+            )}
+
+            {validationError && (
+              <p className="text-center text-xs text-rose-400">{validationError}</p>
             )}
 
             <Button
@@ -210,7 +299,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
                 connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
               )}
-              disabled={(!hasValidParams && connected) || loading}
+              disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
             >
               {buttonIcon}
@@ -224,12 +313,16 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 market={market}
                 side={side}
                 onParamsChange={handleParamsChange}
+                collateralBalance={collateralBalance}
+                position={position ?? null}
               />
             ) : (
               <MultiOutcomeInput
                 market={market}
                 side={side}
                 onParamsChange={handleParamsChange}
+                collateralBalance={collateralBalance}
+                position={position ?? null}
               />
             )}
 
@@ -239,7 +332,13 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 side={side}
                 outcome={params.outcome}
                 amount={params.amount}
+                inputUnit={params.inputUnit}
+                onEstimate={handleEstimate}
               />
+            )}
+
+            {validationError && (
+              <p className="text-center text-xs text-rose-400">{validationError}</p>
             )}
 
             <Button
@@ -248,7 +347,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
                 connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
                 connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
               )}
-              disabled={(!hasValidParams && connected) || loading}
+              disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
             >
               {buttonIcon}

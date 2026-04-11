@@ -19,6 +19,16 @@ import { AuthGuard } from '../auth/guard/auth.guard';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Get(':address/market-position/:marketId')
+  @ApiOperation({ summary: 'Get user position for a specific market' })
+  @ApiResponse({ status: 200, description: 'User position or null' })
+  getPositionByMarket(
+    @Param('address') address: string,
+    @Param('marketId') marketId: string,
+  ) {
+    return this.userService.getPositionByMarket(address, marketId);
+  }
+
   @Get(':address/positions')
   @ApiOperation({ summary: 'Get user positions across all markets' })
   @ApiResponse({ status: 200, description: 'User positions' })

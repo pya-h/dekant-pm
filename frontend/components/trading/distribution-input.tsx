@@ -3,21 +3,38 @@
 import { useState, useEffect, useId, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import { computeBinWeights, sliderToSigma } from "@/lib/normal";
-import { computeProbabilities, SCALE, type MarketDetail } from "@/lib/types";
+import {
+  computeProbabilities,
+  formatUsdc,
+  USDC_DECIMALS,
+  SCALE,
+  type MarketDetail,
+  type UserPosition,
+} from "@/lib/types";
 
 interface DistributionInputProps {
   market: MarketDetail;
   side?: "buy" | "sell";
   onParamsChange: (
-    params: { mu: number; sigma: number; amount: string } | null,
+    params: {
+      mu: number;
+      sigma: number;
+      amount: string;
+      inputUnit: "collateral" | "shares";
+    } | null,
   ) => void;
+  collateralBalance?: number;
+  position?: UserPosition | null;
 }
 
 export function DistributionInput({
   market,
   side = "buy",
   onParamsChange,
+  collateralBalance,
+  position,
 }: DistributionInputProps) {
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -30,6 +47,10 @@ export function DistributionInput({
   });
   const [confidenceSlider, setConfidenceSlider] = useState(0.5);
   const [amount, setAmount] = useState("");
+  // Buy is always collateral (USDC); sell can toggle between shares and collateral
+  const [inputUnit, setInputUnit] = useState<"collateral" | "shares">(
+    side === "buy" ? "collateral" : "shares",
+  );
 
   // Clamped numeric mu from text input
   const mu = useMemo(() => {
@@ -52,13 +73,18 @@ export function DistributionInput({
     [rangeMin, rangeMax, numBins, mu, sigma],
   );
 
+  // Reset inputUnit when side changes
+  useEffect(() => {
+    setInputUnit(side === "buy" ? "collateral" : "shares");
+  }, [side]);
+
   useEffect(() => {
     if (amount && Number(amount) > 0 && sigma > 0) {
-      onParamsChange({ mu, sigma, amount });
+      onParamsChange({ mu, sigma, amount, inputUnit });
     } else {
       onParamsChange(null);
     }
-  }, [mu, sigma, amount, onParamsChange]);
+  }, [mu, sigma, amount, inputUnit, onParamsChange]);
 
   const centerStep = rangeWidth / 1000;
 
@@ -126,11 +152,30 @@ export function DistributionInput({
         mu={mu}
       />
 
-      {/* Amount input */}
+      {/* Amount input with sell-only unit toggle */}
       <div>
-        <label className="mb-2 block text-xs font-medium text-muted-foreground">
-          {side === "sell" ? "Shares to sell" : "Amount (USDC)"}
-        </label>
+        <div className="mb-2 flex items-center justify-between">
+          <label className="text-xs font-medium text-muted-foreground">
+            {side === "buy"
+              ? "Amount (USDC)"
+              : inputUnit === "shares"
+                ? "Shares to sell"
+                : "USDC to receive"}
+          </label>
+          {side === "sell" && (
+            <UnitToggle
+              options={[
+                { value: "shares", label: "Shares" },
+                { value: "collateral", label: "USDC" },
+              ]}
+              value={inputUnit}
+              onChange={(v) => {
+                setInputUnit(v);
+                setAmount("");
+              }}
+            />
+          )}
+        </div>
         <div className="relative">
           <Input
             type="number"
@@ -139,11 +184,34 @@ export function DistributionInput({
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="pr-14"
+            className={cn(
+              "pr-14",
+              amount && side === "buy" && collateralBalance != null &&
+                Number(amount) * 10 ** USDC_DECIMALS > collateralBalance &&
+                "text-rose-400",
+            )}
           />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            {side === "sell" ? "shares" : "USDC"}
+            {side === "buy" ? "USDC" : inputUnit === "shares" ? "shares" : "USDC"}
           </span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+          {side === "buy" && collateralBalance != null ? (
+            <span>Balance: {formatUsdc(collateralBalance)}</span>
+          ) : (
+            <span />
+          )}
+          {side === "buy" && collateralBalance != null && collateralBalance > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setAmount((collateralBalance / 10 ** USDC_DECIMALS).toString())
+              }
+              className="text-[11px] font-medium text-primary hover:text-primary/80"
+            >
+              Max
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -325,4 +393,34 @@ function formatValue(v: number): string {
   if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
   if (Number.isInteger(v)) return String(v);
   return v.toFixed(2);
+}
+
+function UnitToggle({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: "collateral" | "shares"; label: string }[];
+  value: "collateral" | "shares";
+  onChange: (v: "collateral" | "shares") => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-border/60 bg-muted/20 text-[10px]">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "px-2 py-0.5 transition-colors first:rounded-l-md last:rounded-r-md",
+            value === opt.value
+              ? "bg-primary/20 text-primary font-medium"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
 }

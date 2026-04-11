@@ -1,7 +1,12 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AmmService } from './amm.service';
-import { EstimateBuyDto, EstimateSellDto } from './dto/amm.dto';
+import {
+  EstimateBuyDto,
+  EstimateBuyBySharesDto,
+  EstimateSellDto,
+  EstimateSellByCollateralDto,
+} from './dto/amm.dto';
 
 @ApiTags('amm')
 @Controller('amm')
@@ -43,6 +48,36 @@ export class AmmController {
       dto.marketId,
       dto.outcome ?? 0,
       dto.amount,
+    );
+  }
+
+  @Post('estimate-buy-by-shares')
+  @ApiOperation({ summary: 'Estimate collateral needed for desired shares' })
+  @ApiResponse({ status: 200, description: 'Buy-by-shares estimate' })
+  estimateBuyByShares(@Body() dto: EstimateBuyBySharesDto) {
+    return this.ammService.estimateBuyByShares(
+      dto.marketId,
+      dto.outcome,
+      dto.desiredTokens,
+    );
+  }
+
+  @Post('estimate-sell-by-collateral')
+  @ApiOperation({ summary: 'Estimate tokens needed for desired collateral' })
+  @ApiResponse({ status: 200, description: 'Sell-by-collateral estimate' })
+  estimateSellByCollateral(@Body() dto: EstimateSellByCollateralDto) {
+    if (dto.mu !== undefined && dto.sigma !== undefined) {
+      return this.ammService.estimateDistributionSellByCollateral(
+        dto.marketId,
+        dto.mu,
+        dto.sigma,
+        dto.desiredCollateral,
+      );
+    }
+    return this.ammService.estimateSellByCollateral(
+      dto.marketId,
+      dto.outcome ?? 0,
+      dto.desiredCollateral,
     );
   }
 }
