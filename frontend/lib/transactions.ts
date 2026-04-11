@@ -127,7 +127,7 @@ export async function executeBuyDistribution(
     .preInstructions([
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
     ])
-    .rpc();
+    .rpc({ skipPreflight: true, maxRetries: 3 });
 }
 
 /** Sell distribution position (Continuous markets). */
@@ -150,5 +150,5 @@ export async function executeSellDistribution(
     .preInstructions([
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
     ])
-    .rpc();
+    .rpc({ skipPreflight: true, maxRetries: 3 });
 }

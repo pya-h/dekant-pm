@@ -100,7 +100,14 @@ export function TradingPanel({ market }: TradingPanelProps) {
       }
 
       showTradeSuccess(signature, side === "buy" ? "Buy" : "Sell");
+      // Immediate refresh attempt
       queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+      queryClient.invalidateQueries({ queryKey: ["markets"] });
+      // Delayed refresh to catch indexer processing lag
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+        queryClient.invalidateQueries({ queryKey: ["markets"] });
+      }, 3000);
       setParams(null);
     } catch (error) {
       showTradeError(error);

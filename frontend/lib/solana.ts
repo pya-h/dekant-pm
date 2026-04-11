@@ -19,6 +19,7 @@ export function useProgram(): Program<DekantPm> | null {
     if (!wallet) return null;
     const provider = new AnchorProvider(connection, wallet, {
       commitment: "confirmed",
+      preflightCommitment: "confirmed",
     });
     return new Program<DekantPm>(idl as DekantPm, provider);
   }, [connection, wallet]);

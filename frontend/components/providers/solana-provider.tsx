@@ -35,7 +35,7 @@ export function SolanaProvider({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ConnectionProvider endpoint={env.rpcUrl}>
+      <ConnectionProvider endpoint={env.rpcUrl} config={{ commitment: "confirmed" }}>
         <WalletProvider wallets={wallets} autoConnect>
           <WalletModalProvider>{children}</WalletModalProvider>
         </WalletProvider>

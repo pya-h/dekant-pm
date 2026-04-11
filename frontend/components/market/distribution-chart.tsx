@@ -1,11 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface DistributionChartProps {
   probabilities: number[];
@@ -17,7 +12,8 @@ interface DistributionChartProps {
   height?: number;
 }
 
-const CHART_PADDING = { top: 12, right: 16, bottom: 32, left: 16 };
+const CHART_PADDING = { top: 12, right: 20, bottom: 28, left: 20 };
+const VIEW_W = 600;
 const DEFAULT_HEIGHT = 200;
 
 export function DistributionChart({
@@ -31,86 +27,72 @@ export function DistributionChart({
   const [hoveredBin, setHoveredBin] = useState<number | null>(null);
 
   const binWidth = (rangeMax - rangeMin) / numBins;
+  const plotW = VIEW_W - CHART_PADDING.left - CHART_PADDING.right;
+  const plotH = height - CHART_PADDING.top - CHART_PADDING.bottom;
 
-  const chartH = height - CHART_PADDING.top - CHART_PADDING.bottom;
-  const barW = 100 / numBins; // viewBox is percentage-based (100 units wide)
+  const { maxP, points, areaPath, barW } = useMemo(() => {
+    const max = Math.max(...probabilities, 0.001);
+    const bw = plotW / numBins;
 
-  const { maxP, points, areaPath } = useMemo(() => {
-    const max = Math.max(...probabilities, 0.001); // avoid 0 divisor
-
-    // Build area path (smooth polygon) for filled area
     const pts = probabilities.map((p, i) => ({
-      x: CHART_PADDING.left + barW * (i + 0.5),
-      y: CHART_PADDING.top + chartH * (1 - p / max),
+      x: CHART_PADDING.left + bw * (i + 0.5),
+      y: CHART_PADDING.top + plotH * (1 - p / max),
       p,
       binStart: rangeMin + binWidth * i,
       binEnd: rangeMin + binWidth * (i + 1),
     }));
 
-    // Build SVG area path
-    const baseline = CHART_PADDING.top + chartH;
+    const baseline = CHART_PADDING.top + plotH;
     let path = `M ${pts[0].x} ${baseline}`;
     for (const pt of pts) {
       path += ` L ${pt.x} ${pt.y}`;
     }
     path += ` L ${pts[pts.length - 1].x} ${baseline} Z`;
 
-    return { maxP: max, points: pts, areaPath: path };
-  }, [probabilities, numBins, rangeMin, binWidth, height, barW, chartH]);
+    return { maxP: max, points: pts, areaPath: path, barW: bw };
+  }, [probabilities, numBins, rangeMin, binWidth, plotW, plotH]);
 
   // X-axis tick labels (5 evenly spaced)
   const tickCount = Math.min(5, numBins);
   const ticks = Array.from({ length: tickCount }, (_, i) => {
     const frac = i / (tickCount - 1);
     const value = rangeMin + frac * (rangeMax - rangeMin);
-    return { value, x: points[Math.round(frac * (numBins - 1))].x };
+    return { value, x: CHART_PADDING.left + frac * plotW };
   });
 
   // Resolved value marker position
-  const resolvedX = resolvedValue != null
-    ? CHART_PADDING.left +
-      ((resolvedValue - rangeMin) / (rangeMax - rangeMin)) *
-        (points[points.length - 1].x - points[0].x)
-    : null;
-
-  const viewBoxW = points[points.length - 1].x + CHART_PADDING.right;
-  const viewBoxH = height;
+  const resolvedX =
+    resolvedValue != null
+      ? CHART_PADDING.left +
+        ((resolvedValue - rangeMin) / (rangeMax - rangeMin)) * plotW
+      : null;
 
   return (
     <div className="relative w-full">
-      <svg
-        viewBox={`0 0 ${viewBoxW} ${viewBoxH}`}
-        className="w-full"
-        preserveAspectRatio="none"
-        style={{ height }}
-      >
+      <svg viewBox={`0 0 ${VIEW_W} ${height}`} className="w-full h-auto">
         {/* Grid lines */}
         {[0.25, 0.5, 0.75].map((frac) => (
           <line
             key={frac}
             x1={CHART_PADDING.left}
-            x2={viewBoxW - CHART_PADDING.right}
-            y1={CHART_PADDING.top + chartH * (1 - frac)}
-            y2={CHART_PADDING.top + chartH * (1 - frac)}
+            x2={VIEW_W - CHART_PADDING.right}
+            y1={CHART_PADDING.top + plotH * (1 - frac)}
+            y2={CHART_PADDING.top + plotH * (1 - frac)}
             stroke="currentColor"
             strokeOpacity={0.06}
-            strokeWidth={0.3}
+            strokeWidth={0.5}
           />
         ))}
 
         {/* Filled area */}
-        <path
-          d={areaPath}
-          fill="url(#chartGradient)"
-          strokeWidth={0}
-        />
+        <path d={areaPath} fill="url(#distChartGradient)" />
 
         {/* Line on top of area */}
         <polyline
           points={points.map((pt) => `${pt.x},${pt.y}`).join(" ")}
           fill="none"
-          stroke="rgb(6 182 212)" // cyan-500
-          strokeWidth={1.5}
+          stroke="rgb(6 182 212)"
+          strokeWidth={2}
           strokeLinejoin="round"
         />
 
@@ -121,7 +103,7 @@ export function DistributionChart({
             x={pt.x - barW / 2}
             y={CHART_PADDING.top}
             width={barW}
-            height={chartH}
+            height={plotH}
             fill="transparent"
             onMouseEnter={() => setHoveredBin(i)}
             onMouseLeave={() => setHoveredBin(null)}
@@ -135,11 +117,11 @@ export function DistributionChart({
             x1={points[hoveredBin].x}
             x2={points[hoveredBin].x}
             y1={CHART_PADDING.top}
-            y2={CHART_PADDING.top + chartH}
+            y2={CHART_PADDING.top + plotH}
             stroke="rgb(6 182 212)"
             strokeOpacity={0.4}
             strokeWidth={1}
-            strokeDasharray="3 3"
+            strokeDasharray="4 4"
           />
         )}
 
@@ -150,15 +132,15 @@ export function DistributionChart({
               x1={resolvedX}
               x2={resolvedX}
               y1={CHART_PADDING.top}
-              y2={CHART_PADDING.top + chartH}
-              stroke="rgb(34 197 94)" // green-500
-              strokeWidth={1.5}
-              strokeDasharray="4 2"
+              y2={CHART_PADDING.top + plotH}
+              stroke="rgb(34 197 94)"
+              strokeWidth={2}
+              strokeDasharray="6 3"
             />
             <circle
               cx={resolvedX}
               cy={CHART_PADDING.top + 6}
-              r={3}
+              r={4}
               fill="rgb(34 197 94)"
             />
           </>
@@ -169,10 +151,10 @@ export function DistributionChart({
           <text
             key={i}
             x={x}
-            y={viewBoxH - 4}
+            y={height - 6}
             textAnchor="middle"
             className="fill-muted-foreground"
-            fontSize={8}
+            fontSize={11}
           >
             {formatTickValue(value)}
           </text>
@@ -181,9 +163,9 @@ export function DistributionChart({
         {/* Baseline */}
         <line
           x1={CHART_PADDING.left}
-          x2={viewBoxW - CHART_PADDING.right}
-          y1={CHART_PADDING.top + chartH}
-          y2={CHART_PADDING.top + chartH}
+          x2={VIEW_W - CHART_PADDING.right}
+          y1={CHART_PADDING.top + plotH}
+          y2={CHART_PADDING.top + plotH}
           stroke="currentColor"
           strokeOpacity={0.15}
           strokeWidth={0.5}
@@ -191,9 +173,13 @@ export function DistributionChart({
 
         {/* Gradient definition */}
         <defs>
-          <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+          <linearGradient id="distChartGradient" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgb(6 182 212)" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="rgb(6 182 212)" stopOpacity={0.05} />
+            <stop
+              offset="100%"
+              stopColor="rgb(6 182 212)"
+              stopOpacity={0.05}
+            />
           </linearGradient>
         </defs>
       </svg>
@@ -203,13 +189,14 @@ export function DistributionChart({
         <div
           className="pointer-events-none absolute rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs shadow-md"
           style={{
-            left: `${(points[hoveredBin].x / viewBoxW) * 100}%`,
-            top: `${(points[hoveredBin].y / viewBoxH) * 100}%`,
+            left: `${(points[hoveredBin].x / VIEW_W) * 100}%`,
+            top: `${(points[hoveredBin].y / height) * 100}%`,
             transform: "translate(-50%, -120%)",
           }}
         >
           <div className="text-muted-foreground">
-            {formatTickValue(points[hoveredBin].binStart)}–{formatTickValue(points[hoveredBin].binEnd)}
+            {formatTickValue(points[hoveredBin].binStart)}–
+            {formatTickValue(points[hoveredBin].binEnd)}
           </div>
           <div className="font-medium text-foreground">
             {(points[hoveredBin].p * 100).toFixed(2)}%
