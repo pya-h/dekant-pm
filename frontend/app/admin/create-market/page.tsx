@@ -5,18 +5,21 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAuth } from "@/hooks/use-auth";
-import { RoleManager } from "@/components/admin/role-manager";
-import { FeeConfig } from "@/components/admin/fee-config";
-import { PauseControls } from "@/components/admin/pause-controls";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CreateMarketForm } from "@/components/create-market/create-market-form";
 import { Button } from "@/components/ui/button";
-import { Wallet, ShieldAlert, Loader2, Shield, PlusCircle } from "lucide-react";
+import { Wallet, ShieldAlert, Loader2, PlusCircle } from "lucide-react";
 import Link from "next/link";
 
-export default function AdminPage() {
+export default function CreateMarketPage() {
   const { connected } = useWallet();
   const { setVisible } = useWalletModal();
-  const { isSuperadmin, isAuthorized, isLoading: roleLoading } = useAdminRole();
+  const {
+    isSuperadmin,
+    isAdmin,
+    isCreator,
+    isAuthorized,
+    isLoading: roleLoading,
+  } = useAdminRole();
   const {
     token,
     isAuthenticated,
@@ -25,17 +28,19 @@ export default function AdminPage() {
     error: authError,
   } = useAuth();
 
+  const canCreate = isAuthorized || isCreator;
+
   // Auto-authenticate once role is confirmed
   useEffect(() => {
-    if (isAuthorized && !isAuthenticated && !isAuthenticating) {
+    if (canCreate && !isAuthenticated && !isAuthenticating) {
       authenticate().catch(() => {});
     }
-  }, [isAuthorized, isAuthenticated, isAuthenticating, authenticate]);
+  }, [canCreate, isAuthenticated, isAuthenticating, authenticate]);
 
   // Not connected
   if (!connected) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-6 text-center">
           <div className="rounded-full bg-muted p-4">
             <Wallet className="h-8 w-8 text-muted-foreground" />
@@ -43,8 +48,8 @@ export default function AdminPage() {
           <div>
             <h1 className="text-xl font-bold">Connect your wallet</h1>
             <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-              Connect a wallet with Admin or Superadmin role to access the
-              dashboard.
+              Connect a wallet with Creator, Admin, or Superadmin role to create
+              a market.
             </p>
           </div>
           <Button
@@ -63,7 +68,7 @@ export default function AdminPage() {
   // Checking role
   if (roleLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
@@ -75,9 +80,9 @@ export default function AdminPage() {
   }
 
   // Not authorized
-  if (!isAuthorized) {
+  if (!canCreate) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex min-h-[50vh] flex-col items-center justify-center gap-6 text-center">
           <div className="rounded-full bg-destructive/10 p-4">
             <ShieldAlert className="h-8 w-8 text-destructive" />
@@ -85,8 +90,8 @@ export default function AdminPage() {
           <div>
             <h1 className="text-xl font-bold">Access Denied</h1>
             <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-              Your connected wallet does not have Admin or Superadmin
-              privileges. Contact the protocol superadmin to get access.
+              Your wallet does not have Creator, Admin, or Superadmin
+              privileges. Contact the protocol admin to get access.
             </p>
           </div>
         </div>
@@ -95,33 +100,34 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Shield className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Admin Dashboard
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {isSuperadmin ? "Superadmin" : "Admin"} &mdash; Manage roles,
-              fees, and market controls
-            </p>
-          </div>
-        </div>
-        <Link href="/admin/create-market">
-          <Button className="gap-2">
-            <PlusCircle className="h-4 w-4" />
-            Create Market
-          </Button>
+    <div className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+      {/* Breadcrumb */}
+      <nav className="text-sm text-muted-foreground">
+        <Link
+          href="/admin"
+          className="transition-colors hover:text-foreground"
+        >
+          Admin
         </Link>
+        <span className="mx-2">/</span>
+        <span className="text-foreground">Create Market</span>
+      </nav>
+
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <PlusCircle className="h-6 w-6 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Create Market</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Create a new prediction market on-chain
+          </p>
+        </div>
       </div>
 
       {/* Auth error */}
       {authError && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
-          Authentication failed: {authError}. Role list may be unavailable.
+          Authentication failed: {authError}. Market metadata may not be saved.
           <Button
             variant="link"
             size="sm"
@@ -141,28 +147,11 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Tabbed sections */}
-      <Tabs defaultValue="roles">
-        <TabsList>
-          <TabsTrigger value="roles">Roles</TabsTrigger>
-          {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
-          <TabsTrigger value="controls">Market Controls</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="roles" className="mt-4">
-          <RoleManager token={token} isSuperadmin={isSuperadmin} />
-        </TabsContent>
-
-        {isSuperadmin && (
-          <TabsContent value="fees" className="mt-4">
-            <FeeConfig isSuperadmin={isSuperadmin} />
-          </TabsContent>
-        )}
-
-        <TabsContent value="controls" className="mt-4">
-          <PauseControls isSuperadmin={isSuperadmin} />
-        </TabsContent>
-      </Tabs>
+      <CreateMarketForm
+        token={token}
+        isSuperadmin={isSuperadmin}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }

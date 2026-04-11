@@ -13,12 +13,13 @@ export function useAdminRole() {
     queryKey: ["adminRole", publicKey?.toBase58()],
     queryFn: async () => {
       if (!program || !publicKey) {
-        return { isSuperadmin: false, isAdmin: false };
+        return { isSuperadmin: false, isAdmin: false, isCreator: false };
       }
 
       const [configPda] = deriveProtocolConfig();
       let isSuperadmin = false;
       let isAdmin = false;
+      let isCreator = false;
 
       try {
         const config = await program.account.protocolConfig.fetch(configPda);
@@ -37,7 +38,17 @@ export function useAdminRole() {
         }
       }
 
-      return { isSuperadmin, isAdmin };
+      if (!isSuperadmin && !isAdmin) {
+        try {
+          const [creatorRolePda] = deriveUserRole(publicKey, Role.Creator);
+          const role = await program.account.userRole.fetchNullable(creatorRolePda);
+          isCreator = role !== null;
+        } catch {
+          // UserRole fetch failed — not creator
+        }
+      }
+
+      return { isSuperadmin, isAdmin, isCreator };
     },
     enabled: !!program && !!publicKey,
     staleTime: 60_000,
@@ -46,6 +57,7 @@ export function useAdminRole() {
   return {
     isSuperadmin: data?.isSuperadmin ?? false,
     isAdmin: data?.isAdmin ?? false,
+    isCreator: data?.isCreator ?? false,
     isAuthorized: (data?.isSuperadmin || data?.isAdmin) ?? false,
     isLoading,
   };
