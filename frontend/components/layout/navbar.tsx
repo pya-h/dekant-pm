@@ -7,11 +7,11 @@ import { WalletButton } from "@/components/common/wallet-button";
 import { Badge } from "@/components/ui/badge";
 import { env } from "@/lib/env";
 
-const navLinks = [
+const navLinks: { href: string; label: string; soon?: boolean }[] = [
   { href: "/markets", label: "Markets" },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/admin", label: "Admin" },
-  { href: "/oracle", label: "Oracle" },
+  { href: "/portfolio", label: "Portfolio", soon: true },
+  { href: "/admin", label: "Admin", soon: true },
+  { href: "/oracle", label: "Oracle", soon: true },
 ];
 
 export function Navbar() {
@@ -38,7 +38,19 @@ export function Navbar() {
 
         {/* Nav links — centered */}
         <ul className="hidden items-center gap-1 md:flex">
-          {navLinks.map(({ href, label }) => {
+          {navLinks.map(({ href, label, soon }) => {
+            if (soon) {
+              return (
+                <li key={href}>
+                  <span
+                    className="cursor-default rounded-md px-3 py-2 text-sm font-medium text-muted-foreground/40"
+                    title="Coming soon"
+                  >
+                    {label}
+                  </span>
+                </li>
+              );
+            }
             const isActive =
               pathname === href || pathname.startsWith(href + "/");
             return (

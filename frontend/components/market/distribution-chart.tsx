@@ -32,11 +32,11 @@ export function DistributionChart({
 
   const binWidth = (rangeMax - rangeMin) / numBins;
 
+  const chartH = height - CHART_PADDING.top - CHART_PADDING.bottom;
+  const barW = 100 / numBins; // viewBox is percentage-based (100 units wide)
+
   const { maxP, points, areaPath } = useMemo(() => {
     const max = Math.max(...probabilities, 0.001); // avoid 0 divisor
-    const chartW = 100; // percentage-based viewBox
-    const chartH = height - CHART_PADDING.top - CHART_PADDING.bottom;
-    const barW = chartW / numBins;
 
     // Build area path (smooth polygon) for filled area
     const pts = probabilities.map((p, i) => ({
@@ -56,19 +56,13 @@ export function DistributionChart({
     path += ` L ${pts[pts.length - 1].x} ${baseline} Z`;
 
     return { maxP: max, points: pts, areaPath: path };
-  }, [probabilities, numBins, rangeMin, binWidth, height]);
-
-  const chartW =
-    100 - CHART_PADDING.left - CHART_PADDING.right + CHART_PADDING.left * 2;
-  const chartH = height - CHART_PADDING.top - CHART_PADDING.bottom;
-  const barW = (100 - CHART_PADDING.left - CHART_PADDING.right + CHART_PADDING.left) / numBins;
+  }, [probabilities, numBins, rangeMin, binWidth, height, barW, chartH]);
 
   // X-axis tick labels (5 evenly spaced)
   const tickCount = Math.min(5, numBins);
   const ticks = Array.from({ length: tickCount }, (_, i) => {
     const frac = i / (tickCount - 1);
     const value = rangeMin + frac * (rangeMax - rangeMin);
-    const x = CHART_PADDING.left + frac * (points[points.length - 1].x - points[0].x) + (1 - frac) * 0;
     return { value, x: points[Math.round(frac * (numBins - 1))].x };
   });
 
