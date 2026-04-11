@@ -18,5 +18,6 @@ test-ledger/
 scripts/.state/
 scripts/SCRIPT-ERRORS.md
 specs/details
-specs/math/math_offline
+specs/math/*offline
+specs/math/improved/offline
 specs/archived

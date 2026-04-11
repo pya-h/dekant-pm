@@ -1,18 +1,18 @@
 # DekantPM v2 Protocol Specification
 
-Analyzed and designed on April 7, 2026.
+Originally designed on April 7, 2026. Updated 2026-04-11 to reflect partial implementation via the `trader_token_totals` fix.
 
 This document specifies a concrete `DekantPM v2` protocol that:
 
 - keeps the current finite approximation approach
-- fixes the LP/accounting errors identified in the prior reports
+- ~~fixes the LP/accounting errors identified in the prior reports~~ **Partially achieved** — the `trader_token_totals` fix (2026-04-11) eliminates the deterministic LP no-trade loss. The full `u/h/r/t` vector separation proposed here is a further refinement.
 - preserves native liquidity provision
 - supports both buying and selling
 - makes consensus cumulative across all users
 - resolves smoothly on a continuous outcome
 - remains compatible with a later upgrade toward a more Paradigm-like signed-exposure market
 
-This is a design proposal, not a claim about the current implementation.
+**Implementation status:** The LP accounting fix is **done** (via `trader_token_totals`). The remaining v2 changes — smooth settlement kernel, explicit `u/h/r/t` state separation, signed positions, and linear probability display — are still design proposals.
 
 ## Design Goals
 
@@ -37,7 +37,7 @@ The protocol must satisfy:
 
 The key change from the current implementation is this:
 
-- the protocol explicitly separates pool inventory from non-pool claims
+- the protocol explicitly separates pool inventory from non-pool claims (the `trader_token_totals` fix achieves the economic effect; this spec proposes a cleaner structural separation via `u/h/r/t` vectors)
 - LP shares represent claims on an LP bundle, not just on one derived reserve number
 - the market settles smoothly rather than selecting a single winning bin
 
@@ -543,7 +543,7 @@ So with no traders and no fees:
 
 - LPs recover the full backing
 
-That is exactly the property missing from the current implementation.
+**Implementation note (2026-04-11):** This property is now achieved in the current codebase via the `trader_token_totals` fix. With zero traders, `trader_token_totals[win] = 0`, so `reserves[win] = total_minted`, and the LP receives full backing. The v2 `u/h/r/t` formulation achieves the same result more explicitly.
 
 ## Fees
 
@@ -648,7 +648,7 @@ But it should come after the `v2` accounting fixes.
 
 ## Migration Path From Current DekantPM
 
-### Step 1
+### Step 1 — Partially Done (2026-04-11)
 
 Replace current:
 
@@ -662,13 +662,19 @@ with:
 - `r`
 - external trader claim ledgers
 
+**Current status:** The `trader_token_totals` field achieves the economic effect of tracking `t` (aggregate external trader claims) per outcome. The full structural replacement of `positions`/`reserves` with `u/h/r/t` vectors is a further refinement that would make the state cleaner but is not required for correct LP payouts.
+
 ### Step 2
 
 Keep current single-bin and distribution-buy math, but apply it to total non-pool claims `u`, not to an ambiguous `positions` object.
 
-### Step 3
+**Current status:** Trading math still operates on `positions`/`reserves`. This works correctly for trade execution — the ambiguity only matters at resolution, which is now handled by `trader_token_totals`.
+
+### Step 3 — Highest Priority Remaining Change
 
 Replace winner-take-all resolution with `K(v)`.
+
+**Current status:** Not implemented. This is the single highest-impact remaining change — it transforms broad distribution trades from structurally unprofitable to viable. See [`COMPARE.md`](COMPARE.md) Model 2 analysis.
 
 ### Step 4
 
@@ -724,7 +730,7 @@ This does not guarantee profits, but it removes accounting-driven fake losses.
 
 ## Final Recommendation
 
-Build this exact `v2` first.
+**Updated 2026-04-11:** Step 1 (fix accounting) is done. The current priority is steps 2–3.
 
 Do not jump straight to:
 
@@ -733,15 +739,15 @@ Do not jump straight to:
 
 The correct order is:
 
-1. fix accounting
-2. fix settlement
-3. fix user-facing quotes
+1. ~~fix accounting~~ **Done** (`trader_token_totals` fix)
+2. **fix settlement** ← current priority (smooth kernel)
+3. fix user-facing quotes (linear probability display)
 4. then upgrade representation and signed trading
 
 That gives you:
 
-- a credible LP market
-- a usable trader market
+- ~~a credible LP market~~ **Already achieved** post-fix
+- a usable trader market (needs smooth settlement for broad trades)
 - cumulative consensus
 - smooth continuous resolution
 - and a clean path toward a stronger long-run continuous architecture
