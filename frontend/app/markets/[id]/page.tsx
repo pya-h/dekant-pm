@@ -15,6 +15,7 @@ import {
   formatProbability,
   timeUntil,
 } from "@/lib/types";
+import { TradingPanel } from "@/components/trading/trading-panel";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -227,25 +228,9 @@ export default function MarketDetailPage({
           </Card>
         </div>
 
-        {/* Right column: Trading panel placeholder */}
+        {/* Right column: Trading panel + stats */}
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          <Card className="border-primary/20">
-            <CardHeader className="pb-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Trade
-              </h2>
-            </CardHeader>
-            <CardContent>
-              <div className="flex h-48 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Trading panel coming soon
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground/60">
-                  Buy and sell outcome shares
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <TradingPanel market={market} />
 
           {/* Quick stats */}
           <Card>

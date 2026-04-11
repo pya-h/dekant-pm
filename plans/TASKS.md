@@ -1075,7 +1075,7 @@ FRONTEND
 
 ---
 
-### F-6: Trading Panel — Binary & Multi-Outcome Input ⬅️
+### F-6: Trading Panel — Binary & Multi-Outcome Input ✅
 
 **Goal:** Build the trading input components for discrete markets.
 
@@ -1103,7 +1103,7 @@ FRONTEND
 
 ---
 
-### F-7: Trading Panel — Distribution Input (Continuous)
+### F-7: Trading Panel — Distribution Input (Continuous) ⬅️
 
 **Goal:** Build the distribution input UX for continuous markets — the core UX innovation.
 
