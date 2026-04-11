@@ -1191,7 +1191,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### F-9: Portfolio Page
+### F-9: Portfolio Page ✅
 
 **Goal:** Build the page showing all of a user's positions.
 

@@ -134,6 +134,16 @@ export async function executeBuyDistribution(
     .rpc({ skipPreflight: true, maxRetries: 3 });
 }
 
+/** Claim payout from a resolved market. */
+export async function executeClaimPayout(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods.claimPayout().accountsPartial(accounts).rpc();
+}
+
 /** Sell distribution position (Continuous markets). */
 export async function executeSellDistribution(
   program: Program<DekantPm>,
