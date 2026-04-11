@@ -968,7 +968,7 @@ DEVKIT (program interaction scripts)
 
 ---
 
-### B-9: Distribution Sell Estimation
+### B-9: Distribution Sell Estimation ✅
 
 **Goal:** Add off-chain distribution sell simulation to the AMM service (missing from B-7 deliverables).
 
@@ -1460,7 +1460,7 @@ DEVKIT (program interaction scripts)
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
-| Backend | 9 | B-1 → B-9 | ⬅️ B-1→B-8 done, B-9 next |
+| Backend | 9 | B-1 → B-9 | ✅ Done |
 | Frontend | 14 | F-1 → F-14 | ⬅️ F-1→F-7 done, F-8 next |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | **Total** | **50** | | |
@@ -1484,4 +1484,4 @@ Backend and frontend can start scaffolding (B-1, F-1) in parallel with program w
 
 Frontend discovery (F-4) and admin (F-10) can proceed in parallel once F-3 is done.
 
-Devkit (S-1→S-4) can proceed independently of frontend/backend — only requires the built program (P-19 done). Can run in parallel with F-8+ and B-9.
+Devkit (S-1→S-5) can proceed independently of frontend/backend — only requires the built program (P-19 done). B-9 done, F-8 is next on critical path.

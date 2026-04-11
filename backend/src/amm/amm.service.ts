@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { MarketService } from '../market/market.service';
 import { computeBinWeights } from './util/normal';
 
@@ -145,6 +145,61 @@ export class AmmService {
     return { tokensPerBin, fee, newProbabilities };
   }
 
+  async estimateDistributionSell(
+    marketId: number,
+    mu: number,
+    sigma: number,
+    tokenAmount: number,
+    tradeFeesBps = 30,
+  ): Promise<EstimateSellResult> {
+    const market = await this.marketService.findById(marketId);
+    if (market.marketType !== 2) {
+      throw new BadRequestException('Distribution sell is only available for continuous markets');
+    }
+
+    const reserves = market.reserves.map(Number);
+    const totalMinted = Number(market.totalMinted);
+    const rangeMin = Number(market.rangeMin ?? 0);
+    const rangeMax = Number(market.rangeMax ?? 0);
+
+    const weights = computeBinWeights(
+      rangeMin,
+      rangeMax,
+      reserves.length,
+      mu,
+      sigma,
+    );
+
+    const grossCollateral = this.computeDistributionSell(
+      [...reserves],
+      totalMinted,
+      weights,
+      tokenAmount,
+    );
+
+    const fee = Math.floor((grossCollateral * tradeFeesBps) / 10000);
+    const collateralOut = grossCollateral - fee;
+
+    // Compute post-sell reserves for probabilities
+    const newReserves = [...reserves];
+    let kNewSq = 0;
+    for (let i = 0; i < newReserves.length; i++) {
+      const tokensForBin = Math.floor((tokenAmount * weights[i]) / SCALE);
+      newReserves[i] += tokensForBin;
+      const x = totalMinted - newReserves[i];
+      kNewSq += x * x;
+    }
+    const kNew = Math.sqrt(kNewSq);
+    const collateralBurn = totalMinted - kNew;
+    for (let i = 0; i < newReserves.length; i++) {
+      newReserves[i] -= collateralBurn;
+    }
+
+    const newProbabilities = this.computeProbabilities(newReserves, kNew);
+
+    return { collateralOut, fee, newProbabilities };
+  }
+
   private computeBuy(
     reserves: number[],
     totalMinted: number,
@@ -216,6 +271,26 @@ export class AmmService {
     const numerator = sqrtDisc - xw;
 
     return weights.map((w) => Math.max(0, Math.floor((numerator * w) / w2)));
+  }
+
+  private computeDistributionSell(
+    reserves: number[],
+    totalMinted: number,
+    weights: number[],
+    totalTokens: number,
+  ): number {
+    if (totalTokens === 0) return 0;
+
+    let kNewSq = 0;
+    for (let i = 0; i < reserves.length; i++) {
+      const tokensForBin = Math.floor((totalTokens * weights[i]) / SCALE);
+      reserves[i] += tokensForBin;
+      const xNew = totalMinted - reserves[i];
+      kNewSq += xNew * xNew;
+    }
+    const kNew = Math.sqrt(kNewSq);
+
+    return Math.max(0, Math.floor(totalMinted - kNew));
   }
 
   private computeProbabilities(

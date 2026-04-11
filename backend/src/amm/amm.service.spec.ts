@@ -1,7 +1,7 @@
 import { AmmService } from './amm.service';
 import { MarketService } from '../market/market.service';
 import { MarketEntity } from '../market/entity/market.entity';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 function mockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
   return {
@@ -202,6 +202,53 @@ describe('AmmService', () => {
       for (const p of result.newProbabilities) {
         expect(p).toBeGreaterThanOrEqual(0);
       }
+    });
+  });
+
+  describe('estimateDistributionSell (continuous markets)', () => {
+    it('should return valid collateralOut and fee', async () => {
+      const market = mockMarket({
+        marketType: 2,
+        numOutcomes: 5,
+        reserves: ['100', '150', '200', '150', '100'],
+        totalMinted: '1000',
+        rangeMin: '0',
+        rangeMax: '100',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      const result = await service.estimateDistributionSell(1, 50, 10, 100, 30);
+      expect(result.collateralOut).toBeGreaterThanOrEqual(0);
+      expect(result.fee).toBeGreaterThanOrEqual(0);
+      expect(result.newProbabilities).toHaveLength(5);
+      for (const p of result.newProbabilities) {
+        expect(p).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('should return 0 when selling zero tokens', async () => {
+      const market = mockMarket({
+        marketType: 2,
+        numOutcomes: 4,
+        reserves: ['250', '250', '250', '250'],
+        totalMinted: '1000',
+        rangeMin: '0',
+        rangeMax: '100',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      const result = await service.estimateDistributionSell(1, 50, 10, 0, 30);
+      expect(result.collateralOut).toBe(0);
+      expect(result.fee).toBe(0);
+    });
+
+    it('should throw BadRequestException for non-continuous market', async () => {
+      const market = mockMarket({ marketType: 0 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(
+        service.estimateDistributionSell(1, 50, 10, 100),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
