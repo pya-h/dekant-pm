@@ -22,8 +22,10 @@ interface MarketTypeBadgeProps {
   className?: string;
 }
 
+const fallback = { label: "Unknown", className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-400" };
+
 export function MarketTypeBadge({ type, className }: MarketTypeBadgeProps) {
-  const config = typeConfig[type];
+  const config = typeConfig[type] ?? fallback;
   return (
     <Badge
       variant="outline"

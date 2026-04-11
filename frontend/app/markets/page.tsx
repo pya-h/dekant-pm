@@ -32,11 +32,9 @@ const stateOptions = [
 ] as const;
 
 const sortOptions = [
-  { value: "created_at", label: "Newest" },
+  { value: "newest", label: "Newest" },
   { value: "deadline", label: "Deadline" },
   { value: "volume", label: "Volume" },
-  { value: "traders", label: "Traders" },
-  { value: "last_trade", label: "Last Trade" },
 ] as const;
 
 export default function MarketsPage() {
@@ -44,22 +42,26 @@ export default function MarketsPage() {
   const deferredSearch = useDeferredValue(search);
   const [typeFilter, setTypeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<MarketFilters["sortBy"]>("created_at");
+  const [sortBy, setSortBy] = useState<MarketFilters["sortBy"]>("newest");
   const [page, setPage] = useState(1);
+
+  const limit = 20;
 
   const filters: MarketFilters = {
     ...(typeFilter !== "all" && { marketType: Number(typeFilter) }),
     ...(stateFilter !== "all" && { state: Number(stateFilter) }),
     ...(deferredSearch && { search: deferredSearch }),
     sortBy,
-    sortDirection: "desc",
   };
 
   const { data, isLoading, isError, error } = useMarkets({
     page,
-    limit: 20,
+    limit,
     ...filters,
   });
+
+  const totalPages = data ? Math.ceil(data.total / limit) : 0;
+  const hasMore = page < totalPages;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -183,12 +185,12 @@ export default function MarketsPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.data.map((market) => (
-              <MarketCard key={market.marketId} market={market} />
+              <MarketCard key={market.id} market={market} />
             ))}
           </div>
 
           {/* Pagination */}
-          {data.total > data.limit && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 pt-4">
               <Button
                 variant="outline"
@@ -199,12 +201,12 @@ export default function MarketsPage() {
                 Previous
               </Button>
               <span className="text-sm text-muted-foreground">
-                Page {data.page} of {Math.ceil(data.total / data.limit)}
+                Page {page} of {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!data.hasMore}
+                disabled={!hasMore}
                 onClick={() => setPage((p) => p + 1)}
               >
                 Next

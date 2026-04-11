@@ -12,8 +12,8 @@ export function WalletButton() {
   return (
     <WalletMultiButtonDynamic
       style={{
-        backgroundColor: "hsl(var(--primary))",
-        color: "hsl(var(--primary-foreground))",
+        backgroundColor: "var(--primary)",
+        color: "var(--primary-foreground)",
         borderRadius: "var(--radius)",
         fontSize: "0.875rem",
         height: "2.5rem",
