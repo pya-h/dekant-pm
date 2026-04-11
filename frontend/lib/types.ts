@@ -96,6 +96,7 @@ export function computeProbabilities(reserves: string[]): number[] {
 // Formatters
 // ---------------------------------------------------------------------------
 export const USDC_DECIMALS = 6;
+export const SCALE = 1_000_000_000;
 
 export function formatUsdc(raw: string | number): string {
   const n = Number(raw) / 10 ** USDC_DECIMALS;

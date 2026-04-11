@@ -10,6 +10,7 @@ import { DistributionChart } from "@/components/market/distribution-chart";
 import {
   MarketType,
   MarketState,
+  SCALE,
   computeProbabilities,
   formatUsdc,
   formatProbability,
@@ -173,7 +174,7 @@ export default function MarketDetailPage({
                   <>
                     <DetailRow label="Range">
                       {market.rangeMin != null && market.rangeMax != null
-                        ? `${Number(market.rangeMin).toLocaleString()} – ${Number(market.rangeMax).toLocaleString()}`
+                        ? `${(Number(market.rangeMin) / SCALE).toLocaleString()} – ${(Number(market.rangeMax) / SCALE).toLocaleString()}`
                         : "N/A"}
                     </DetailRow>
                     <DetailRow label="Bins">
@@ -187,7 +188,7 @@ export default function MarketDetailPage({
                     <span className="font-medium text-emerald-400">
                       {market.marketType === MarketType.Continuous
                         ? market.resolvedValue != null
-                          ? Number(market.resolvedValue).toLocaleString()
+                          ? (Number(market.resolvedValue) / SCALE).toLocaleString()
                           : "N/A"
                         : market.resolvedOutcome != null
                           ? labels[market.resolvedOutcome]
@@ -269,11 +270,11 @@ function ProbabilitySection({
   }
 
   if (market.marketType === MarketType.Continuous) {
-    const rMin = market.rangeMin != null ? Number(market.rangeMin) : 0;
-    const rMax = market.rangeMax != null ? Number(market.rangeMax) : 100;
+    const rMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
+    const rMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
     const resolved =
       market.state === MarketState.Resolved && market.resolvedValue != null
-        ? Number(market.resolvedValue)
+        ? Number(market.resolvedValue) / SCALE
         : null;
 
     return (

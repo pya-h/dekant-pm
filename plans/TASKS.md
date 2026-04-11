@@ -55,10 +55,12 @@ ON-CHAIN PROGRAM
           ▼
 BACKEND
   B-1 ──► B-2 ──► B-3 ──► B-4 ──► B-5 ──► B-6 ──► B-7 ──► B-8
-                                                              │
-          ┌───────────────────────────────────────────────────┘
-          ▼
-FRONTEND
+                                                      │
+                                                      ├──► B-9
+                                                      │   (dist sell est)
+          ┌───────────────────────────────────────────┘     │
+          ▼                                                 │
+FRONTEND                                                    │
   F-1 ──► F-2 ──► F-3 ──► F-4 ──► F-5 ──► F-6 ──► F-7 ──► F-8
                                                     │
                                     ┌───────────────┤
@@ -73,6 +75,8 @@ FRONTEND
                                                     ▼
                                                   F-13
                                                   (E2E smoke)
+
+  F-7 + B-9 ──► F-14 (continuous sell UI)
 ```
 
 ---
@@ -960,6 +964,30 @@ FRONTEND
 
 ---
 
+### B-9: Distribution Sell Estimation
+
+**Goal:** Add off-chain distribution sell simulation to the AMM service (missing from B-7 deliverables).
+
+**Context:** The on-chain `sell_distribution` instruction and `compute_distribution_sell` engine function are fully implemented. The backend's `estimateDistributionSell` was spec'd in B-7 but never implemented. This blocks the frontend sell UI for continuous markets.
+
+**Deliverable:**
+- `amm/amm.service.ts`:
+  - `estimateDistributionSell(marketId, mu, sigma, tokenAmount)` → `{ collateralOut, fee, newProbabilities }`
+  - Private `computeDistributionSell(reserves, totalMinted, weights, tokenAmount)` helper mirroring on-chain algorithm
+- `amm/dto/amm.dto.ts`:
+  - Add optional `mu?: number` and `sigma?: number` fields to `EstimateSellDto`
+- `amm/amm.controller.ts`:
+  - Update `estimateSell` handler to check for mu/sigma and route to `estimateDistributionSell` (same pattern as `estimateBuy`)
+
+**Tests:**
+- Distribution sell estimate returns valid collateral_out and fee
+- Distribution sell with zero tokens → returns zero
+- Distribution sell on non-continuous market → 400
+
+**Depends on:** B-7
+
+---
+
 ## Frontend Tasks
 
 ### F-1: Next.js Project Scaffolding ✅
@@ -1103,7 +1131,7 @@ FRONTEND
 
 ---
 
-### F-7: Trading Panel — Distribution Input (Continuous) ⬅️
+### F-7: Trading Panel — Distribution Input (Continuous) ✅
 
 **Goal:** Build the distribution input UX for continuous markets — the core UX innovation.
 
@@ -1292,15 +1320,37 @@ FRONTEND
 
 ---
 
+### F-14: Continuous Market Sell Trading UI
+
+**Goal:** Wire up the sell tab for continuous markets using distribution sell estimation from B-9.
+
+**Deliverable — `components/trading/TradingPanel.tsx` (update):**
+- Replace `SellUnavailable` placeholder with `DistributionInput` for sell mode
+- Pass mu/sigma to `CostPreview` with side="sell" for distribution sell estimation
+- Display: shares to sell input, estimated USDC received, fee
+
+**Deliverable — `components/trading/CostPreview.tsx` (update):**
+- Handle distribution sell response: `{ collateralOut, fee, newProbabilities }`
+- Send mu/sigma to `POST /amm/estimate-sell` (same pattern as distribution buy)
+
+**Tests (manual):**
+- Select sell tab on continuous market → distribution input appears
+- Enter shares to sell → cost preview shows estimated USDC received
+- Fee displayed correctly
+
+**Depends on:** F-7, B-9
+
+---
+
 ## Summary: Task Count & Ordering
 
 | Layer | Tasks | IDs | Status |
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 19 | P-1 → P-19 | ✅ Done |
-| Backend | 8 | B-1 → B-8 | ✅ Done |
-| Frontend | 13 | F-1 → F-13 | ⬅️ F-1→F-4 done, F-5 next |
-| **Total** | **43** | | |
+| Backend | 9 | B-1 → B-9 | ⬅️ B-1→B-8 done, B-9 next |
+| Frontend | 14 | F-1 → F-14 | ⬅️ F-1→F-7 done, F-8 next |
+| **Total** | **45** | | |
 
 ### Critical Path (longest dependency chain):
 
