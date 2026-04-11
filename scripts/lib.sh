@@ -193,7 +193,7 @@ generate_keypair() {
   local name=$1
   ensure_state_dir
   local path="$STATE_DIR/${name}.json"
-  solana-keygen new --no-bip39-passphrase --outfile "$path" --force --silent 2>/dev/null
+  solana-keygen new --no-bip39-passphrase --outfile "$path" --force --silent &>/dev/null
   echo "$path"
 }
 

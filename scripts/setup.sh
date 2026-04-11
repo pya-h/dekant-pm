@@ -99,7 +99,10 @@ fi
 
 # ── Cleanup Trap ─────────────────────────────────────────────────────────────
 
+CLEANUP_DONE=false
 cleanup_and_exit() {
+  if [ "$CLEANUP_DONE" = true ]; then return; fi
+  CLEANUP_DONE=true
   echo ""
   stop_tracked_pids
   log "All services stopped."
