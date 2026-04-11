@@ -1,6 +1,8 @@
 # DekantPM Redesign And Alternative Model Analysis
 
-Analyzed on April 7, 2026 from:
+Originally analyzed on April 7, 2026. Updated 2026-04-11 after the `trader_token_totals` fix (see [`PROFITABILITY_V2.md`](PROFITABILITY_V2.md)).
+
+Analyzed from:
 
 - `https://pa-ya.github.io/dekantpm/`
 - `https://pa-ya.github.io/dekantpm/math_doc_script.js`
@@ -17,6 +19,8 @@ Important note:
 
 ## Executive Answer
 
+**Update (2026-04-11):** Step 1 below — fixing the LP accounting — has been **partially achieved** by the `trader_token_totals` fix. The deterministic `1/√N` LP no-trade loss is eliminated. LPs now receive the true vault residual at resolution. The remaining steps (smooth settlement, backing identity, richer representation) are still future work.
+
 If your hard requirements are:
 
 - continuous-outcome prediction
@@ -31,16 +35,16 @@ then the best path is not a pure jump from "bins" to "parametric cost function."
 
 The best path is:
 
-1. Fix the current binned model so it becomes economically correct.
+1. ~~Fix the current binned model so it becomes economically correct.~~ **Done** (`trader_token_totals` fix eliminates baseline LP loss).
 2. Replace winner-take-all settlement with smooth continuous settlement.
 3. Preserve a Paradigm-like backing identity for LPs and traders.
 4. Over time, move from plain bins to a richer continuous representation such as basis functions or a restricted-family function-space model.
 
 My direct recommendation is:
 
-- near-term production path: an improved binned model
+- near-term production path: an improved binned model (smooth settlement + linear display on top of the now-fixed LP accounting)
 - medium-term best compromise: a basis-function or semi-parametric continuous market
-- long-term most faithful continuous design: a Paradigm-style restricted-family function-space market
+- long-term most faithful continuous design: a Paradigm-style restricted-family function-space model
 
 If native LPs are a hard requirement, then a pure LMSR-style or cost-function-only market is not the best primary architecture.
 
@@ -184,19 +188,21 @@ This follows Paradigm's key lesson:
 
 - backing and shape are different concepts
 
+**Post-fix note:** The `trader_token_totals` field achieves a pragmatic version of this separation — it tracks aggregate trader-held exposure per outcome. A full `u/h/r/t` structural separation as proposed in [`DEKANT_V2_PROTOCOL_SPEC.md`](DEKANT_V2_PROTOCOL_SPEC.md) would be cleaner architecturally but the economic effect is already realized.
+
 ### 2. Preserve The Backing Identity
 
 At all times, enforce:
 
 - market holdings plus all user-held outcome claims equals total backing
 
-This is the single most important accounting fix.
+**Post-fix status:** The `trader_token_totals` fix achieves this at resolution time — `reserves[win] = total_minted - trader_token_totals[win]` ensures LPs receive exactly the vault residual after paying trader claims. The backing identity is now enforced for payout purposes.
 
 It prevents:
 
-- the current deterministic LP no-trader loss
-- stranded value at resolution
-- ambiguity about whether `positions` means AMM state or trader inventory
+- ~~the current deterministic LP no-trader loss~~ **Fixed** (2026-04-11)
+- stranded value at resolution — **Fixed**
+- ambiguity about whether `positions` means AMM state or trader inventory — **Partially addressed** (`trader_token_totals` disambiguates at payout time; the structural ambiguity in `positions` during trading still exists but does not cause economic harm)
 
 ### 3. Keep Bins If Needed, But Settle Smoothly
 
@@ -587,7 +593,7 @@ Support levels:
 
 | Model | Native LPs | Buy Liquidity | Sell Liquidity | Aggregate Consensus | Broad Continuous Expression | Smooth Resolution | Trader Profit Potential If Informed | LP Profit Potential | Practicality |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Current Dekant bins | Strong | Strong | Strong | Strong | Weak | Weak | Partial | Weak | Strong |
+| Current Dekant bins (post-fix) | Strong | Strong | Strong | Strong | Weak | Weak | Partial | **Partial** | Strong |
 | Improved bins | Strong | Strong | Strong | Strong | Partial | Strong | Strong | Partial | Strong |
 | Parametric cost-function | No | Strong | Strong | Strong | Partial | Strong | Strong | No | Strong |
 | Basis-function market | Partial | Strong | Strong | Strong | Strong | Strong | Strong | Partial | Partial |
@@ -619,23 +625,25 @@ That rule is compatible with all serious market designs above except the naive "
 
 ## Which Model Best Supports LPs?
 
-Ranking:
+Ranking (updated post-fix):
 
 1. Paradigm-style restricted-family function-space
 2. Improved binned pool-backed market
-3. Basis-function pool-backed market
-4. Parametric cost-function market
-5. Dynamic pari-mutuel market
+3. **Current binned pool-backed market (post-fix)** — now viable; zero baseline loss, normal market-making economics
+4. Basis-function pool-backed market
+5. Parametric cost-function market
+6. Dynamic pari-mutuel market
 
 Reason:
 
+- The `trader_token_totals` fix brought current bins from "structurally unprofitable" to "normal market-making" — LPs now receive the true vault residual
 - LPs need a clean share of actual backed market inventory plus fees
-- cost-function markets usually give you a bounded-loss sponsor, not a natural permissionless LP role
+- Cost-function markets usually give you a bounded-loss sponsor, not a natural permissionless LP role
 - DPM gives you zero institution risk, but not a native LP role
 
 So if LPs are not optional, you should bias strongly toward:
 
-- improved bins
+- current bins (now viable post-fix) or improved bins
 - basis functions
 - or Paradigm-style restricted-family pool accounting
 
@@ -726,11 +734,11 @@ I would recommend a staged architecture:
 #### Stage 1: DekantPM v2
 
 - keep finite approximation
-- fix LP accounting
-- separate backing from shape
+- ~~fix LP accounting~~ **Done** (`trader_token_totals` fix, 2026-04-11)
+- separate backing from shape (partial — `trader_token_totals` achieves the economic effect; full `u/h/r/t` separation is a further refinement)
 - add smooth settlement
 - expose real economic trade quotes
-- use nonzero default fees
+- ~~use nonzero default fees~~ **Done** (on-chain defaults: 30 bps trade fee, 50% LP share, 50 bps redemption)
 
 #### Stage 2: Semi-Parametric Upgrade
 
@@ -775,25 +783,27 @@ If the choice is purely about best next implementation from where you are today,
 The main lesson is:
 
 - bins are not your real enemy
-- bad accounting and winner-take-all settlement are your real enemy
+- ~~bad accounting and~~ winner-take-all settlement ~~are~~ is your ~~real enemy~~ remaining primary issue
+
+**Post-fix status:** The `trader_token_totals` fix (2026-04-11) has resolved the accounting problem — the most economically harmful difference from Paradigm. The LP proposition is now fundamentally sound. The remaining gap is **settlement design**: winner-take-all punishes broad-distribution trades, which undermines the product's core value proposition as a continuous prediction market.
 
 Some differences from Paradigm are unavoidable if you discretize.
 
-But the most economically harmful differences in your current design are choices, not necessities.
+The right move now is:
 
-So the right move is not:
+- "fix the settlement next, then upgrade the representation"
 
-- "abandon bins immediately"
+Specifically:
 
-The right move is:
-
-- "fix the economics first, then upgrade the representation"
+1. ~~Fix the economics~~ **Done** (LP accounting fixed)
+2. **Next:** Replace winner-take-all with smooth settlement kernel
+3. Then: upgrade representation (basis functions, adaptive bins, or Paradigm-style function space)
 
 If you do that, your market can become:
 
 - much more Paradigm-like
 - much more attractive to serious traders
-- much safer for LPs
+- already safe for LPs (post-fix)
 - and still practical enough to build
 
 ## Sources
