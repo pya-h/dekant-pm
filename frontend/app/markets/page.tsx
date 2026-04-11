@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MarketType, MarketState, type MarketFilters } from "@/lib/types";
-import { Search, SlidersHorizontal, ArrowUpDown } from "lucide-react";
+import { Search, SlidersHorizontal, ArrowUpDown, Tag } from "lucide-react";
 
 const typeOptions = [
   { value: "all", label: "All" },
@@ -42,6 +42,8 @@ export default function MarketsPage() {
   const deferredSearch = useDeferredValue(search);
   const [typeFilter, setTypeFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [category, setCategory] = useState("");
+  const deferredCategory = useDeferredValue(category);
   const [sortBy, setSortBy] = useState<MarketFilters["sortBy"]>("newest");
   const [page, setPage] = useState(1);
 
@@ -50,6 +52,7 @@ export default function MarketsPage() {
   const filters: MarketFilters = {
     ...(typeFilter !== "all" && { marketType: Number(typeFilter) }),
     ...(stateFilter !== "all" && { state: Number(stateFilter) }),
+    ...(deferredCategory && { category: deferredCategory }),
     ...(deferredSearch && { search: deferredSearch }),
     sortBy,
   };
@@ -90,6 +93,20 @@ export default function MarketsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Category filter */}
+          <div className="relative">
+            <Tag className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Category"
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 w-28 pl-8 text-sm sm:w-32"
+            />
+          </div>
+
           {/* State filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

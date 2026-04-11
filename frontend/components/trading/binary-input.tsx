@@ -23,7 +23,7 @@ export function BinaryInput({
   const [selectedOutcome, setSelectedOutcome] = useState(0);
   const [amount, setAmount] = useState("");
 
-  const probabilities = computeProbabilities(market.reserves);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
   const labels = market.outcomeLabels ?? ["Yes", "No"];
 
   useEffect(() => {

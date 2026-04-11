@@ -9,6 +9,7 @@ import { MarketStatus } from "./market-status";
 import { MarketTypeBadge } from "./market-type-badge";
 import {
   MarketType,
+  SCALE,
   type MarketSummary,
   computeProbabilities,
   formatUsdc,
@@ -59,7 +60,7 @@ export function MarketCard({ market }: MarketCardProps) {
 
 function ProbabilityDisplay({ market }: { market: MarketSummary }) {
   const { marketType, reserves, outcomeLabels } = market;
-  const probabilities = computeProbabilities(reserves);
+  const probabilities = computeProbabilities(reserves, market.totalMinted);
 
   if (probabilities.length === 0) return null;
 
@@ -118,8 +119,8 @@ function ProbabilityDisplay({ market }: { market: MarketSummary }) {
     const maxP = Math.max(...probabilities);
     if (maxP === 0) return null;
     const peakIdx = probabilities.indexOf(maxP);
-    const rMin = market.rangeMin != null ? Number(market.rangeMin) : null;
-    const rMax = market.rangeMax != null ? Number(market.rangeMax) : null;
+    const rMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : null;
+    const rMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : null;
     const binWidth =
       rMin != null && rMax != null ? (rMax - rMin) / market.numOutcomes : null;
     const peakValue =
