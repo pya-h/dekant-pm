@@ -46,7 +46,7 @@ state_get() {
   local default=${2:-}
   if [ -f "$STATE_ENV" ]; then
     local val
-    val=$(grep "^${key}=" "$STATE_ENV" 2>/dev/null | head -1 | cut -d= -f2-)
+    val=$(grep "^${key}=" "$STATE_ENV" 2>/dev/null | head -1 | cut -d= -f2-) || true
     echo "${val:-$default}"
   else
     echo "$default"
