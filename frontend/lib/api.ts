@@ -21,7 +21,7 @@ class ApiClient {
       }
     }
 
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), { cache: "no-store" });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       throw new ApiError(

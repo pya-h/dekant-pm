@@ -11,7 +11,11 @@ import { Connection, Logs, PublicKey } from '@solana/web3.js';
 import { BorshCoder } from '@coral-xyz/anchor';
 import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { IDL, PROGRAM_ID } from '../common/idl';
-import { deriveMarket, deriveProtocolConfig } from '../common/pda';
+import {
+  deriveMarket,
+  deriveProtocolConfig,
+  deriveUserPosition,
+} from '../common/pda';
 import { IndexerStateEntity } from './entity/indexer-state.entity';
 import { MarketEntity } from '../market/entity/market.entity';
 import { TradeEntity } from '../market/entity/trade.entity';
@@ -53,6 +57,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.logger.log('Starting indexer...');
     await this.syncAllMarkets();
+    await this.syncAllPositions();
     await this.backfill();
     this.subscribeToLogs();
     this.startHealthCheck();
@@ -173,6 +178,77 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Market sync complete (${marketCount} markets)`);
     } catch (err) {
       this.logger.warn(`Market sync failed: ${err}`);
+    }
+  }
+
+  /**
+   * Sync all on-chain user positions into the DB via getProgramAccounts.
+   * Called on startup to catch positions created while the backend was down.
+   */
+  private async syncAllPositions(): Promise<void> {
+    this.logger.log('Syncing all user positions from on-chain...');
+    try {
+      // UserPosition account discriminator (base58)
+      const accounts = await this.connection.getProgramAccounts(PROGRAM_ID, {
+        filters: [{ memcmp: { offset: 0, bytes: 'j9SjDYAWesU' } }],
+        commitment: 'confirmed',
+      });
+
+      let count = 0;
+      for (const { account } of accounts) {
+        try {
+          const d = this.coder.accounts.decode(
+            'UserPosition',
+            account.data,
+          ) as Record<string, any>;
+
+          const marketPubkey = d.market.toString();
+          // Resolve marketId from DB by pubkey
+          const marketEntity = await this.marketRepo.findOne({
+            where: { pubkey: marketPubkey },
+          });
+          if (!marketEntity) continue;
+
+          const holdings: string[] = [];
+          if (d.holdings) {
+            for (const h of d.holdings) {
+              holdings.push(String(h));
+            }
+          }
+
+          await this.userPositionRepo.upsert(
+            {
+              marketId: marketEntity.id,
+              userAddress: d.user.toString(),
+              holdings,
+              totalDeposited: String(d.total_deposited),
+              totalWithdrawn: String(d.total_withdrawn),
+              claimed: Boolean(d.claimed),
+            },
+            ['marketId', 'userAddress'],
+          );
+          count++;
+        } catch {
+          // Skip malformed accounts
+        }
+      }
+
+      // Update totalTraders for each market based on synced positions
+      const markets = await this.marketRepo.find({ select: ['id'] });
+      for (const market of markets) {
+        const traderCount = await this.userPositionRepo
+          .createQueryBuilder('p')
+          .select('COUNT(*)', 'count')
+          .where('p.market_id = :id', { id: market.id })
+          .getRawOne();
+        await this.marketRepo.update(market.id, {
+          totalTraders: Number(traderCount?.count ?? 0),
+        });
+      }
+
+      this.logger.log(`Position sync complete (${count} positions)`);
+    } catch (err) {
+      this.logger.warn(`Position sync failed: ${err}`);
     }
   }
 
@@ -352,7 +428,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handleMarketCreated(
     data: Record<string, any>,
   ): Promise<void> {
-    const marketId = Number(data.marketId);
+    const marketId = Number(data.market_id);
     // Fetch full on-chain state (includes reserves, kSquared, totalMinted)
     await this.fetchAndSyncMarket(marketId);
     this.logger.log(`Market ${marketId} created/synced from on-chain`);
@@ -363,7 +439,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     txSignature: string,
     slot: number,
   ): Promise<void> {
-    const marketId = String(data.marketId);
+    const marketId = String(data.market_id);
+    const trader = data.trader.toString();
 
     const existingTrade = await this.tradeRepo.findOne({
       where: { txSignature },
@@ -372,55 +449,112 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
     const trade = this.tradeRepo.create({
       marketId,
-      trader: data.trader.toString(),
-      isBuy: data.isBuy,
-      collateralAmount: String(data.collateralAmount),
-      outcomeIndex: data.outcomeIndex !== undefined ? Number(data.outcomeIndex) : null,
+      trader,
+      isBuy: data.is_buy,
+      collateralAmount: String(data.collateral_amount),
+      outcomeIndex: data.outcome_index !== undefined ? Number(data.outcome_index) : null,
       mu: data.mu ? String(data.mu) : null,
       sigma: data.sigma ? String(data.sigma) : null,
-      tokensTransacted: String(data.tokensTransacted),
-      feePaid: String(data.feePaid),
+      tokensTransacted: String(data.tokens_transacted),
+      feePaid: String(data.fee_paid),
       txSignature,
       slot: String(slot),
       timestamp: new Date(Number(data.timestamp) * 1000),
     });
     await this.tradeRepo.save(trade);
 
-    // Update volume
+    // Update volume + totalTraders (count distinct traders)
+    const traderCount = await this.tradeRepo
+      .createQueryBuilder('t')
+      .select('COUNT(DISTINCT t.trader)', 'count')
+      .where('t.market_id = :marketId', { marketId })
+      .getRawOne();
+
     await this.marketRepo
       .createQueryBuilder()
       .update(MarketEntity)
       .set({
         totalVolume: () => 'total_volume + :collateralAmount',
+        totalTraders: Number(traderCount?.count ?? 0),
         lastTradeAt: new Date(),
       })
-      .setParameters({ collateralAmount: String(data.collateralAmount) })
+      .setParameters({ collateralAmount: String(data.collateral_amount) })
       .where('id = :id', { id: marketId })
       .execute();
 
     // Refresh on-chain state (reserves, kSquared, totalMinted)
-    await this.fetchAndSyncMarket(Number(data.marketId));
+    await this.fetchAndSyncMarket(Number(data.market_id));
+
+    // Sync user position from on-chain
+    await this.fetchAndSyncUserPosition(
+      Number(data.market_id),
+      new PublicKey(trader),
+    );
 
     this.logger.log(`Trade recorded for market ${marketId}: ${txSignature}`);
+  }
+
+  /**
+   * Fetch a user_position account from chain and upsert into the DB.
+   */
+  private async fetchAndSyncUserPosition(
+    marketId: number,
+    user: PublicKey,
+  ): Promise<void> {
+    try {
+      const [marketPda] = deriveMarket(PROGRAM_ID, marketId);
+      const [positionPda] = deriveUserPosition(PROGRAM_ID, marketPda, user);
+
+      const accountInfo = await this.connection.getAccountInfo(positionPda);
+      if (!accountInfo) return;
+
+      const d = this.coder.accounts.decode(
+        'UserPosition',
+        accountInfo.data,
+      ) as Record<string, any>;
+
+      const holdings: string[] = [];
+      if (d.holdings) {
+        for (const h of d.holdings) {
+          holdings.push(String(h));
+        }
+      }
+
+      await this.userPositionRepo.upsert(
+        {
+          marketId: String(marketId),
+          userAddress: user.toBase58(),
+          holdings,
+          totalDeposited: String(d.total_deposited),
+          totalWithdrawn: String(d.total_withdrawn),
+          claimed: Boolean(d.claimed),
+        },
+        ['marketId', 'userAddress'],
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to sync user position for market ${marketId}, user ${user.toBase58()}: ${err}`,
+      );
+    }
   }
 
   private async handleMarketResolved(
     data: Record<string, any>,
   ): Promise<void> {
-    await this.fetchAndSyncMarket(Number(data.marketId));
-    this.logger.log(`Market ${data.marketId} resolved`);
+    await this.fetchAndSyncMarket(Number(data.market_id));
+    this.logger.log(`Market ${data.market_id} resolved`);
   }
 
   private async handleMarketPaused(
     data: Record<string, any>,
   ): Promise<void> {
-    await this.fetchAndSyncMarket(Number(data.marketId));
+    await this.fetchAndSyncMarket(Number(data.market_id));
   }
 
   private async handleMarketUnpaused(
     data: Record<string, any>,
   ): Promise<void> {
-    await this.fetchAndSyncMarket(Number(data.marketId));
+    await this.fetchAndSyncMarket(Number(data.market_id));
   }
 
   private async handlePayoutClaimed(
@@ -428,7 +562,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     await this.userPositionRepo.update(
       {
-        marketId: String(data.marketId),
+        marketId: String(data.market_id),
         userAddress: data.trader.toString(),
       },
       { claimed: true },
@@ -438,23 +572,23 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handleLiquidityChanged(
     data: Record<string, any>,
   ): Promise<void> {
-    const marketId = String(data.marketId);
+    const marketId = String(data.market_id);
     const provider = data.provider.toString();
 
-    if (data.isAdd) {
+    if (data.is_add) {
       await this.lpPositionRepo.upsert(
         {
           marketId,
           userAddress: provider,
-          shares: String(data.sharesChanged),
-          depositedCollateral: String(data.collateralAmount),
+          shares: String(data.shares_changed),
+          depositedCollateral: String(data.collateral_amount),
         },
         ['marketId', 'userAddress'],
       );
     }
 
     // Refresh on-chain state
-    await this.fetchAndSyncMarket(Number(data.marketId));
+    await this.fetchAndSyncMarket(Number(data.market_id));
   }
 
   private async handleRoleAssigned(
@@ -464,7 +598,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       {
         userAddress: data.user.toString(),
         role: Number(data.role),
-        assignedBy: data.assignedBy.toString(),
+        assignedBy: data.assigned_by.toString(),
         assignedAt: new Date(Number(data.timestamp) * 1000),
       },
       ['userAddress', 'role'],
