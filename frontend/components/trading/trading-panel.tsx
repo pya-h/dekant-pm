@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { Loader2 } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Wallet } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
   showTradeSuccess,
   showTradeError,
 } from "@/components/common/transaction-toast";
+import { cn } from "@/lib/utils";
 
 type TradeParams =
   | { outcome: number; amount: string }
@@ -145,8 +146,18 @@ export function TradingPanel({ market }: TradingPanelProps) {
         ? "Place Buy Order"
         : "Place Sell Order";
 
+  const buttonIcon = !connected ? (
+    <Wallet className="mr-2 h-4 w-4" />
+  ) : loading ? (
+    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  ) : null;
+
   return (
-    <Card className="border-primary/20">
+    <Card className={cn(
+      "border-primary/20 transition-colors",
+      side === "buy" && !isDisabled && "border-emerald-500/20",
+      side === "sell" && !isDisabled && "border-rose-500/20",
+    )}>
       <CardHeader className="pb-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Trade
@@ -160,10 +171,12 @@ export function TradingPanel({ market }: TradingPanelProps) {
             }}
           >
             <TabsList className="w-full">
-              <TabsTrigger value="buy" className="flex-1">
+              <TabsTrigger value="buy" className="flex-1 gap-1.5 data-[state=active]:text-emerald-400">
+                <TrendingUp className="h-3.5 w-3.5" />
                 Buy
               </TabsTrigger>
-              <TabsTrigger value="sell" className="flex-1">
+              <TabsTrigger value="sell" className="flex-1 gap-1.5 data-[state=active]:text-rose-400">
+                <TrendingDown className="h-3.5 w-3.5" />
                 Sell
               </TabsTrigger>
             </TabsList>
@@ -192,17 +205,18 @@ export function TradingPanel({ market }: TradingPanelProps) {
             )}
 
             <Button
-              className="w-full"
+              className={cn(
+                "w-full transition-all",
+                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
+                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
+              )}
               disabled={(!hasValidParams && connected) || loading}
               onClick={handleSubmit}
             >
-              {loading && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
+              {buttonIcon}
               {buttonLabel}
             </Button>
           </>
-
         ) : (
           <>
             {market.marketType === MarketType.Binary ? (
@@ -229,11 +243,15 @@ export function TradingPanel({ market }: TradingPanelProps) {
             )}
 
             <Button
-              className="w-full"
+              className={cn(
+                "w-full transition-all",
+                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
+                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
+              )}
               disabled={(!hasValidParams && connected) || loading}
               onClick={handleSubmit}
             >
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {buttonIcon}
               {buttonLabel}
             </Button>
           </>
@@ -257,4 +275,3 @@ function DisabledMessage({ state }: { state: MarketState }) {
     </div>
   );
 }
-

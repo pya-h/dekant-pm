@@ -1,5 +1,7 @@
 import { env } from "./env";
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 class ApiClient {
   private baseUrl: string;
 
@@ -21,16 +23,32 @@ class ApiClient {
       }
     }
 
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      throw new ApiError(
-        res.status,
-        body?.message ?? res.statusText,
-        body?.code,
-      );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url.toString(), {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new ApiError(
+          res.status,
+          body?.message ?? res.statusText,
+          body?.code,
+        );
+      }
+      return res.json();
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "Request timed out — is the backend running?");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    return res.json();
   }
 
   async post<T>(path: string, body: unknown, token?: string): Promise<T> {
@@ -39,20 +57,34 @@ class ApiClient {
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(new URL(path, this.baseUrl).toString(), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new ApiError(
-        res.status,
-        data?.message ?? res.statusText,
-        data?.code,
-      );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(new URL(path, this.baseUrl).toString(), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new ApiError(
+          res.status,
+          data?.message ?? res.statusText,
+          data?.code,
+        );
+      }
+      return res.json();
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "Request timed out — is the backend running?");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    return res.json();
   }
 }
 

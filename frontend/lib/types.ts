@@ -80,14 +80,18 @@ export interface MarketFilters {
 export function computeProbabilities(
   reserves: string[],
   totalMinted: string | number,
+  kSquared?: string | number,
 ): number[] {
   const n = reserves.length;
   if (n === 0) return [];
-  const k = Number(totalMinted);
-  if (k === 0) return Array(n).fill(1 / n);
-  const kSq = k * k;
+  const tm = Number(totalMinted);
+  if (tm === 0) return Array(n).fill(1 / n);
+  // Use the actual kSquared from the market when available,
+  // falling back to totalMinted^2 (only correct before LP operations).
+  const kSq = kSquared != null ? Number(kSquared) : tm * tm;
+  if (kSq === 0) return Array(n).fill(1 / n);
   return reserves.map((r) => {
-    const x = k - Number(r);
+    const x = tm - Number(r);
     return (x * x) / kSq;
   });
 }

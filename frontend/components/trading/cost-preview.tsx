@@ -47,6 +47,7 @@ export function CostPreview({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const requestIdRef = useRef(0);
 
   const isDistribution = mu !== undefined && sigma !== undefined;
 
@@ -62,52 +63,58 @@ export function CostPreview({
     if (timerRef.current) clearTimeout(timerRef.current);
 
     timerRef.current = setTimeout(async () => {
+      const currentRequestId = ++requestIdRef.current;
       setIsLoading(true);
       try {
+        let res: Estimate;
         if (side === "buy") {
           if (isDistribution) {
-            const res = await api.post<DistributionBuyEstimate>(
+            res = await api.post<DistributionBuyEstimate>(
               "/amm/estimate-buy",
               {
-                marketId: Number(marketId),
+                marketId,
                 mu: mu * SCALE,
                 sigma: sigma * SCALE,
                 amount: rawAmount,
               },
             );
-            setEstimate(res);
           } else {
-            const res = await api.post<BuyEstimate>("/amm/estimate-buy", {
-              marketId: Number(marketId),
+            res = await api.post<BuyEstimate>("/amm/estimate-buy", {
+              marketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });
-            setEstimate(res);
           }
         } else {
           if (isDistribution) {
-            const res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId: Number(marketId),
+            res = await api.post<SellEstimate>("/amm/estimate-sell", {
+              marketId,
               mu: mu! * SCALE,
               sigma: sigma! * SCALE,
               amount: rawAmount,
             });
-            setEstimate(res);
           } else {
-            const res = await api.post<SellEstimate>("/amm/estimate-sell", {
-              marketId: Number(marketId),
+            res = await api.post<SellEstimate>("/amm/estimate-sell", {
+              marketId,
               outcome: outcome ?? 0,
               amount: rawAmount,
             });
-            setEstimate(res);
           }
         }
-        setError(null);
+        // Only apply if this is still the latest request
+        if (currentRequestId === requestIdRef.current) {
+          setEstimate(res);
+          setError(null);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Estimation failed");
-        setEstimate(null);
+        if (currentRequestId === requestIdRef.current) {
+          setError(err instanceof Error ? err.message : "Estimation failed");
+          setEstimate(null);
+        }
       } finally {
-        setIsLoading(false);
+        if (currentRequestId === requestIdRef.current) {
+          setIsLoading(false);
+        }
       }
     }, 200);
 
@@ -119,7 +126,7 @@ export function CostPreview({
   if (!estimate && !isLoading && !error) return null;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm">
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Spinner />
@@ -172,6 +179,7 @@ export function CostPreview({
                 value={formatUsdcRaw(
                   (estimate as SellEstimate).collateralOut,
                 )}
+                highlight
               />
               <PreviewRow
                 label="Trade fee"

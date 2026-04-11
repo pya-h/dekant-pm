@@ -52,7 +52,7 @@ export default function MarketDetailPage({
     );
   }
 
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
@@ -306,24 +306,38 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm">{children}</dd>
+    <div className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm">{children}</dd>
     </div>
   );
 }
 
 function TruncatedAddress({ address }: { address: string }) {
-  if (address.length <= 12) return <span className="font-mono text-xs">{address}</span>;
+  const handleCopy = () => {
+    navigator.clipboard.writeText(address).then(() => {
+      const toast = (window as { __sonnerToast?: (msg: string) => void }).__sonnerToast;
+      if (toast) toast("Address copied");
+    }).catch(() => {});
+  };
+
+  if (address.length <= 12) {
+    return (
+      <button onClick={handleCopy} className="font-mono text-xs hover:text-primary transition-colors cursor-copy">
+        {address}
+      </button>
+    );
+  }
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-help font-mono text-xs">
+        <button onClick={handleCopy} className="font-mono text-xs hover:text-primary transition-colors cursor-copy">
           {address.slice(0, 4)}...{address.slice(-4)}
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent>
         <span className="font-mono text-xs">{address}</span>
+        <span className="ml-2 text-[10px] text-muted-foreground">click to copy</span>
       </TooltipContent>
     </Tooltip>
   );
@@ -339,10 +353,10 @@ function QuickStat({
   highlight?: boolean;
 }) {
   return (
-    <div className="text-center">
-      <div className="text-xs text-muted-foreground">{label}</div>
+    <div className="rounded-lg bg-muted/30 p-3 text-center">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div
-        className={`mt-0.5 text-sm font-semibold ${highlight ? "text-destructive" : ""}`}
+        className={`mt-1 text-sm font-bold tabular-nums ${highlight ? "text-destructive" : ""}`}
       >
         {value}
       </div>

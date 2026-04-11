@@ -23,7 +23,7 @@ export function BinaryInput({
   const [selectedOutcome, setSelectedOutcome] = useState(0);
   const [amount, setAmount] = useState("");
 
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
   const labels = market.outcomeLabels ?? ["Yes", "No"];
 
   useEffect(() => {
@@ -74,13 +74,13 @@ export function BinaryInput({
       </div>
 
       {/* Probability bar */}
-      <div className="flex h-2 w-full overflow-hidden rounded-full">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
         <div
-          className="bg-emerald-500 transition-all duration-300"
+          className="bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500 ease-out"
           style={{ width: `${probabilities[0] * 100}%` }}
         />
         <div
-          className="bg-rose-500/40 transition-all duration-300"
+          className="bg-rose-500/30 transition-all duration-500 ease-out"
           style={{ width: `${probabilities[1] * 100}%` }}
         />
       </div>
