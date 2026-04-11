@@ -1885,7 +1885,8 @@ function initDistortionChart() {
         { label: 'Old: Quadratic', data: quadData, borderColor: c.warning, backgroundColor: c.warning + '10', fill: false, tension: 0.4, pointRadius: 0, borderWidth: 2, borderDash: [6, 3] },
         { label: 'Improved: Linear', data: linearData, borderColor: c.success, backgroundColor: c.success + '20', fill: true, tension: 0, pointRadius: 0, borderWidth: 2 },
         { label: 'y = x', data: [{ x: 0, y: 0 }, { x: 100, y: 100 }], borderColor: c.textMuted, borderDash: [5, 5], pointRadius: 0, borderWidth: 1 },
-        { label: 'Current', data: [{ x: 50, y: 50 }], borderColor: c.accent, backgroundColor: c.accent, pointRadius: 8, pointHoverRadius: 10, showLine: false }
+        { label: 'Linear (current)', data: [{ x: 50, y: 50 }], borderColor: c.success, backgroundColor: c.success, pointRadius: 8, pointHoverRadius: 10, showLine: false },
+        { label: 'Quadratic (old)', data: [{ x: 50, y: quadraticProb(0.5) * 100 }], borderColor: c.warning, backgroundColor: c.warning, pointRadius: 8, pointHoverRadius: 10, showLine: false, pointStyle: 'triangle' }
       ]
     },
     options: {
@@ -1904,10 +1905,11 @@ function updateDistortion() {
   var pHatQuad = quadraticProb(p);
   var pHatLinear = linearProb(p);
   document.getElementById('distortionSliderVal').textContent = (p * 100).toFixed(0) + '%';
-  document.getElementById('trueP1').textContent = (p * 100).toFixed(1) + '%';
-  document.getElementById('quadP1').textContent = (pHatLinear * 100).toFixed(1) + '%';
+  document.getElementById('trueP1').textContent = (pHatLinear * 100).toFixed(1) + '%';
+  document.getElementById('quadP1').textContent = (pHatQuad * 100).toFixed(1) + '%';
   if (distortionChartInstance) {
     distortionChartInstance.data.datasets[3].data = [{ x: p * 100, y: pHatLinear * 100 }];
+    distortionChartInstance.data.datasets[4].data = [{ x: p * 100, y: pHatQuad * 100 }];
     distortionChartInstance.update('none');
   }
 }
