@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   MarketState,
-  USDC_DECIMALS,
+  SCALE,
   computeProbabilities,
   formatUsdc,
   type UserPosition,
@@ -112,7 +112,7 @@ export default function PortfolioPage() {
           />
           <SummaryCard
             label="Unrealized PnL"
-            value={`${summary.totalPnl >= 0 ? "+" : ""}${formatUsdc(Math.abs(summary.totalPnl))}`}
+            value={`${summary.totalPnl >= 0 ? "+" : "-"}${formatUsdc(Math.abs(summary.totalPnl))}`}
             highlight={summary.totalPnl}
           />
           <SummaryCard
@@ -305,7 +305,6 @@ function computePositionValue(pos: UserPosition): number {
   );
 
   if (market.state === MarketState.Resolved) {
-    const SCALE = 1_000_000_000;
     if (market.resolvedOutcome != null) {
       return holdings[market.resolvedOutcome] ?? 0;
     }
