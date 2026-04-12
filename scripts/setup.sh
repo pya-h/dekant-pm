@@ -31,7 +31,7 @@ BACKGROUND=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --network)
+    -n|--network)
       NETWORK="${2:-localnet}"
       shift 2
       ;;
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
       NETWORK="${1#*=}"
       shift
       ;;
-    --rpc)
+    -r|--rpc)
       CUSTOM_RPC="${2:-}"
       shift 2
       ;;
@@ -47,15 +47,15 @@ while [ $# -gt 0 ]; do
       CUSTOM_RPC="${1#*=}"
       shift
       ;;
-    --reset)
+    -R|--reset)
       DO_RESET=true
       shift
       ;;
-    --no-backend)
+    -nb|--no-backend)
       START_BACKEND=false
       shift
       ;;
-    --no-frontend)
+    -nf|--no-frontend)
       START_FRONTEND=false
       shift
       ;;
@@ -70,13 +70,13 @@ while [ $# -gt 0 ]; do
       echo "Press Ctrl+C to stop all services."
       echo ""
       echo "Options:"
-      echo "  --network <net>   Network: localnet (default), devnet, testnet, mainnet"
-      echo "  --rpc <url>       Custom RPC URL (overrides --network)"
-      echo "  --reset           Rebuild program, reset validator + DB, re-init protocol"
-      echo "  --no-backend      Don't start backend"
-      echo "  --no-frontend     Don't start frontend"
-      echo "  -b, --back        Start services in background and exit"
-      echo "  -h, --help        Show this help"
+      echo "  -n, --network <net>   Network: localnet (default), devnet, testnet, mainnet"
+      echo "  -r, --rpc <url>       Custom RPC URL (overrides --network)"
+      echo "  -R, --reset           Rebuild program, reset validator + DB, re-init protocol"
+      echo "  -nb, --no-backend     Don't start backend"
+      echo "  -nf, --no-frontend    Don't start frontend"
+      echo "  -b, --back            Start services in background and exit"
+      echo "  -h, --help            Show this help"
       echo ""
       echo "Examples:"
       echo "  $0                             # Quick start on localnet"
