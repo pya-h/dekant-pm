@@ -26,6 +26,7 @@ const {
   parseDeadline,
   formatTokenAmount,
   SCALE,
+  ROLE_ADMIN,
   ROLE_ORACLE,
   ROLE_CREATOR,
   MARKET_TYPE_BINARY,
@@ -349,13 +350,23 @@ async function pauseUnpause(state) {
       const program = state.programForUser(user.keypair);
       const [protocolConfig] = findProtocolConfig(state.programId);
 
+      // Derive authorityRole: null for superuser, Admin PDA for Admin users
+      const isSuperuser = user.pubkey.equals(state.superuser.pubkey);
+      let authorityRole = null;
+      if (!isSuperuser) {
+        const sessionUser = state.findUser(user.pubkey);
+        if (sessionUser && sessionUser.roles.includes("Admin")) {
+          [authorityRole] = findUserRole(user.pubkey, ROLE_ADMIN, state.programId);
+        }
+      }
+
       if (isPaused) {
         await program.methods
           .unpauseMarket()
           .accountsPartial({
             authority: user.pubkey,
             protocolConfig,
-            authorityRole: null,
+            authorityRole,
             market: marketPda,
           })
           .rpc();
@@ -365,7 +376,7 @@ async function pauseUnpause(state) {
           .accountsPartial({
             authority: user.pubkey,
             protocolConfig,
-            authorityRole: null,
+            authorityRole,
             market: marketPda,
           })
           .rpc();

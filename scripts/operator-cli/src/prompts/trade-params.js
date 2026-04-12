@@ -25,7 +25,8 @@ async function collectTradeParams(
 
     const mu = await input({ message: `Mu (center value${rangeStr}):` });
     const sigma = await input({ message: "Sigma (spread/std-dev):" });
-    const amount = await input({ message: `Amount (USDC) to ${action}:` });
+    const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
+    const amount = await input({ message: `${amountLabel}:` });
     return { kind: "distribution", mu, sigma, amount };
   }
 
@@ -50,7 +51,8 @@ async function collectTradeParams(
   });
 
   if (subtype === "fixed") {
-    const amount = await input({ message: `Amount (USDC) to ${action}:` });
+    const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
+    const amount = await input({ message: `${amountLabel}:` });
     return { kind: "fixed", outcome, amount };
   } else {
     const targetStr = await input({ message: "Target probability (%):" });

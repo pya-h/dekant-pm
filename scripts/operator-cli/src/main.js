@@ -11,7 +11,7 @@ const { queryMarketInfo, viewPosition } = require("./actions/query");
 
 async function main() {
   clear();
-  console.log(chalk.cyan.bold("\n  Initializing DekantPM Tester...\n"));
+  console.log(chalk.cyan.bold("\n  Initializing DekantPM Operator CLI...\n"));
 
   let state;
   try {
