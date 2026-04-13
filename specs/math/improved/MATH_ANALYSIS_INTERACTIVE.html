@@ -2572,8 +2572,8 @@ html.lang-fa .ptable th { text-align: right; }
     <span class="lang-en">6.3 LP Economics</span>
     <span class="lang-fa">۶.۳ اقتصاد LP</span>
   </div>
-  <p class="lang-en">LPs earn 0.15% per trade (default). They face <strong>divergence loss</strong> and <strong>adverse selection</strong> from informed traders. Baseline loss on uniform resolution = <span class="math-inline">$1/\sqrt{N}$</span> of the deposited liquidity.</p>
-  <p class="lang-fa">LPها ۰.۱۵٪ به ازای هر معامله کسب می‌کنند. با <strong>زیان واگرایی</strong> و <strong>انتخاب نامطلوب</strong> مواجه‌اند. زیان پایه = <span class="math-inline">$1/\sqrt{N}$</span> از نقدینگی واریزشده.</p>
+  <p class="lang-en">LPs earn 0.15% per trade (default). They face <strong>adverse selection</strong> from informed traders. Baseline loss with zero traders = <strong>0%</strong> (LPs recover their full deposit). The old deterministic <span class="math-inline">$1/\sqrt{N}$</span> loss was fixed by computing LP residual from actual trader token totals.</p>
+  <p class="lang-fa">LPها ۰.۱۵٪ به ازای هر معامله کسب می‌کنند. با <strong>انتخاب نامطلوب</strong> مواجه‌اند. زیان پایه بدون معامله‌گر = <strong>۰٪</strong> (LP کل سپرده را بازیابی می‌کند). زیان قطعی قبلی <span class="math-inline">$1/\sqrt{N}$</span> با محاسبه باقیمانده LP از مجموع واقعی توکن‌های معامله‌گران رفع شد.</p>
 
   <div class="note-box">
     <p>
@@ -2620,9 +2620,9 @@ html.lang-fa .ptable th { text-align: right; }
     </div>
 
     <div class="result-grid" id="lpResults">
-      <div class="result-item"><div class="result-label"><span class="lang-en">Baseline Loss</span><span class="lang-fa">زیان پایه</span></div><div class="result-value negative" id="lpLoss">-12.5%</div></div>
-      <div class="result-item"><div class="result-label"><span class="lang-en">Break-even Volume</span><span class="lang-fa">حجم سربه‌سر</span></div><div class="result-value neutral" id="lpBreakeven">$8.3M</div></div>
-      <div class="result-item"><div class="result-label"><span class="lang-en">Volume Multiple</span><span class="lang-fa">ضریب حجم</span></div><div class="result-value" id="lpMultiple">83x</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Baseline Loss</span><span class="lang-fa">زیان پایه</span></div><div class="result-value positive" id="lpLoss">0%</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Break-even Volume</span><span class="lang-fa">حجم سربه‌سر</span></div><div class="result-value neutral" id="lpBreakeven">N/A (no loss)</div></div>
+      <div class="result-item"><div class="result-label"><span class="lang-en">Volume Multiple</span><span class="lang-fa">ضریب حجم</span></div><div class="result-value" id="lpMultiple">N/A</div></div>
     </div>
 
     <div class="chart-container" style="height:250px;"><canvas id="lpChart"></canvas></div>
