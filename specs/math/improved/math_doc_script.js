@@ -291,7 +291,7 @@ function ContinuousMarket(N, rangeMin, rangeMax, liquidity, fees) {
 
   this.totalLpShares = liquidity;
   this.lpProviders = {};
-  this.lpProviders['Creator'] = { shares: liquidity, deposited: liquidity };
+  this.lpProviders['Creator'] = { shares: liquidity, deposited: liquidity, withdrawn: 0 };
   this.accumulatedLpFees = 0;
   // Per-market holdings: { traderName: { holdings: [...] } }
   this.traderHoldings = {};
@@ -353,7 +353,7 @@ ContinuousMarket.prototype.ensureTrader = function(name) {
 
 ContinuousMarket.prototype.addLpProvider = function(name) {
   if (this.lpProviders[name]) return false;
-  this.lpProviders[name] = { shares: 0, deposited: 0 };
+  this.lpProviders[name] = { shares: 0, deposited: 0, withdrawn: 0 };
   return true;
 };
 
@@ -497,11 +497,15 @@ ContinuousMarket.prototype.distributionBuy = function(traderName, mu, sigma, gro
   th.spent += grossCollateral;
   gt.wallet -= grossCollateral;
 
-  // Peak payout: if peakBin wins, all nearby bins also contribute via kernel
-  var bestKernel = this.getSettlementKernel(peakBin);
+  // Peak payout: find the winning bin that maximizes kernel-weighted payout
   var peakPayout = 0;
-  for (var jj = 0; jj < this.N; jj++) {
-    peakPayout += tokensPerBin[jj] * bestKernel[jj];
+  for (var w = 0; w < this.N; w++) {
+    var wKernel = this.getSettlementKernel(w);
+    var payoutW = 0;
+    for (var jj = 0; jj < this.N; jj++) {
+      payoutW += tokensPerBin[jj] * wKernel[jj];
+    }
+    if (payoutW > peakPayout) { peakPayout = payoutW; peakBin = w; }
   }
   peakPayout *= (1 - this.redemptionFeeBps / 10000);
 
@@ -593,6 +597,7 @@ ContinuousMarket.prototype.removeLiquidity = function(lpName, sharesToRemove) {
   this.accumulatedLpFees -= feeShare;
 
   lp.shares -= sharesToRemove;
+  lp.withdrawn += collateralOut + feeShare;
   this.totalLpShares -= sharesToRemove;
 
   return { collateralOut: collateralOut, feeShare: feeShare, totalOut: collateralOut + feeShare };
@@ -613,23 +618,30 @@ ContinuousMarket.prototype.resolve = function(value) {
 
   // Compute total kernel-weighted trader claims
   var totalKernelClaim = 0;
+  var traderClaims = {};
   for (var name in this.traderHoldings) {
     var th = this.traderHoldings[name];
     var claim = 0;
     for (var i = 0; i < this.N; i++) {
       claim += th.holdings[i] * kernel[i];
     }
+    traderClaims[name] = claim;
     totalKernelClaim += claim;
   }
-  var lpResidual = this.k - totalKernelClaim;
+
+  // Solvency guard: with smooth kernel, total claims can exceed k
+  // when traders hold tokens in multiple nearby bins.  Scale down
+  // proportionally so trader payouts never exceed the vault.
+  var claimScale = 1;
+  if (totalKernelClaim > this.k && totalKernelClaim > 0) {
+    claimScale = this.k / totalKernelClaim;
+  }
+  var lpResidual = this.k - totalKernelClaim * claimScale;
 
   var totalRedemptionFees = 0;
   for (var name in this.traderHoldings) {
     var th = this.traderHoldings[name];
-    var grossPayout = 0;
-    for (var i = 0; i < this.N; i++) {
-      grossPayout += th.holdings[i] * kernel[i];
-    }
+    var grossPayout = traderClaims[name] * claimScale;
     var redemptionFee = grossPayout * this.redemptionFeeBps / 10000;
     totalRedemptionFees += redemptionFee;
     var payout = grossPayout - redemptionFee;
@@ -638,11 +650,12 @@ ContinuousMarket.prototype.resolve = function(value) {
     var kernelBins = [];
     for (var i = 0; i < this.N; i++) {
       if (th.holdings[i] > 0.01 && kernel[i] > 0) {
-        kernelBins.push('bin' + i + ':' + Math.floor(th.holdings[i] * kernel[i]));
+        kernelBins.push('bin' + i + ':' + Math.floor(th.holdings[i] * kernel[i] * claimScale));
       }
     }
     var detailStr = kernelBins.length > 0 ? kernelBins.slice(0, 5).join('+') : '0 tokens';
     if (kernelBins.length > 5) detailStr += '+...';
+    if (claimScale < 1) detailStr += ' (scaled ' + (claimScale * 100).toFixed(1) + '%)';
 
     payouts.push({
       name: name, type: 'Trader',
@@ -660,11 +673,12 @@ ContinuousMarket.prototype.resolve = function(value) {
     var reserveShare = lpPool * fraction;
     var feeShare = this.accumulatedLpFees * fraction;
     var totalPayout = reserveShare + feeShare;
+    var lpWithdrawn = lp.withdrawn || 0;
     payouts.push({
       name: name, type: 'LP',
-      detail: Math.floor(lp.shares).toLocaleString() + ' shares',
-      payout: totalPayout, spent: lp.deposited, received: 0,
-      netPnL: totalPayout - lp.deposited
+      detail: Math.floor(lp.shares).toLocaleString() + ' shares' + (lpWithdrawn > 0 ? ' (+' + Math.floor(lpWithdrawn).toLocaleString() + ' withdrawn)' : ''),
+      payout: totalPayout, spent: lp.deposited, received: lpWithdrawn,
+      netPnL: totalPayout + lpWithdrawn - lp.deposited
     });
   }
 
@@ -705,19 +719,21 @@ ContinuousMarket.prototype.getTraderPortfolio = function(traderName) {
     expectedPayout += probs[winBin] * payoutIfWin * (1 - this.redemptionFeeBps / 10000);
   }
 
-  for (var j = 0; j < this.N; j++) {
-    var h = th.holdings[j];
-    totalHoldings += h;
-    if (h > peakTokens) { peakTokens = h; peakBin = j; }
-  }
-
-  // Peak payout: best-case resolution (winning bin = peakBin, with kernel)
-  var bestKernel = this.getSettlementKernel(peakBin);
+  // Find best-case winning bin (max kernel-weighted payout across all possible outcomes)
   var peakPayout = 0;
-  for (var j = 0; j < this.N; j++) {
-    peakPayout += th.holdings[j] * bestKernel[j];
+  for (var w = 0; w < this.N; w++) {
+    var kernel = this.getSettlementKernel(w);
+    var payoutIfW = 0;
+    for (var j = 0; j < this.N; j++) {
+      payoutIfW += th.holdings[j] * kernel[j];
+    }
+    if (payoutIfW > peakPayout) { peakPayout = payoutIfW; peakBin = w; }
   }
   peakPayout *= (1 - this.redemptionFeeBps / 10000);
+
+  for (var j = 0; j < this.N; j++) {
+    totalHoldings += th.holdings[j];
+  }
 
   var unrealizedPnL = expectedPayout + mReceived - mSpent;
   var pnlPct = mSpent > 0 ? (unrealizedPnL / mSpent * 100) : 0;
@@ -771,6 +787,10 @@ function deserializeMarket(data) {
     var th = m.traderHoldings[name];
     if (th.spent === undefined) th.spent = 0;
     if (th.received === undefined) th.received = 0;
+  }
+  // Ensure LP withdrawn field exists (added for correct P&L tracking)
+  for (var name in m.lpProviders) {
+    if (m.lpProviders[name].withdrawn === undefined) m.lpProviders[name].withdrawn = 0;
   }
   m.resolved = data.resolved; m.winningBin = data.winningBin;
   m.lastResolveValue = data.lastResolveValue || null;
