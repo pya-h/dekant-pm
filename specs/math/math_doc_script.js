@@ -412,6 +412,7 @@ ContinuousMarket.prototype.discreteSell = function(traderName, binIdx, tokenAmou
 };
 
 ContinuousMarket.prototype._computeWeights = function(mu, sigma) {
+  if (!isFinite(sigma) || sigma <= 0) return null;
   var rawWeights = [];
   var weightSum = 0;
   for (var j = 0; j < this.N; j++) {
@@ -501,16 +502,18 @@ ContinuousMarket.prototype.distributionSell = function(traderName, mu, sigma, to
     tokensPerBin.push(t);
   }
 
+  // Check totalSold BEFORE mutating state to avoid invariant drift on error
+  var totalSold = 0;
+  for (var j = 0; j < this.N; j++) totalSold += tokensPerBin[j];
+  if (totalSold < 0.01) return { error: 'No tokens available to sell in this distribution' };
+
   var oldK = this.k;
   var sumSq = 0;
-  var totalSold = 0;
   for (var j = 0; j < this.N; j++) {
     this.positions[j] -= tokensPerBin[j];
     th.holdings[j] -= tokensPerBin[j];
     sumSq += this.positions[j] * this.positions[j];
-    totalSold += tokensPerBin[j];
   }
-  if (totalSold < 0.01) return { error: 'No tokens available to sell in this distribution' };
 
   var kNew = Math.sqrt(sumSq);
   var grossOut = oldK - kNew;
@@ -719,7 +722,7 @@ function deserializeMarket(data) {
     if (m.lpProviders[name].withdrawn === undefined) m.lpProviders[name].withdrawn = 0;
   }
   m.resolved = data.resolved; m.winningBin = data.winningBin;
-  m.lastResolveValue = data.lastResolveValue || null;
+  m.lastResolveValue = (data.lastResolveValue !== undefined && data.lastResolveValue !== null) ? data.lastResolveValue : null;
   m.lastResolvePayouts = data.lastResolvePayouts || null;
   return m;
 }
@@ -964,7 +967,7 @@ function initPlayground() {
   var rMax = parseFloat(document.getElementById('pgRangeMax').value);
   var L = parseInt(document.getElementById('pgLiquidity').value);
   var question = (document.getElementById('pgQuestion') || {}).value || '';
-  if (rMax <= rMin || N < 2 || L < 1000) { alert('Invalid parameters'); return; }
+  if (isNaN(rMin) || isNaN(rMax) || isNaN(N) || isNaN(L) || rMax <= rMin || N < 2 || L < 1000) { alert('Invalid parameters'); return; }
 
   // Save current market's action count
   if (currentMarketIdx >= 0 && markets[currentMarketIdx]) {
