@@ -586,6 +586,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 .control-input[type="range"] {
   -webkit-appearance: none;
+  appearance: none;
   height: 6px;
   background: var(--border);
   border-radius: 3px;
@@ -595,6 +596,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 .control-input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
+  appearance: none;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -991,6 +993,87 @@ select.control-input {
 
 .pnl-positive { color: var(--success); font-weight: 700; }
 .pnl-negative { color: var(--danger); font-weight: 700; }
+
+/* Detail cell tooltip */
+.detail-cell {
+  cursor: pointer;
+  max-width: 150px;
+}
+.detail-truncated {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 3px;
+}
+/* Hidden data source inside cell — never shown inline */
+.detail-tooltip-data { display: none; }
+/* Fixed overlay that floats above everything */
+.detail-tooltip-overlay {
+  display: none;
+  position: fixed;
+  z-index: 99999;
+  background: var(--bg-card);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  white-space: nowrap;
+  min-width: 220px;
+  max-height: 300px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+.detail-tooltip-overlay.visible { display: block; }
+.detail-tooltip-overlay.pinned { border-color: var(--accent); box-shadow: 0 8px 32px rgba(0,0,0,0.55); }
+.detail-tooltip-title {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.detail-tooltip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.detail-tooltip-table th {
+  text-align: left;
+  color: var(--text-muted);
+  padding: 2px 12px 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.detail-tooltip-table td {
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+  text-align: left;
+  font-family: var(--font-mono);
+}
+.detail-tooltip-table tr:last-child td { border-bottom: none; }
+.detail-tooltip-table td:last-child,
+.detail-tooltip-table th:last-child {
+  text-align: right;
+  padding-right: 0;
+}
+.detail-tooltip-total {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.detail-tooltip-scale {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--warning);
+  font-weight: 600;
+}
 
 /* ============================================================
    EXPANDABLE DEMO
@@ -2443,13 +2526,16 @@ select.control-input {
     $$\text{bin}_{\text{win}} = \left\lfloor\frac{(v-a) \cdot N}{b-a}\right\rfloor, \quad K_i = \max\!\left(0, \; 1 - \frac{|i - \text{bin}_{\text{win}}|}{W+1}\right)$$
   </div>
   <div class="math-block">
-    $$\text{payout}_{\text{trader}} = \sum_{i=0}^{N-1} \text{holdings}_i \times K_i \times (1 - \text{redemption\_fee})$$
+    $$\text{raw\_claim}_{\text{trader}} = \sum_{i=0}^{N-1} \text{holdings}_i \times K_i$$
+  </div>
+  <div class="math-block">
+    $$s = \min\!\left(1, \; \frac{k}{\sum_{\text{all traders}} \text{raw\_claim}}\right), \quad \text{payout}_{\text{trader}} = \text{raw\_claim} \times s \times (1 - \text{redemption\_fee})$$
   </div>
 
   <div class="subsection-title">
     7.3 Solvency Guarantee  </div>
   <div class="note-box">
-    <strong>Theorem:</strong> The vault holds &#8805; k collateral at all times. The smooth kernel has K_i &#8804; 1 for all bins, so the total kernel-weighted payout &#8804; &#931; positions_i (from the invariant surface). System is always solvent. &#8718;  </div>
+    <strong>Theorem:</strong> The vault holds &#8805; k collateral at all times. With smooth kernel (W &gt; 0), total kernel-weighted claims can exceed k when traders hold tokens in multiple nearby bins. A proportional scaling factor s = k / totalClaims is applied when this occurs, ensuring all payouts are scaled down equally to maintain solvency. With W = 0 (winner-take-all), scaling is never needed. &#8718;  </div>
 </div>
 
 <!-- ============================================================
