@@ -281,7 +281,7 @@ function ContinuousMarket(N, rangeMin, rangeMax, liquidity, fees) {
 
   this.totalLpShares = liquidity;
   this.lpProviders = {};
-  this.lpProviders['Creator'] = { shares: liquidity, deposited: liquidity };
+  this.lpProviders['Creator'] = { shares: liquidity, deposited: liquidity, withdrawn: 0 };
   this.accumulatedLpFees = 0;
   // Per-market holdings: { traderName: { holdings: [...] } }
   this.traderHoldings = {};
@@ -324,7 +324,7 @@ ContinuousMarket.prototype.ensureTrader = function(name) {
 
 ContinuousMarket.prototype.addLpProvider = function(name) {
   if (this.lpProviders[name]) return false;
-  this.lpProviders[name] = { shares: 0, deposited: 0 };
+  this.lpProviders[name] = { shares: 0, deposited: 0, withdrawn: 0 };
   return true;
 };
 
@@ -557,6 +557,7 @@ ContinuousMarket.prototype.removeLiquidity = function(lpName, sharesToRemove) {
   this.accumulatedLpFees -= feeShare;
 
   lp.shares -= sharesToRemove;
+  lp.withdrawn += collateralOut + feeShare;
   this.totalLpShares -= sharesToRemove;
 
   return { collateralOut: collateralOut, feeShare: feeShare, totalOut: collateralOut + feeShare };
@@ -612,11 +613,12 @@ ContinuousMarket.prototype.resolve = function(value) {
     var reserveShare = lpPool * fraction;
     var feeShare = this.accumulatedLpFees * fraction;
     var totalPayout = reserveShare + feeShare;
+    var lpWithdrawn = lp.withdrawn || 0;
     payouts.push({
       name: name, type: 'LP',
-      detail: Math.floor(lp.shares).toLocaleString() + ' shares',
-      payout: totalPayout, spent: lp.deposited, received: 0,
-      netPnL: totalPayout - lp.deposited
+      detail: Math.floor(lp.shares).toLocaleString() + ' shares' + (lpWithdrawn > 0 ? ' (+' + Math.floor(lpWithdrawn).toLocaleString() + ' withdrawn)' : ''),
+      payout: totalPayout, spent: lp.deposited, received: lpWithdrawn,
+      netPnL: totalPayout + lpWithdrawn - lp.deposited
     });
   }
 
@@ -703,6 +705,10 @@ function deserializeMarket(data) {
     var th = m.traderHoldings[name];
     if (th.spent === undefined) th.spent = 0;
     if (th.received === undefined) th.received = 0;
+  }
+  // Ensure LP withdrawn field exists (added for correct P&L tracking)
+  for (var name in m.lpProviders) {
+    if (m.lpProviders[name].withdrawn === undefined) m.lpProviders[name].withdrawn = 0;
   }
   m.resolved = data.resolved; m.winningBin = data.winningBin;
   m.lastResolveValue = data.lastResolveValue || null;
@@ -1909,28 +1915,28 @@ function updateLP() {
   var sharePercent = parseFloat(document.getElementById('lpShare').value) || 50;
 
   var lpFeeRate = (feeBps / 10000) * (sharePercent / 100);
-  var baselineLoss = 1 / Math.sqrt(bins);
-  var baselineLossAmt = pool * baselineLoss;
-  var breakeven = lpFeeRate > 0 ? baselineLossAmt / lpFeeRate : Infinity;
-  var multiple = lpFeeRate > 0 ? breakeven / pool : Infinity;
+  // Baseline LP loss is 0% because resolve uses actual trader token totals,
+  // NOT positions[winBin].  With zero traders the LP gets everything back.
+  var baselineLoss = 0;
+  var baselineLossAmt = 0;
 
-  document.getElementById('lpLoss').textContent = '-' + (baselineLoss * 100).toFixed(1) + '%';
-  document.getElementById('lpBreakeven').textContent = isFinite(breakeven) ? '$' + formatCompact(breakeven) : '\u221E';
-  document.getElementById('lpMultiple').textContent = isFinite(multiple) ? Math.round(multiple) + 'x' : '\u221E';
+  document.getElementById('lpLoss').textContent = baselineLoss === 0 ? '0%' : '-' + (baselineLoss * 100).toFixed(1) + '%';
+  document.getElementById('lpBreakeven').textContent = baselineLoss === 0 ? '$0' : (lpFeeRate > 0 ? '$' + formatCompact(baselineLossAmt / lpFeeRate) : '\u221E');
+  document.getElementById('lpMultiple').textContent = baselineLoss === 0 ? '0x' : (lpFeeRate > 0 ? Math.round(baselineLossAmt / lpFeeRate / pool) + 'x' : '\u221E');
 
   var ctx = document.getElementById('lpChart').getContext('2d');
   var c = getChartColors();
   if (lpChartInstance) lpChartInstance.destroy();
 
   if (lpFeeRate <= 0) {
-    // With zero fees, LP always loses — show flat line
+    // With zero fees and zero baseline loss, LP breaks even — show flat line at 0
     lpChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
         labels: ['0', formatCompact(pool * 10)],
         datasets: [{
-          label: 'LP Net Return (%)', data: [-(baselineLoss * 100), -(baselineLoss * 100)],
-          borderColor: c.danger, backgroundColor: c.danger + '20',
+          label: 'LP Net Return (%)', data: [0, 0],
+          borderColor: c.textMuted, backgroundColor: c.textMuted + '10',
           fill: true, tension: 0, pointRadius: 2, borderWidth: 2,
         }]
       },
@@ -1946,12 +1952,13 @@ function updateLP() {
     return;
   }
 
+  // With fees and 0 baseline loss, LP is profitable from first trade
+  var maxVol = pool * 5;
   var volumes = [], returns = [];
-  var maxVol = breakeven * 3;
   for (var i = 0; i <= 20; i++) {
     var vol = (maxVol / 20) * i;
     volumes.push(vol);
-    returns.push(((vol * lpFeeRate - baselineLossAmt) / pool) * 100);
+    returns.push(((vol * lpFeeRate) / pool) * 100);
   }
 
   lpChartInstance = new Chart(ctx, {
