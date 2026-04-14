@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"goperator-cli/internal/chain"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -146,19 +145,19 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 func (m *fundUserScreen) View() string {
 	switch m.phase {
 	case phaseFundForm:
-		return tui.StyleTitle.Render("  Fund User\n\n") + m.form.View()
+		return styles.StyleTitle.Render("  Fund User\n\n") + m.form.View()
 	case phaseFundExec:
-		return tui.StyleTitle.Render("  Fund User\n\n") +
-			tui.StyleDim.Render("  Minting tokens...")
+		return styles.StyleTitle.Render("  Fund User\n\n") +
+			styles.StyleDim.Render("  Minting tokens...")
 	case phaseFundDone:
 		if m.err != nil {
-			return tui.StyleTitle.Render("  Fund User\n\n") +
-				tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return styles.StyleTitle.Render("  Fund User\n\n") +
+				styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return tui.StyleTitle.Render("  Fund User\n\n") +
-			tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return styles.StyleTitle.Render("  Fund User\n\n") +
+			styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

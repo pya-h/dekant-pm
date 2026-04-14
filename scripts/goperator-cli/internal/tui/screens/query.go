@@ -8,12 +8,11 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/gagliardetto/solana-go"
 )
 
 // ── Query Market Info ───────────────────────────────────────────────────────
@@ -109,7 +108,7 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 		probs := util.ComputeProbabilities(md.Reserves, md.TotalMinted)
 
 		var lines []string
-		lines = append(lines, tui.StyleTitle.Render(fmt.Sprintf("  Market #%d: %s", m.market.ID, m.market.Label)))
+		lines = append(lines, styles.StyleTitle.Render(fmt.Sprintf("  Market #%d: %s", m.market.ID, m.market.Label)))
 		lines = append(lines, "")
 
 		// Key-value info
@@ -123,20 +122,20 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 		}
 
 		kv := []string{
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("PDA"), marketPda.String()),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Type"), typeName),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("State"), stateName),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Creator"), md.Creator.String()),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Oracle"), md.Oracle.String()),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Collateral mint"), md.CollateralMint.String()),
-			fmt.Sprintf("  %-24s  %s USDC", tui.StyleKey.Render("Vault balance"), util.FormatTokenAmount(vaultBalance)),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Deadline"), util.FormatTimestamp(md.Deadline)),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Created"), util.FormatTimestamp(md.CreatedAt)),
-			fmt.Sprintf("  %-24s  %d", tui.StyleKey.Render("Outcomes/bins"), md.NumOutcomes),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Total minted"), md.TotalMinted.String()),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("LP shares total"), md.LpSharesTotal.String()),
-			fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("LP fee accumulated"), md.LpFeeAccumulated.String()),
-			fmt.Sprintf("  %-24s  %s USDC", tui.StyleKey.Render("Protocol fee"), util.FormatTokenAmount(md.ProtocolFeeAccumulated)),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("PDA"), marketPda.String()),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Type"), typeName),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("State"), stateName),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Creator"), md.Creator.String()),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Oracle"), md.Oracle.String()),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Collateral mint"), md.CollateralMint.String()),
+			fmt.Sprintf("  %-24s  %s USDC", styles.StyleKey.Render("Vault balance"), util.FormatTokenAmount(vaultBalance)),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Deadline"), util.FormatTimestamp(md.Deadline)),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Created"), util.FormatTimestamp(md.CreatedAt)),
+			fmt.Sprintf("  %-24s  %d", styles.StyleKey.Render("Outcomes/bins"), md.NumOutcomes),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Total minted"), md.TotalMinted.String()),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("LP shares total"), md.LpSharesTotal.String()),
+			fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("LP fee accumulated"), md.LpFeeAccumulated.String()),
+			fmt.Sprintf("  %-24s  %s USDC", styles.StyleKey.Render("Protocol fee"), util.FormatTokenAmount(md.ProtocolFeeAccumulated)),
 		}
 		lines = append(lines, kv...)
 
@@ -147,20 +146,20 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 
 		if md.State == constants.MarketStateResolved {
 			lines = append(lines, "")
-			lines = append(lines, tui.StyleSuccess.Render("  Resolved:"))
-			lines = append(lines, fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Winner"),
+			lines = append(lines, styles.StyleSuccess.Render("  Resolved:"))
+			lines = append(lines, fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Winner"),
 				util.OutcomeLabel(md.MarketType, int(md.ResolvedOutcome))))
-			lines = append(lines, fmt.Sprintf("  %-24s  %s", tui.StyleKey.Render("Resolved at"),
+			lines = append(lines, fmt.Sprintf("  %-24s  %s", styles.StyleKey.Render("Resolved at"),
 				util.FormatTimestamp(md.ResolvedAt)))
 			if md.MarketType == constants.MarketTypeContinuous {
-				lines = append(lines, fmt.Sprintf("  %-24s  %.2f", tui.StyleKey.Render("Resolved value"),
+				lines = append(lines, fmt.Sprintf("  %-24s  %.2f", styles.StyleKey.Render("Resolved value"),
 					chain.ScaleToFloat(md.ResolvedValue)))
 			}
 		}
 
 		// Probabilities
 		lines = append(lines, "")
-		lines = append(lines, tui.StyleDim.Render("  Probabilities:"))
+		lines = append(lines, styles.StyleDim.Render("  Probabilities:"))
 		maxShow := len(probs)
 		if maxShow > 32 {
 			maxShow = 32
@@ -170,27 +169,27 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 				continue
 			}
 			label := util.OutcomeLabel(md.MarketType, i)
-			bar := tui.ProbBar(probs[i], 20)
+			bar := styles.ProbBar(probs[i], 20)
 			highlight := ""
 			if md.State == constants.MarketStateResolved && i == int(md.ResolvedOutcome) {
-				highlight = tui.StyleWarning.Render(" ◄")
+				highlight = styles.StyleWarning.Render(" ◄")
 			}
 			lines = append(lines, fmt.Sprintf("    %-12s %s%s", label, bar, highlight))
 		}
 		if len(probs) > maxShow {
-			lines = append(lines, tui.StyleDim.Render(fmt.Sprintf("    ... (%d more bins)", len(probs)-maxShow)))
+			lines = append(lines, styles.StyleDim.Render(fmt.Sprintf("    ... (%d more bins)", len(probs)-maxShow)))
 		}
 
 		// ASCII chart for continuous markets
 		if md.MarketType == constants.MarketTypeContinuous && len(probs) > 2 {
 			lines = append(lines, "")
-			lines = append(lines, tui.StyleDim.Render("  Distribution chart:"))
+			lines = append(lines, styles.StyleDim.Render("  Distribution chart:"))
 			chart := renderSimpleChart(probs, 40, 8)
 			lines = append(lines, chart)
 		}
 
 		lines = append(lines, "")
-		lines = append(lines, tui.StyleDim.Render("  Press Esc to return"))
+		lines = append(lines, styles.StyleDim.Render("  Press Esc to return"))
 
 		return dataMsg{data: strings.Join(lines, "\n")}
 	}
@@ -199,15 +198,15 @@ func (m *queryMarketScreen) loadMarketInfo() tea.Cmd {
 func (m *queryMarketScreen) View() string {
 	switch m.phase {
 	case phaseQueryMarketSelect:
-		return tui.StyleTitle.Render("  Query Market Info\n\n") + m.form.View()
+		return styles.StyleTitle.Render("  Query Market Info\n\n") + m.form.View()
 	case phaseQueryMarketLoading:
-		return tui.StyleTitle.Render("  Query Market Info\n\n") +
-			tui.StyleDim.Render("  Loading market data...")
+		return styles.StyleTitle.Render("  Query Market Info\n\n") +
+			styles.StyleDim.Render("  Loading market data...")
 	case phaseQueryMarketDone:
 		if m.err != nil {
-			return tui.StyleTitle.Render("  Query Market Info\n\n") +
-				tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return styles.StyleTitle.Render("  Query Market Info\n\n") +
+				styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
 		return m.infoView
 	}
@@ -336,23 +335,23 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 
 		pos, _, err := m.state.FetchUserPosition(marketPda, user.Pubkey)
 		if err != nil {
-			return dataMsg{data: tui.StyleWarning.Render("  No position found for this user.") +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")}
+			return dataMsg{data: styles.StyleWarning.Render("  No position found for this user.") +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")}
 		}
 
 		var lines []string
-		lines = append(lines, tui.StyleTitle.Render(fmt.Sprintf("  %s's position in Market #%d", user.Label, m.market.ID)))
+		lines = append(lines, styles.StyleTitle.Render(fmt.Sprintf("  %s's position in Market #%d", user.Label, m.market.ID)))
 		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", tui.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
-		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", tui.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
+		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total deposited"), util.FormatTokenAmount(pos.TotalDeposited)))
+		lines = append(lines, fmt.Sprintf("  %-20s  %s USDC", styles.StyleKey.Render("Total withdrawn"), util.FormatTokenAmount(pos.TotalWithdrawn)))
 		claimed := "No"
 		if pos.Claimed {
 			claimed = "Yes"
 		}
-		lines = append(lines, fmt.Sprintf("  %-20s  %s", tui.StyleKey.Render("Claimed"), claimed))
+		lines = append(lines, fmt.Sprintf("  %-20s  %s", styles.StyleKey.Render("Claimed"), claimed))
 
 		lines = append(lines, "")
-		lines = append(lines, tui.StyleDim.Render("  Holdings:"))
+		lines = append(lines, styles.StyleDim.Render("  Holdings:"))
 		hasHoldings := false
 		for i, h := range pos.Holdings {
 			if h > 0 {
@@ -361,17 +360,17 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 				isWinner := md.State == constants.MarketStateResolved && i == int(md.ResolvedOutcome)
 				winnerMark := ""
 				if isWinner {
-					winnerMark = tui.StyleSuccess.Render(" (winner)")
+					winnerMark = styles.StyleSuccess.Render(" (winner)")
 				}
 				lines = append(lines, fmt.Sprintf("    %-12s %d%s", label, h, winnerMark))
 			}
 		}
 		if !hasHoldings {
-			lines = append(lines, tui.StyleDim.Render("    (no holdings)"))
+			lines = append(lines, styles.StyleDim.Render("    (no holdings)"))
 		}
 
 		lines = append(lines, "")
-		lines = append(lines, tui.StyleDim.Render("  Press Esc to return"))
+		lines = append(lines, styles.StyleDim.Render("  Press Esc to return"))
 
 		return dataMsg{data: strings.Join(lines, "\n")}
 	}
@@ -380,15 +379,15 @@ func (m *viewPositionScreen) loadPosition() tea.Cmd {
 func (m *viewPositionScreen) View() string {
 	switch m.phase {
 	case phasePositionMarket, phasePositionUser:
-		return tui.StyleTitle.Render("  View Position\n\n") + m.form.View()
+		return styles.StyleTitle.Render("  View Position\n\n") + m.form.View()
 	case phasePositionLoading:
-		return tui.StyleTitle.Render("  View Position\n\n") +
-			tui.StyleDim.Render("  Loading position...")
+		return styles.StyleTitle.Render("  View Position\n\n") +
+			styles.StyleDim.Render("  Loading position...")
 	case phasePositionDone:
 		if m.err != nil {
-			return tui.StyleTitle.Render("  View Position\n\n") +
-				tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return styles.StyleTitle.Render("  View Position\n\n") +
+				styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
 		return m.infoView
 	}

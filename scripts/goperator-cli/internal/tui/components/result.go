@@ -3,27 +3,27 @@ package components
 import (
 	"fmt"
 
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 )
 
 // RenderSuccess renders a success message.
 func RenderSuccess(msg string) string {
-	return tui.StyleSuccess.Render("  ✓ " + msg)
+	return styles.StyleSuccess.Render("  ✓ " + msg)
 }
 
 // RenderError renders an error message.
 func RenderError(err error) string {
-	return tui.StyleError.Render("  ✗ Error: " + ExtractError(err))
+	return styles.StyleError.Render("  ✗ Error: " + ExtractError(err))
 }
 
 // RenderWarning renders a warning message.
 func RenderWarning(msg string) string {
-	return tui.StyleWarning.Render("  ⚠ " + msg)
+	return styles.StyleWarning.Render("  ⚠ " + msg)
 }
 
 // RenderInfo renders an info message.
 func RenderInfo(msg string) string {
-	return tui.StyleDim.Render("  " + msg)
+	return styles.StyleDim.Render("  " + msg)
 }
 
 // RenderKV renders key-value rows.
@@ -39,8 +39,8 @@ func RenderKV(rows [][]string) string {
 	}
 	result := ""
 	for _, r := range rows {
-		key := tui.StyleKey.Render(fmt.Sprintf("  %-*s", maxKey, r[0]))
-		val := tui.StyleValue.Render("  " + r[1])
+		key := styles.StyleKey.Render(fmt.Sprintf("  %-*s", maxKey, r[0]))
+		val := styles.StyleValue.Render("  " + r[1])
 		result += key + val + "\n"
 	}
 	return result

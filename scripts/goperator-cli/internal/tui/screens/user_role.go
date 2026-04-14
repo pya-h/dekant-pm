@@ -6,7 +6,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -149,19 +149,19 @@ func (m *assignRoleScreen) execAssignRole() tea.Cmd {
 func (m *assignRoleScreen) View() string {
 	switch m.phase {
 	case phaseRoleForm:
-		return tui.StyleTitle.Render("  Assign Role\n\n") + m.form.View()
+		return styles.StyleTitle.Render("  Assign Role\n\n") + m.form.View()
 	case phaseRoleExec:
-		return tui.StyleTitle.Render("  Assign Role\n\n") +
-			tui.StyleDim.Render("  Assigning role...")
+		return styles.StyleTitle.Render("  Assign Role\n\n") +
+			styles.StyleDim.Render("  Assigning role...")
 	case phaseRoleDone:
 		if m.err != nil {
-			return tui.StyleTitle.Render("  Assign Role\n\n") +
-				tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return styles.StyleTitle.Render("  Assign Role\n\n") +
+				styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return tui.StyleTitle.Render("  Assign Role\n\n") +
-			tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return styles.StyleTitle.Render("  Assign Role\n\n") +
+			styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }

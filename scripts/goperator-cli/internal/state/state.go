@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"goperator-cli/internal/chain"
-	"goperator-cli/internal/constants"
+	"goperator-cli/internal/random"
 
 	"github.com/gagliardetto/solana-go"
 )

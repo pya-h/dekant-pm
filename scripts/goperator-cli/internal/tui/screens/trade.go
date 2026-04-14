@@ -10,7 +10,7 @@ import (
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
-	"goperator-cli/internal/tui"
+	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,6 +43,7 @@ type tradeScreen struct {
 const (
 	phaseTradeMarket Phase = iota
 	phaseTradeParams
+	phaseTradeToPriceParams
 	phaseTradeUser
 	phaseTradeExec
 	phaseTradeDone
@@ -124,6 +125,16 @@ func (m *tradeScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.form.State == huh.StateCompleted {
 			return m, m.advanceToUser()
+		}
+		return m, cmd
+
+	case phaseTradeToPriceParams:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			return m, m.showUserSelection()
 		}
 		return m, cmd
 
@@ -222,7 +233,7 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 }
 
 func (m *tradeScreen) advanceToUser() tea.Cmd {
-	// If toPrice, ask for target prob and limit
+	// If toPrice, ask for target prob and limit first
 	if m.tradeType == "toPrice" {
 		limitLabel := "Max collateral"
 		if !m.isBuy {
@@ -240,11 +251,14 @@ func (m *tradeScreen) advanceToUser() tea.Cmd {
 					Placeholder("1000"),
 			),
 		)
-		// After this form completes, we need to go to user selection
-		// For simplicity, let's chain directly — we skip this intermediary step
-		// and go to user selection after this form
+		m.phase = phaseTradeToPriceParams
+		return m.form.Init()
 	}
 
+	return m.showUserSelection()
+}
+
+func (m *tradeScreen) showUserSelection() tea.Cmd {
 	userChoices := buildUserChoices(m.state, true, true)
 	m.form = huh.NewForm(
 		huh.NewGroup(
@@ -386,7 +400,7 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 }
 
 func (m *tradeScreen) View() string {
-	title := tui.StyleTitle.Render("  "+m.actionLabel()+" Outcome\n\n")
+	title := styles.StyleTitle.Render("  "+m.actionLabel()+" Outcome\n\n")
 
 	// Show probabilities if we have market data
 	probView := ""
@@ -396,30 +410,30 @@ func (m *tradeScreen) View() string {
 		if maxShow > 10 {
 			maxShow = 10
 		}
-		lines := []string{tui.StyleDim.Render("  Current probabilities:")}
+		lines := []string{styles.StyleDim.Render("  Current probabilities:")}
 		for i := 0; i < maxShow; i++ {
 			label := util.OutcomeLabel(m.market.Type, i)
-			bar := tui.ProbBar(probs[i], 20)
+			bar := styles.ProbBar(probs[i], 20)
 			lines = append(lines, fmt.Sprintf("    %-12s %s", label, bar))
 		}
 		if len(probs) > maxShow {
-			lines = append(lines, tui.StyleDim.Render(fmt.Sprintf("    ... (%d more)", len(probs)-maxShow)))
+			lines = append(lines, styles.StyleDim.Render(fmt.Sprintf("    ... (%d more)", len(probs)-maxShow)))
 		}
 		probView = strings.Join(lines, "\n") + "\n\n"
 	}
 
 	switch m.phase {
-	case phaseTradeMarket, phaseTradeParams, phaseTradeUser:
+	case phaseTradeMarket, phaseTradeParams, phaseTradeToPriceParams, phaseTradeUser:
 		return title + probView + m.form.View()
 	case phaseTradeExec:
-		return title + probView + tui.StyleDim.Render("  Executing trade...")
+		return title + probView + styles.StyleDim.Render("  Executing trade...")
 	case phaseTradeDone:
 		if m.err != nil {
-			return title + tui.StyleError.Render("  ✗ "+m.err.Error()) +
-				"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+			return title + styles.StyleError.Render("  ✗ "+m.err.Error()) +
+				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return title + tui.StyleSuccess.Render("  ✓ "+m.result) +
-			"\n\n" + tui.StyleDim.Render("  Press Esc to return")
+		return title + styles.StyleSuccess.Render("  ✓ "+m.result) +
+			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""
 }
