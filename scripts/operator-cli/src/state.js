@@ -6,11 +6,14 @@ const {
   getProgramId,
   findProtocolConfig,
 } = require("./common");
+const { RandomGenerator } = require("./random");
 
 class SessionState {
   constructor() {
     this.users = [];
     this.markets = [];
+    this.randomMode = false;
+    this.rand = new RandomGenerator();
     this.connection = createConnection();
     const keypair = loadKeypair();
     this.superuser = { keypair, pubkey: keypair.publicKey };

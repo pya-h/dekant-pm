@@ -36,6 +36,9 @@ async function resolveMarket(state) {
   if (sm.type === MARKET_TYPE_CONTINUOUS) {
     const valueStr = await input({
       message: `Resolved value (range: ${sm.rangeMin}\u2013${sm.rangeMax}):`,
+      ...(state.randomMode && {
+        default: state.rand.resolveValue(sm.rangeMin, sm.rangeMax),
+      }),
     });
     value = new BN(Math.round(parseFloat(valueStr) * 1e9).toString());
     outcome = 0;
@@ -48,6 +51,9 @@ async function resolveMarket(state) {
     outcome = await select({
       message: "Winning outcome:",
       choices: outcomeChoices,
+      ...(state.randomMode && {
+        default: state.rand.resolveOutcome(sm.numOutcomes),
+      }),
     });
     value = new BN(0);
     console.log(

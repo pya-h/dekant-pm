@@ -24,12 +24,16 @@ function banner(state) {
       `  Superuser: ${state.superuser.pubkey.toBase58().slice(0, 16)}...`
     )
   );
+  const randomTag = state.randomMode
+    ? chalk.yellow("Random:ON")
+    : chalk.dim("Random:OFF");
   console.log(
     chalk.dim(
       `  Users: ${state.users.length}  |  Markets: ${state.markets.length}`
-    )
+    ) + `  |  ${randomTag}`
   );
   console.log(chalk.cyan(line));
+  console.log(chalk.dim("  Ctrl+R: Toggle Random Mode"));
   console.log();
 }
 

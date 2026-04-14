@@ -49,16 +49,17 @@ async function createMarket(state) {
       { name: "Multi-outcome", value: MARKET_TYPE_MULTI },
       { name: "Continuous (Range)", value: MARKET_TYPE_CONTINUOUS },
     ],
+    ...(state.randomMode && { default: state.rand.marketType() }),
   });
 
   // Step 2: common params
   const liquidityStr = await input({
     message: "Initial liquidity (USDC):",
-    default: "100",
+    default: state.randomMode ? state.rand.liquidity() : "100",
   });
   const deadlineStr = await input({
     message: "Deadline (+1h, +30m, +7d, ISO, unix):",
-    default: "+1h",
+    default: state.randomMode ? state.rand.deadline() : "+1h",
   });
 
   // Step 3: type-specific
@@ -70,7 +71,7 @@ async function createMarket(state) {
   if (marketType === MARKET_TYPE_MULTI) {
     const numStr = await input({
       message: "Number of outcomes (3-32):",
-      default: "4",
+      default: state.randomMode ? state.rand.numOutcomes(marketType) : "4",
     });
     numOutcomes = parseInt(numStr, 10);
     if (numOutcomes < 3 || numOutcomes > 32) {
@@ -79,11 +80,18 @@ async function createMarket(state) {
       return;
     }
   } else if (marketType === MARKET_TYPE_CONTINUOUS) {
-    const minStr = await input({ message: "Range min:", default: "50" });
-    const maxStr = await input({ message: "Range max:", default: "500" });
+    const randRange = state.randomMode ? state.rand.rangeValues() : null;
+    const minStr = await input({
+      message: "Range min:",
+      default: randRange ? randRange.min : "50",
+    });
+    const maxStr = await input({
+      message: "Range max:",
+      default: randRange ? randRange.max : "500",
+    });
     const binsStr = await input({
       message: "Number of bins (2-256):",
-      default: "64",
+      default: state.randomMode ? state.rand.numOutcomes(marketType) : "64",
     });
     numOutcomes = parseInt(binsStr, 10);
     if (numOutcomes < 2 || numOutcomes > 256) {
@@ -161,10 +169,12 @@ async function createMarket(state) {
   // Step 5: label
   const typeName = MARKET_TYPE_NAMES[marketType];
   const defaultLabel = `Market #${state.markets.length} (${typeName})`;
-  const label = await input({
-    message: "Market label (optional):",
-    default: defaultLabel,
-  });
+  const label = state.randomMode
+    ? defaultLabel
+    : await input({
+        message: "Market label (optional):",
+        default: defaultLabel,
+      });
 
   // Step 6: creator selection with retry loop
   let created = false;

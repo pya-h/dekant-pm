@@ -24,7 +24,7 @@ async function addLiquidity(state) {
 
   const amountStr = await input({
     message: "Amount (USDC) to add:",
-    default: "50",
+    default: state.randomMode ? state.rand.liquidity() : "50",
   });
 
   const user = await selectUser(state, {
