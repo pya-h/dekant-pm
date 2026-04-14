@@ -273,8 +273,8 @@ func (m *createMarketScreen) execCreateMarket() tea.Cmd {
 		if marketType == constants.MarketTypeContinuous {
 			rMin, _ := strconv.ParseFloat(m.rangeMinStr, 64)
 			rMax, _ := strconv.ParseFloat(m.rangeMaxStr, 64)
-			rangeMin = int64(rMin) * int64(constants.SCALE)
-			rangeMax = int64(rMax) * int64(constants.SCALE)
+			rangeMin = int64(rMin * float64(constants.SCALE))
+			rangeMax = int64(rMax * float64(constants.SCALE))
 		}
 
 		// Fetch market count for ID

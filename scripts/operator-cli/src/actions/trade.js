@@ -194,8 +194,8 @@ async function doToPriceTrade(program, action, accounts, params) {
 }
 
 async function doDistributionTrade(program, action, accounts, params) {
-  const mu = new BN(params.mu).mul(SCALE);
-  const sigma = new BN(params.sigma).mul(SCALE);
+  const mu = new BN(Math.round(parseFloat(params.mu) * 1e9).toString());
+  const sigma = new BN(Math.round(parseFloat(params.sigma) * 1e9).toString());
   const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
     units: 1_000_000,
   });

@@ -93,8 +93,8 @@ async function createMarket(state) {
     }
     rangeMinHuman = parseFloat(minStr);
     rangeMaxHuman = parseFloat(maxStr);
-    rangeMin = new BN(minStr).mul(SCALE);
-    rangeMax = new BN(maxStr).mul(SCALE);
+    rangeMin = new BN(Math.round(parseFloat(minStr) * 1e9).toString());
+    rangeMax = new BN(Math.round(parseFloat(maxStr) * 1e9).toString());
     if (rangeMin.gte(rangeMax)) {
       console.log(chalk.red("  Invalid: range-min must be < range-max"));
       await pressKey();
