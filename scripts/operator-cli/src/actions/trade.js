@@ -27,6 +27,11 @@ const {
   MARKET_STATE_NAMES,
   TOKEN_PROGRAM_ID,
 } = require("../common");
+const {
+  findCollateralForShares,
+  findTokensForCollateral,
+  toBigInts,
+} = require("../amm");
 
 async function buyOutcome(state) {
   await executeTrade(state, "buy");
@@ -113,6 +118,8 @@ async function executeTrade(state, action) {
       await doDistributionTrade(program, action, baseAccounts, params);
     } else if (params.kind === "toPrice") {
       await doToPriceTrade(program, action, baseAccounts, params);
+    } else if (params.kind === "fixedByShares" || params.kind === "fixedByCollateral") {
+      await doInverseTrade(state, program, action, baseAccounts, params, marketData);
     } else {
       await doFixedTrade(program, action, baseAccounts, params);
     }
@@ -214,6 +221,41 @@ async function doDistributionTrade(program, action, accounts, params) {
       .sellDistribution({ mu, sigma, tokenAmount })
       .accountsPartial(accounts)
       .preInstructions([computeIx])
+      .rpc();
+  }
+}
+
+async function doInverseTrade(state, program, action, accounts, params, marketData) {
+  const [protocolConfig] = findProtocolConfig(state.programId);
+  const config = await state.superProgram.account.protocolConfig.fetch(protocolConfig);
+  const tradeFeeBps = config.tradeFeeBps;
+  const { reserves, totalMinted } = toBigInts(marketData);
+
+  if (action === "buy" && params.kind === "fixedByShares") {
+    // User wants to buy a specific number of shares
+    const targetShares = BigInt(parseTokenAmount(params.amount).toString());
+    const grossCollateral = findCollateralForShares(
+      reserves, totalMinted, params.outcome, targetShares, tradeFeeBps
+    );
+    console.log(
+      chalk.dim(`  Computed collateral needed: ${formatTokenAmount(grossCollateral)} USDC`)
+    );
+    await program.methods
+      .buy({ outcome: params.outcome, collateralAmount: new BN(grossCollateral.toString()) })
+      .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId })
+      .rpc();
+  } else {
+    // User wants to sell shares to receive a specific USDC amount
+    const targetCollateral = BigInt(parseTokenAmount(params.amount).toString());
+    const tokensToSell = findTokensForCollateral(
+      reserves, totalMinted, params.outcome, targetCollateral, tradeFeeBps
+    );
+    console.log(
+      chalk.dim(`  Computed shares to sell: ${formatTokenAmount(tokensToSell)}`)
+    );
+    await program.methods
+      .sell({ outcome: params.outcome, tokenAmount: new BN(tokensToSell.toString()) })
+      .accountsPartial(accounts)
       .rpc();
   }
 }

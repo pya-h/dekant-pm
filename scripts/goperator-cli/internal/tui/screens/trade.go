@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 
+	"goperator-cli/internal/amm"
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
@@ -217,6 +219,10 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 			outcomeOpts[i] = huh.NewOption(label, strconv.Itoa(i))
 		}
 
+		inverseLabel := "by shares"
+		if !m.isBuy {
+			inverseLabel = "by USDC"
+		}
 		amountLabel := "Amount (USDC) to buy"
 		if !m.isBuy {
 			amountLabel = "Token amount to sell"
@@ -228,6 +234,7 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 					Title("Trade type").
 					Options(
 						huh.NewOption(actionLabel+" (fixed amount)", "fixed"),
+						huh.NewOption(actionLabel+" ("+inverseLabel+")", "inverse"),
 						huh.NewOption(actionLabel+" to Price (target probability)", "toPrice"),
 					).
 					Value(&m.tradeType),
@@ -248,6 +255,26 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 }
 
 func (m *tradeScreen) advanceToUser() tea.Cmd {
+	// If inverse, ask for the target amount with the correct label
+	if m.tradeType == "inverse" {
+		var label string
+		if m.isBuy {
+			label = "Number of shares to buy"
+		} else {
+			label = "USDC to receive"
+		}
+		m.form = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title(label).
+					Value(&m.amount).
+					Placeholder("10"),
+			),
+		)
+		m.phase = phaseTradeToPriceParams // reuse the same phase
+		return m.form.Init()
+	}
+
 	// If toPrice, ask for target prob and limit first
 	if m.tradeType == "toPrice" {
 		limitLabel := "Max collateral"
@@ -315,6 +342,40 @@ func (m *tradeScreen) execTrade() tea.Cmd {
 		needsSystemProgram := m.isBuy
 
 		switch m.tradeType {
+		case "inverse":
+			outcome, _ := strconv.Atoi(m.outcomeStr)
+			// Fetch protocol config for fee BPS
+			pc, pcErr := m.state.FetchProtocolConfig()
+			if pcErr != nil {
+				return errMsg{err: fmt.Errorf("fetch protocol config: %w", pcErr)}
+			}
+			// Convert reserves to []*big.Int for AMM simulation
+			bigReserves := make([]*big.Int, len(m.marketData.Reserves))
+			for i, r := range m.marketData.Reserves {
+				bigReserves[i] = new(big.Int).SetUint64(r)
+			}
+			if m.isBuy {
+				// User wants to buy a target number of shares
+				targetShares := new(big.Int).SetUint64(util.ParseTokenAmount(m.amount))
+				grossCollateral := amm.FindCollateralForShares(
+					bigReserves, m.marketData.TotalMinted, outcome, targetShares, pc.TradeFeeBps,
+				)
+				disc = constants.DiscBuy
+				args = append(chain.EncodeU16LE(uint16(outcome)), chain.EncodeU64LE(grossCollateral.Uint64())...)
+			} else {
+				// User wants to receive a target USDC amount
+				targetCollateral := new(big.Int).SetUint64(util.ParseTokenAmount(m.amount))
+				tokensToSell, invErr := amm.FindTokensForCollateral(
+					bigReserves, m.marketData.TotalMinted, outcome, targetCollateral, pc.TradeFeeBps,
+				)
+				if invErr != nil {
+					return errMsg{err: invErr}
+				}
+				disc = constants.DiscSell
+				args = append(chain.EncodeU16LE(uint16(outcome)), chain.EncodeU64LE(tokensToSell.Uint64())...)
+				needsSystemProgram = false
+			}
+
 		case "fixed":
 			outcome, _ := strconv.Atoi(m.outcomeStr)
 			amount := util.ParseTokenAmount(m.amount)
