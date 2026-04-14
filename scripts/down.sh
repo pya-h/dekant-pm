@@ -48,6 +48,11 @@ for entry in "8899:validator" "4000:backend" "3000:frontend"; do
   fi
 done
 
+# Fallback: kill by process name (catches orphaned Next.js / turbopack workers)
+for pattern in "next-server" "next dev" "pnpm dev"; do
+  pkill -f "$pattern" 2>/dev/null && warn "Killed orphan process matching '$pattern'" || true
+done
+
 # Clean up any remaining PID files
 rm -f "$STATE_DIR"/*.pid 2>/dev/null || true
 

@@ -79,10 +79,17 @@ FRONTEND                                                    │
   F-7 + B-9 ──► F-14 (continuous sell UI)
   F-8 ──► F-15 (buy-to-price / sell-to-price UI)
   F-8 ──► F-16 (pre-trade validation & error messages)
+  F-7 ──► F-17 (interactive graph trading for continuous)
+  F-8 ──► F-18 (frontend unit & integration tests)
 
 DEVKIT (program interaction scripts)
   S-1 ──► S-2 ──► S-3 ──► S-4
   (setup)  (market)  (trade)  (resolve/claim)
+
+CROSS-CUTTING
+  P-19 ──► P-20 (math & logic review)
+  P-19 ──► P-21 (expand program tests)
+  B-8 ──► B-10 (expand backend tests)
 ```
 
 ---
@@ -783,6 +790,51 @@ DEVKIT (program interaction scripts)
 
 ---
 
+### P-20: Math & Logic Review
+
+**Goal:** Deep review of the project's core mathematics and trading logic to verify correctness — especially the L2-norm AMM, distribution trading, fixed-point arithmetic, payout calculations, and edge cases.
+
+**Scope:**
+- **AMM engine** (`programs/dekant-pm/src/amm/`): Verify L2-norm cost function, price computation, buy/sell invariants, distribution weight calculations
+- **Fixed-point math** (`math.rs`): Check for overflow/underflow, precision loss, rounding bias in SCALE arithmetic
+- **Normal PDF approximation** (`normal.rs`): Verify accuracy against reference implementations, check edge cases (extreme mu/sigma, bins at tails)
+- **Payout logic** (`claim_payout`): Verify proportional payout correctness for binary, multi-outcome, and continuous markets
+- **Fee calculations**: Confirm fees are applied correctly and don't create rounding exploits
+- **Edge cases**: Zero liquidity, single-outcome dominance, extreme probabilities near 0/1, very large/small trade amounts
+
+**Deliverable:**
+- Written report of findings (correctness confirmations and any bugs found)
+- Fixes for any mathematical bugs or precision issues discovered
+- Comparison against the Paradigm Distribution Markets paper for continuous market logic
+
+**Depends on:** P-19
+
+---
+
+### P-21: Expand Program Test Coverage
+
+**Goal:** Add tests for important program functionality that may lack coverage after recent changes and updates.
+
+**Scope:**
+- Audit existing tests in `tests/` — identify untested or under-tested instructions and edge cases
+- Focus on integration/e2e tests that exercise realistic multi-step flows
+- Priority areas:
+  - `buy_to_price` / `sell_to_price` instructions (target probability trading)
+  - Distribution buy/sell with edge-case parameters (extreme mu/sigma, bins at range boundaries)
+  - Liquidity add/remove around trades (LP share accounting)
+  - Fee collection and protocol fee accumulation accuracy
+  - Market resolution edge cases (continuous market resolution at range min/max)
+  - Role-based access control (unauthorized users attempting privileged operations)
+  - Concurrent trading scenarios (multiple users trading same market)
+
+**Deliverable:**
+- New test files or additions to existing test files in `tests/`
+- All new tests pass with `anchor test`
+
+**Depends on:** P-19
+
+---
+
 ## Backend Tasks
 
 ### B-1: NestJS Project Scaffolding ✅
@@ -991,6 +1043,29 @@ DEVKIT (program interaction scripts)
 - Distribution sell on non-continuous market → 400
 
 **Depends on:** B-7
+
+---
+
+### B-10: Expand Backend Test Coverage
+
+**Goal:** Add tests for important backend functionality that may lack coverage after recent changes and updates.
+
+**Scope:**
+- Audit existing tests — identify untested or under-tested services, controllers, and edge cases
+- Focus on integration tests that exercise realistic API flows
+- Priority areas:
+  - AMM estimation accuracy (buy/sell/distribution estimates vs on-chain results)
+  - Indexer service (event processing, state sync correctness, missed event recovery)
+  - Auth module edge cases (expired signatures, malformed tokens, replay attacks)
+  - Market search and filtering (pagination, type/state filters, edge cases)
+  - Distribution sell estimation (B-9) correctness against on-chain `sell_distribution`
+  - Error handling for RPC failures, stale data, and race conditions
+
+**Deliverable:**
+- New test files or additions to existing test files
+- All new tests pass with `npm test`
+
+**Depends on:** B-8
 
 ---
 
@@ -1432,6 +1507,64 @@ DEVKIT (program interaction scripts)
 
 ---
 
+### F-17: Interactive Graph Trading for Continuous Markets
+
+**Goal:** Improve the continuous market trading UX by allowing users to set their trade point by directly interacting with and dragging on the probability distribution graph itself (similar to Metaculus).
+
+**Context:** Currently the trade page shows a distribution graph in the sidebar, and users set their trade point using input sliders and text boxes for mu/sigma. This works but isn't intuitive — users should be able to directly manipulate the distribution curve.
+
+**Deliverable — `components/trading/interactive-distribution-graph.tsx` (new):**
+- Large interactive graph component (modal or inline expandable view)
+- User can click/drag on the graph to set mu (center of their prediction)
+- Draggable handles or scroll to adjust sigma (spread/confidence)
+- Real-time visual feedback: shows the user's proposed distribution overlaid on the current market distribution
+- Shows estimated cost as the user adjusts parameters
+- "Confirm" button that passes the selected mu/sigma back to the trading panel
+
+**Deliverable — `components/trading/trading-panel.tsx` (update):**
+- Add "Set on Graph" button next to mu/sigma inputs for continuous markets
+- Opens the interactive graph component
+- On confirm, populates the mu/sigma fields with the user's selection
+
+**Tests (manual):**
+- Click on graph → mu updates to clicked position
+- Drag handles → sigma adjusts, distribution widens/narrows visually
+- Estimated cost updates in real-time as user drags
+- Confirm → values populated in trading panel, trade executes correctly
+
+**Depends on:** F-7
+
+---
+
+### F-18: Frontend Unit & Integration Tests
+
+**Goal:** Add unit and integration tests for the frontend to verify that its sections, tools, and services work correctly.
+
+**Context:** Program and backend already have their own test suites. Frontend tests should focus on frontend-specific logic — component rendering, user interactions, state management, and service layer correctness. No need to test on-chain or backend logic (those are covered elsewhere). Keep it simple — no complicated testing infrastructure.
+
+**Deliverable:**
+- Test framework setup (e.g., Vitest + React Testing Library, or Jest + RTL — whichever fits the existing Next.js 16 setup with minimal config)
+- Tests for key service modules:
+  - `lib/transactions.ts`: Verify transaction builders produce correct instruction data (mock RPC)
+  - `lib/validation.ts`: Verify validation logic returns correct messages for each scenario
+  - `lib/amm.ts` / estimation helpers: Verify client-side AMM math matches expected outputs
+- Tests for key components:
+  - Trading panel: Renders correct inputs for binary vs multi vs continuous markets
+  - Market card / discovery: Renders market data correctly, filters work
+  - Portfolio page: Displays positions and balances correctly
+  - Wallet connection state: UI updates correctly on connect/disconnect
+- Integration tests:
+  - Trade flow: Select market → enter params → submit → toast shown (with mocked transactions)
+  - Market creation form: Fill form → submit → correct instruction built
+
+**Non-goals:**
+- No E2E browser tests (Playwright/Cypress) — keep it to unit/integration with JSDOM
+- No testing of on-chain logic or backend API responses (mocked)
+
+**Depends on:** F-8
+
+---
+
 ## Devkit Tasks (Program Interaction Scripts)
 
 > **Directory:** `devkit/`
@@ -1545,11 +1678,11 @@ DEVKIT (program interaction scripts)
 | Layer | Tasks | IDs | Status |
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
-| On-chain Program | 19 | P-1 → P-19 | ✅ Done |
-| Backend | 9 | B-1 → B-9 | ✅ Done |
-| Frontend | 16 | F-1 → F-16 | ⬅️ F-1→F-14, F-16 done; F-15 remaining |
+| On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
+| Backend | 10 | B-1 → B-10 | ⬅️ B-1→B-9 done; B-10 remaining |
+| Frontend | 18 | F-1 → F-18 | ⬅️ F-1→F-14, F-16 done; F-15, F-17, F-18 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
-| **Total** | **51** | | |
+| **Total** | **57** | | |
 
 ### Critical Path (longest dependency chain):
 
