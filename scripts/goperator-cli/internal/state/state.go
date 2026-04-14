@@ -122,6 +122,7 @@ type SessionState struct {
 	Client     *chain.Client
 	ProgramID  solana.PublicKey
 	RandomMode bool
+	Rand       *random.Generator
 	TxLog      []TxLogEntry
 }
 
@@ -144,6 +145,7 @@ func NewSessionState(rpcURL string, programID solana.PublicKey, keypairPath stri
 		},
 		Client:    client,
 		ProgramID: programID,
+		Rand:      random.NewGenerator(),
 		TxLog:     make([]TxLogEntry, 0),
 	}, nil
 }

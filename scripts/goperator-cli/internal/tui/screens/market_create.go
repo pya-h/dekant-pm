@@ -55,6 +55,14 @@ func NewCreateMarketScreen(s *state.SessionState) tea.Model {
 		rangeMaxStr: "500",
 	}
 
+	if s.RandomMode {
+		m.marketType = s.Rand.MarketType()
+		m.liquidity = s.Rand.Liquidity()
+		m.deadline = s.Rand.Deadline()
+		m.numOutcomes = s.Rand.NumOutcomes(m.marketType)
+		m.rangeMinStr, m.rangeMaxStr = s.Rand.RangeValues()
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().

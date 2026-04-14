@@ -36,6 +36,9 @@ func NewAssignRoleScreen(s *state.SessionState) tea.Model {
 
 	userChoices := buildUserChoices(s, false, true)
 	m := &assignRoleScreen{state: s}
+	if s.RandomMode {
+		m.roleChoice = s.Rand.Role()
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(

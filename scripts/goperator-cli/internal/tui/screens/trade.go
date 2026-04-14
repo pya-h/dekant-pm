@@ -55,6 +55,9 @@ func NewTradeScreen(s *state.SessionState, isBuy bool) tea.Model {
 	}
 
 	m := &tradeScreen{state: s, isBuy: isBuy, amount: "10", limitAmount: "1000", targetProb: "70"}
+	if s.RandomMode {
+		m.amount = s.Rand.TradeAmount()
+	}
 	marketChoices := buildMarketChoices(s)
 
 	m.form = huh.NewForm(
@@ -170,6 +173,10 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 	if m.market.Type == constants.MarketTypeContinuous {
 		// Distribution trade
 		m.tradeType = "distribution"
+		if m.state.RandomMode {
+			m.mu = m.state.Rand.Mu(m.market.RangeMin, m.market.RangeMax)
+			m.sigma = m.state.Rand.Sigma(m.market.RangeMin, m.market.RangeMax)
+		}
 		rangeStr := ""
 		if m.market.RangeMin != 0 || m.market.RangeMax != 0 {
 			rangeStr = fmt.Sprintf(" (range: %.0f–%.0f)", m.market.RangeMin, m.market.RangeMax)
@@ -195,6 +202,14 @@ func (m *tradeScreen) buildParamsForm() tea.Cmd {
 		)
 	} else {
 		// Discrete trade — choose type and outcome
+		if m.state.RandomMode {
+			m.outcomeStr = m.state.Rand.Outcome(m.market.NumOutcomes)
+			probs := util.ComputeProbabilities(m.marketData.Reserves, m.marketData.TotalMinted)
+			outcomeIdx, _ := strconv.Atoi(m.outcomeStr)
+			if outcomeIdx < len(probs) {
+				m.targetProb = m.state.Rand.TargetProbability(probs[outcomeIdx])
+			}
+		}
 		actionLabel := m.actionLabel()
 		outcomeOpts := make([]huh.Option[string], m.market.NumOutcomes)
 		for i := 0; i < m.market.NumOutcomes; i++ {

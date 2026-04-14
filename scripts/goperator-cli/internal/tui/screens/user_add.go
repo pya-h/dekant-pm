@@ -31,6 +31,9 @@ const (
 
 func NewAddUserScreen(s *state.SessionState) tea.Model {
 	defaultLabel := s.NextUserLabel()
+	if s.RandomMode {
+		defaultLabel = s.Rand.UserLabel(len(s.Users) + 1)
+	}
 
 	label := defaultLabel
 	form := huh.NewForm(
