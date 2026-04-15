@@ -284,9 +284,22 @@ async function executeCreateMarket(state, opts) {
     ROLE_ORACLE,
     state.programId
   );
+  // Derive creator role PDA: prefer Creator role; fall back to Admin role if the
+  // user has Admin but not Creator. For superuser, role check is bypassed on-chain.
+  const isSuperuserCreator = opts.creator.pubkey.equals(state.superuser.pubkey);
+  const sessionCreator = !isSuperuserCreator ? state.findUser(opts.creator.pubkey) : null;
+  let creatorRoleType = ROLE_CREATOR;
+  if (!isSuperuserCreator && sessionCreator) {
+    if (
+      !sessionCreator.roles.includes("Creator") &&
+      sessionCreator.roles.includes("Admin")
+    ) {
+      creatorRoleType = ROLE_ADMIN;
+    }
+  }
   const [creatorRolePda] = findUserRole(
     opts.creator.pubkey,
-    ROLE_CREATOR,
+    creatorRoleType,
     state.programId
   );
   const [creatorLpPos] = findLpPosition(
@@ -360,14 +373,12 @@ async function pauseUnpause(state) {
       const program = state.programForUser(user.keypair);
       const [protocolConfig] = findProtocolConfig(state.programId);
 
-      // Derive authorityRole: null for superuser, Admin PDA for Admin users
+      // Derive authorityRole: null for superuser, Admin role PDA for all other users.
+      // Always send the PDA (even if unconfirmed in session) — the program validates on-chain.
       const isSuperuser = user.pubkey.equals(state.superuser.pubkey);
       let authorityRole = null;
       if (!isSuperuser) {
-        const sessionUser = state.findUser(user.pubkey);
-        if (sessionUser && sessionUser.roles.includes("Admin")) {
-          [authorityRole] = findUserRole(user.pubkey, ROLE_ADMIN, state.programId);
-        }
+        [authorityRole] = findUserRole(user.pubkey, ROLE_ADMIN, state.programId);
       }
 
       if (isPaused) {

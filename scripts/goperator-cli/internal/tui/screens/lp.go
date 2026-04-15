@@ -3,6 +3,7 @@ package screens
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"goperator-cli/internal/chain"
 	"goperator-cli/internal/constants"
@@ -350,13 +351,13 @@ func (m *removeLPScreen) execRemoveLP() tea.Cmd {
 			return errMsg{err: fmt.Errorf("no LP position found")}
 		}
 
-		sharesToBurn := lp.Shares
+		sharesToBurn := new(big.Int).Set(lp.Shares)
 		if m.sharesStr != "all" {
-			// Parse as big.Int
-			_, ok := sharesToBurn.SetString(m.sharesStr, 10)
+			parsed, ok := new(big.Int).SetString(m.sharesStr, 10)
 			if !ok {
 				return errMsg{err: fmt.Errorf("invalid shares value")}
 			}
+			sharesToBurn = parsed
 		}
 
 		providerAta, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, md.CollateralMint)

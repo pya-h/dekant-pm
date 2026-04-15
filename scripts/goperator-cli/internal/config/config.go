@@ -17,11 +17,11 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	// Find devkit/.env relative to this binary's location
-	// Walk up from scripts/goperator-cli to project root, then devkit/.env
+	// Find devkit/.env — try multiple locations in order of reliability
 	candidates := []string{
-		"../../devkit/.env",
-		filepath.Join(projectRoot(), "devkit/.env"),
+		"../../devkit/.env",                         // run from scripts/goperator-cli/
+		filepath.Join(exeDir(), "../../devkit/.env"), // run from any dir (binary-relative)
+		filepath.Join(projectRoot(), "devkit/.env"),  // compile-time source path fallback
 	}
 
 	for _, p := range candidates {
@@ -62,6 +62,15 @@ func Load() (*Config, error) {
 		ProgramID:   programID,
 		KeypairPath: keypairPath,
 	}, nil
+}
+
+// exeDir returns the directory of the running binary.
+func exeDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
 }
 
 func projectRoot() string {
