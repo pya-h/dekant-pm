@@ -62,6 +62,9 @@ func NewAssignRoleScreen(s *state.SessionState) tea.Model {
 }
 
 func (m *assignRoleScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
 	return m.form.Init()
 }
 

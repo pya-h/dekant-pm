@@ -74,7 +74,7 @@ func (c *Client) SendAndConfirm(ctx context.Context, instructions []solana.Instr
 	}
 
 	opts := rpc.TransactionOpts{
-		SkipPreflight: false,
+		SkipPreflight: true,
 	}
 	sig, err := c.RPC.SendTransactionWithOpts(ctx, tx, opts)
 	if err != nil {

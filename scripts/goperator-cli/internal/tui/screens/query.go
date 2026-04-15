@@ -52,7 +52,12 @@ func NewQueryMarketScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *queryMarketScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *queryMarketScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *queryMarketScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -253,7 +258,12 @@ func NewViewPositionScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *viewPositionScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *viewPositionScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *viewPositionScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

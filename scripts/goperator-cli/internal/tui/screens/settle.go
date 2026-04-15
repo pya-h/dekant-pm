@@ -59,7 +59,12 @@ func NewResolveScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *resolveScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *resolveScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *resolveScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -270,7 +275,12 @@ func NewClaimScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *claimScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *claimScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *claimScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -441,7 +451,12 @@ func NewCollectFeesScreen(s *state.SessionState) tea.Model {
 	return m
 }
 
-func (m *collectFeesScreen) Init() tea.Cmd { return m.form.Init() }
+func (m *collectFeesScreen) Init() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	return m.form.Init()
+}
 
 func (m *collectFeesScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
