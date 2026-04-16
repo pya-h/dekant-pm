@@ -35,7 +35,7 @@ import { IndexerStateEntity } from './indexer/entity/indexer-state.entity';
           UserRoleEntity,
           IndexerStateEntity,
         ],
-        synchronize: false,
+        synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
     }),
