@@ -1,5 +1,6 @@
 FROM node:20-slim AS builder
 
+ENV NODE_ENV=development
 WORKDIR /app
 COPY package.json package-lock.json* yarn.lock* ./
 RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
