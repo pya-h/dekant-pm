@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   // Turbopack config (default bundler in Next.js 16)
   turbopack: {
     root: __dirname,
