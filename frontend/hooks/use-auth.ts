@@ -20,6 +20,7 @@ export function useAuth() {
   useEffect(() => {
     if (!address) {
       setToken(null);
+      setError(null);
       return;
     }
     const cached = tokenCache.get(address);
@@ -29,6 +30,8 @@ export function useAuth() {
       tokenCache.delete(address);
       setToken(null);
     }
+    // Clear prior errors so auto-auth can retry with a new wallet
+    setError(null);
   }, [address]);
 
   const authenticate = useCallback(async (): Promise<string> => {
