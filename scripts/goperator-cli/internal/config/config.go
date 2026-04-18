@@ -40,7 +40,7 @@ func Load() (*Config, error) {
 
 	programIDStr := os.Getenv("PROGRAM_ID")
 	if programIDStr == "" {
-		programIDStr = "Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf"
+		programIDStr = "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL"
 	}
 	programID, err := solana.PublicKeyFromBase58(programIDStr)
 	if err != nil {
