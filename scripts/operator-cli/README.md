@@ -30,7 +30,7 @@ The CLI reads configuration from `devkit/.env`:
 | Variable       | Description                              | Default                                        |
 |----------------|------------------------------------------|------------------------------------------------|
 | `RPC_URL`      | Solana RPC endpoint                      | `http://localhost:8899`                         |
-| `PROGRAM_ID`   | DekantPM program address                 | `Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf` |
+| `PROGRAM_ID`   | DekantPM program address                 | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` |
 | `KEYPAIR_PATH` | Superuser keypair file                   | `~/.config/solana/id.json`                      |
 
 No separate `.env` file is needed — the CLI loads devkit's configuration automatically.
