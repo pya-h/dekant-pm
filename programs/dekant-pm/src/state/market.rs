@@ -522,8 +522,12 @@ impl Market {
     /// Recompute `k_squared` from `total_minted`.
     ///
     /// k_squared = total_minted² (position-based invariant).
-    pub fn recompute_k_squared(&mut self) {
-        self.k_squared = self.total_minted * self.total_minted;
+    pub fn recompute_k_squared(&mut self) -> Result<()> {
+        self.k_squared = self
+            .total_minted
+            .checked_mul(self.total_minted)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        Ok(())
     }
 
     // ── AMM Mutations ────────────────────────────────────────────────

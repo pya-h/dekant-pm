@@ -310,7 +310,10 @@ pub fn compute_probabilities(reserves: &[u64], total_minted: u128) -> Vec<u128> 
     if total_minted == 0 {
         return vec![0; reserves.len()];
     }
-    let k_sq = total_minted * total_minted;
+    let k_sq = match total_minted.checked_mul(total_minted) {
+        Some(v) => v,
+        None => return vec![0; reserves.len()],
+    };
     reserves
         .iter()
         .map(|&h| {

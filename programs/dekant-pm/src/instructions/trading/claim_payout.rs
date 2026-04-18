@@ -82,12 +82,14 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
 
     require!(winning_tokens_total > 0, DekantPmError::NothingToClaim);
 
-    // Fee pools belong to LPs / protocol, not to winning traders.
-    let vault_balance = ctx.accounts.vault.amount as u128;
-    let payout_pool = vault_balance
-        .checked_sub(market.lp_fee_accumulated)
-        .and_then(|v| v.checked_sub(market.protocol_fee_accumulated as u128))
-        .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
+    // The payout pool is total_minted: the aggregate collateral backing all
+    // complete sets.  We must NOT derive this from vault_balance because the
+    // vault balance shrinks with every prior claim, creating a first-claimer
+    // advantage (later claimers would see a smaller pool and receive less
+    // than their fair share).  total_minted is order-independent and exactly
+    // equals vault - lp_fee_accumulated - protocol_fee_accumulated when no
+    // LP withdrawals have occurred.
+    let payout_pool = market.total_minted;
 
     let gross_payout = mul_div(
         winning_tokens as u128,
