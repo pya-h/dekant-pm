@@ -40,7 +40,7 @@ func Load() (*Config, error) {
 
 	programIDStr := os.Getenv("PROGRAM_ID")
 	if programIDStr == "" {
-		programIDStr = "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL"
+		return nil, fmt.Errorf("PROGRAM_ID environment variable is not set. Set it in devkit/.env or export it directly")
 	}
 	programID, err := solana.PublicKeyFromBase58(programIDStr)
 	if err != nil {

@@ -80,7 +80,13 @@ network_rpc() {
 }
 
 get_program_id() {
-  state_get PROGRAM_ID "Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf"
+  local pid
+  pid=$(state_get PROGRAM_ID "")
+  if [ -z "$pid" ]; then
+    fail "PROGRAM_ID is not set. Run setup.sh first or set it in scripts/.state/env"
+    exit 1
+  fi
+  echo "$pid"
 }
 
 get_network() {

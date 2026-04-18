@@ -134,9 +134,11 @@ export function getRpcUrl(): string {
 }
 
 export function getProgramId(): PublicKey {
-  return new PublicKey(
-    process.env.PROGRAM_ID || "Fa2ookSb6meqem6F1oZcVv1PAxQzNtr7zkf1XiDBFgAf"
-  );
+  const id = process.env.PROGRAM_ID;
+  if (!id) {
+    throw new Error("PROGRAM_ID environment variable is not set. Set it in devkit/.env or export it directly.");
+  }
+  return new PublicKey(id);
 }
 
 export function loadKeypair(path?: string): Keypair {

@@ -3,6 +3,7 @@
 */dist/
 */build/
 *.env
+backend/.env.production
 .DS_Store
 .idea/
 .vscode/
