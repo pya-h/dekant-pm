@@ -96,6 +96,7 @@ describe('AMM (e2e)', () => {
     it('should return distribution buy for continuous market', () => {
       testApp.marketRepo.findOne.mockResolvedValueOnce(
         mockMarket({
+          marketType: 2,
           numOutcomes: 5,
           reserves: ['200', '200', '200', '200', '200'],
           totalMinted: '1000',
@@ -118,6 +119,7 @@ describe('AMM (e2e)', () => {
     it('should handle distribution buy with sigma near zero', () => {
       testApp.marketRepo.findOne.mockResolvedValueOnce(
         mockMarket({
+          marketType: 2,
           numOutcomes: 5,
           reserves: ['200', '200', '200', '200', '200'],
           totalMinted: '1000',
@@ -137,6 +139,7 @@ describe('AMM (e2e)', () => {
     it('should handle distribution buy with mu outside range', () => {
       testApp.marketRepo.findOne.mockResolvedValueOnce(
         mockMarket({
+          marketType: 2,
           numOutcomes: 5,
           reserves: ['200', '200', '200', '200', '200'],
           totalMinted: '1000',
@@ -156,6 +159,7 @@ describe('AMM (e2e)', () => {
     it('should handle distribution buy with large sigma (uniform-ish)', () => {
       testApp.marketRepo.findOne.mockResolvedValueOnce(
         mockMarket({
+          marketType: 2,
           numOutcomes: 5,
           reserves: ['200', '200', '200', '200', '200'],
           totalMinted: '1000',
@@ -381,7 +385,7 @@ describe('AMM (e2e)', () => {
     it('should reject non-whitelisted fields', () => {
       return request(app.getHttpServer())
         .post('/amm/estimate-sell')
-        .send({ marketId: 1, outcome: 0, amount: 100, mu: 50 })
+        .send({ marketId: 1, outcome: 0, amount: 100, extraField: 'bad' })
         .expect(400);
     });
   });
