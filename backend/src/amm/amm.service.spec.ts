@@ -158,6 +158,7 @@ describe('AmmService', () => {
   describe('estimateDistributionBuy (continuous markets)', () => {
     it('should distribute tokens across bins according to Gaussian weights', async () => {
       const market = mockMarket({
+        marketType: 2,
         numOutcomes: 5,
         reserves: ['200', '200', '200', '200', '200'],
         totalMinted: '1000',
@@ -175,6 +176,7 @@ describe('AmmService', () => {
 
     it('should deduct fee from collateral', async () => {
       const market = mockMarket({
+        marketType: 2,
         numOutcomes: 3,
         reserves: ['333', '333', '334'],
         totalMinted: '1000',
@@ -190,6 +192,7 @@ describe('AmmService', () => {
 
     it('should produce valid probabilities', async () => {
       const market = mockMarket({
+        marketType: 2,
         numOutcomes: 4,
         reserves: ['250', '250', '250', '250'],
         totalMinted: '1000',

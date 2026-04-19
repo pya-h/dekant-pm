@@ -337,7 +337,7 @@ describe('MarketService', () => {
       };
       marketRepo.createQueryBuilder.mockReturnValue(qb);
 
-      await service.incrementVolume(1, '5000', 'TraderAddress');
+      await service.incrementVolume(1, '5000');
 
       expect(qb.update).toHaveBeenCalledWith(MarketEntity);
       expect(qb.setParameters).toHaveBeenCalledWith({ amount: '5000' });

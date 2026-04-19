@@ -122,6 +122,11 @@ export class AmmService {
     tradeFeesBps = 30,
   ): Promise<EstimateDistributionBuyResult> {
     const market = await this.marketService.findById(marketId);
+    if (market.marketType !== 2) {
+      throw new BadRequestException(
+        'Distribution buy is only available for continuous markets',
+      );
+    }
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
     const rangeMin = Number(market.rangeMin ?? 0);
