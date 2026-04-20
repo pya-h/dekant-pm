@@ -60,6 +60,23 @@ class ApiClient {
   }
 
   async post<T>(path: string, body: unknown, token?: string): Promise<T> {
+    return this.mutate<T>("POST", path, body, token);
+  }
+
+  async patch<T>(path: string, body: unknown, token?: string): Promise<T> {
+    return this.mutate<T>("PATCH", path, body, token);
+  }
+
+  async delete<T>(path: string, token?: string): Promise<T> {
+    return this.mutate<T>("DELETE", path, undefined, token);
+  }
+
+  private async mutate<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    token?: string,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -70,9 +87,9 @@ class ApiClient {
 
     try {
       const res = await fetch(new URL(path, this.baseUrl).toString(), {
-        method: "POST",
+        method,
         headers,
-        body: JSON.stringify(body),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
       if (!res.ok) {

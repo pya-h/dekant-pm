@@ -9,6 +9,7 @@ import { RoleManager } from "@/components/admin/role-manager";
 import { FeeConfig } from "@/components/admin/fee-config";
 import { FeeCollector } from "@/components/admin/fee-collector";
 import { PauseControls } from "@/components/admin/pause-controls";
+import { ProtocolSettings } from "@/components/admin/protocol-settings";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Wallet, ShieldAlert, Loader2, Shield, PlusCircle } from "lucide-react";
@@ -148,6 +149,7 @@ export default function AdminPage() {
           <TabsTrigger value="roles">Roles</TabsTrigger>
           {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
           {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
+          {isSuperadmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
           <TabsTrigger value="controls">Market Controls</TabsTrigger>
         </TabsList>
 
@@ -164,6 +166,12 @@ export default function AdminPage() {
         {isSuperadmin && (
           <TabsContent value="collect" className="mt-4">
             <FeeCollector />
+          </TabsContent>
+        )}
+
+        {isSuperadmin && (
+          <TabsContent value="settings" className="mt-4">
+            <ProtocolSettings token={token} />
           </TabsContent>
         )}
 
