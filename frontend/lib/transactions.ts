@@ -4,6 +4,7 @@ import type { DekantPm } from "./program/dekant_pm";
 import {
   deriveProtocolConfig,
   deriveUserPosition,
+  deriveLpPosition,
   deriveVaultAuthority,
 } from "./solana";
 import { USDC_DECIMALS, SCALE } from "./types";
@@ -192,6 +193,63 @@ export async function executeSellToPrice(
   const accounts = await resolveAccounts(program, marketPubkey, trader);
   return program.methods
     .sellToPrice({ outcome, targetProbability, minCollateralOut })
+    .accountsPartial(accounts)
+    .rpc();
+}
+
+// ---------------------------------------------------------------------------
+// Liquidity provision
+// ---------------------------------------------------------------------------
+
+/** Resolve accounts for LP instructions (different from trading accounts). */
+async function resolveLpAccounts(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  provider: PublicKey,
+) {
+  const marketAccount = await program.account.market.fetch(marketPubkey);
+  const [lpPosition] = deriveLpPosition(marketPubkey, provider);
+  const [vaultAuthority] = deriveVaultAuthority(marketPubkey);
+  const providerAta = getAta(marketAccount.collateralMint, provider);
+
+  return {
+    provider,
+    market: marketPubkey,
+    lpPosition,
+    vaultAuthority,
+    vault: marketAccount.vault as PublicKey,
+    providerAta,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  };
+}
+
+/** Add liquidity to a market (deposit USDC, receive LP shares). */
+export async function executeAddLiquidity(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  provider: PublicKey,
+  amount: string,
+): Promise<string> {
+  const accounts = await resolveLpAccounts(program, marketPubkey, provider);
+  return program.methods
+    .addLiquidity({ amount: toBaseUnits(amount) })
+    .accountsPartial({
+      ...accounts,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+/** Remove liquidity from a market (burn LP shares, receive USDC). */
+export async function executeRemoveLiquidity(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  provider: PublicKey,
+  sharesToBurn: BN,
+): Promise<string> {
+  const accounts = await resolveLpAccounts(program, marketPubkey, provider);
+  return program.methods
+    .removeLiquidity({ sharesToBurn })
     .accountsPartial(accounts)
     .rpc();
 }
