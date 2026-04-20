@@ -421,6 +421,202 @@ describe('AmmService', () => {
     });
   });
 
+  describe('estimateBuyToPrice (discrete markets)', () => {
+    // L2-norm invariant: K^2 = sum(x_i^2), x_i = K - r_i
+    // 2-outcome equal probs: x = K/sqrt(2) ≈ 707107, r = K - x ≈ 292893
+    // K=1000000, r≈292893, x≈707107, p=x^2/K^2=0.5
+
+    it('should compute collateral needed to reach target probability', async () => {
+      const market = mockMarket({
+        reserves: ['292893', '292893'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 70% for outcome 0 (SCALE-denominated)
+      const result = await service.estimateBuyToPrice(1, 0, 700_000_000, 30);
+      expect(result.collateralNeeded).toBeGreaterThan(0);
+      expect(result.tokensOut).toBeGreaterThan(0);
+      expect(result.fee).toBeGreaterThanOrEqual(0);
+      // Resulting probability should be close to 70%
+      expect(result.newProbabilities[0]).toBeGreaterThan(0.65);
+      expect(result.newProbabilities[0]).toBeLessThan(0.75);
+    });
+
+    it('should throw when target probability <= current probability', async () => {
+      const market = mockMarket({
+        reserves: ['292893', '292893'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 30% < current ~50%
+      await expect(
+        service.estimateBuyToPrice(1, 0, 300_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw when target probability >= 100%', async () => {
+      const market = mockMarket({
+        reserves: ['292893', '292893'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(
+        service.estimateBuyToPrice(1, 0, 1_000_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw for continuous market', async () => {
+      const market = mockMarket({ marketType: 2 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(
+        service.estimateBuyToPrice(1, 0, 700_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should work with multi-outcome market', async () => {
+      // 4-outcome equal probs: x = K/2, r = K/2
+      // K=1000000, r=500000, x=500000, p=x^2/(4*x^2)=0.25
+      const market = mockMarket({
+        numOutcomes: 4,
+        reserves: ['500000', '500000', '500000', '500000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 40% for outcome 2 (current ≈ 25%)
+      const result = await service.estimateBuyToPrice(1, 2, 400_000_000, 0);
+      expect(result.collateralNeeded).toBeGreaterThan(0);
+      expect(result.newProbabilities[2]).toBeGreaterThan(0.35);
+    });
+
+    it('should produce valid probabilities that sum close to 1', async () => {
+      const market = mockMarket({
+        reserves: ['292893', '292893'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      const result = await service.estimateBuyToPrice(1, 0, 800_000_000, 0);
+      const sum = result.newProbabilities.reduce((a, b) => a + b, 0);
+      expect(sum).toBeGreaterThan(0.95);
+      expect(sum).toBeLessThan(1.05);
+    });
+  });
+
+  describe('estimateSellToPrice (discrete markets)', () => {
+    // Unequal probs: K=1000000
+    // p0=0.64, p1=0.36 → x0=800000, x1=600000
+    // K^2=10^12, x0^2+x1^2=640000000000+360000000000=10^12 ✓
+    // reserves=[200000, 400000]
+
+    it('should compute tokens to sell to reach target probability', async () => {
+      const market = mockMarket({
+        reserves: ['200000', '400000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 40% for outcome 0 (currently ≈ 64%)
+      const result = await service.estimateSellToPrice(1, 0, 400_000_000, 30);
+      expect(result.tokensToSell).toBeGreaterThan(0);
+      expect(result.collateralOut).toBeGreaterThanOrEqual(0);
+      expect(result.fee).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should throw when target probability >= current probability', async () => {
+      const market = mockMarket({
+        reserves: ['200000', '400000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 80% > current 64%
+      await expect(
+        service.estimateSellToPrice(1, 0, 800_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw for negative target probability', async () => {
+      const market = mockMarket({
+        reserves: ['200000', '400000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(
+        service.estimateSellToPrice(1, 0, -100_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw for continuous market', async () => {
+      const market = mockMarket({ marketType: 2 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(
+        service.estimateSellToPrice(1, 0, 300_000_000, 0),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should handle selling to target probability of 0', async () => {
+      const market = mockMarket({
+        reserves: ['200000', '400000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      // Target 0% for outcome 0
+      const result = await service.estimateSellToPrice(1, 0, 0, 0);
+      expect(result.tokensToSell).toBeGreaterThan(0);
+    });
+
+    it('should produce valid probabilities', async () => {
+      const market = mockMarket({
+        reserves: ['200000', '400000'],
+        totalMinted: '1000000',
+      });
+      marketService.findById.mockResolvedValue(market);
+
+      const result = await service.estimateSellToPrice(1, 0, 300_000_000, 0);
+      for (const p of result.newProbabilities) {
+        expect(p).toBeGreaterThanOrEqual(0);
+        expect(p).toBeLessThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('validateOutcome', () => {
+    it('should throw for outcome >= numOutcomes', async () => {
+      const market = mockMarket({ numOutcomes: 2 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(service.estimateBuy(1, 2, 1000)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw for negative outcome', async () => {
+      const market = mockMarket({ numOutcomes: 2 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(service.estimateBuy(1, -1, 1000)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw for non-integer outcome', async () => {
+      const market = mockMarket({ numOutcomes: 2 });
+      marketService.findById.mockResolvedValue(market);
+
+      await expect(service.estimateBuy(1, 0.5, 1000)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
   describe('edge cases', () => {
     it('should handle a market with zero totalMinted', async () => {
       const market = mockMarket({
