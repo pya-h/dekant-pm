@@ -20,6 +20,7 @@ export function FeeCollector() {
   const { data, isLoading, isError } = useMarkets({ limit: 100 });
 
   const [actionId, setActionId] = useState<string | null>(null);
+  const [collectingAll, setCollectingAll] = useState(false);
 
   const handleCollect = async (marketPubkey: string, marketId: string) => {
     if (!program || !publicKey) return;
@@ -39,6 +40,40 @@ export function FeeCollector() {
       showTradeError(err);
     } finally {
       setActionId(null);
+    }
+  };
+
+  const handleCollectAll = async () => {
+    if (!program || !publicKey || !data?.data.length) return;
+    setCollectingAll(true);
+    let succeeded = 0;
+    let failed = 0;
+    for (const market of data.data) {
+      setActionId(market.id);
+      try {
+        await executeCollectFees(
+          program,
+          publicKey,
+          new PublicKey(market.pubkey),
+        );
+        succeeded++;
+      } catch {
+        failed++;
+      }
+    }
+    setActionId(null);
+    setCollectingAll(false);
+    if (succeeded > 0) {
+      showTradeSuccess(
+        "",
+        `Collected fees from ${succeeded} market${succeeded > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
+      );
+      setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
+        3000,
+      );
+    } else if (failed > 0) {
+      showTradeError(new Error(`All ${failed} fee collections failed`));
     }
   };
 
@@ -71,13 +106,29 @@ export function FeeCollector() {
 
   return (
     <div className="rounded-xl border border-border/40 bg-card/50">
-      <div className="border-b border-border/40 px-5 py-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Collect Protocol Fees
-        </h3>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Sweep accumulated fees from market vaults to the treasury. Superadmin only.
-        </p>
+      <div className="flex items-center justify-between border-b border-border/40 px-5 py-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Collect Protocol Fees
+          </h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Sweep accumulated fees from market vaults to the treasury. Superadmin only.
+          </p>
+        </div>
+        <Button
+          variant="default"
+          size="sm"
+          className="gap-1.5"
+          onClick={handleCollectAll}
+          disabled={collectingAll || !!actionId}
+        >
+          {collectingAll ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Coins className="h-3.5 w-3.5" />
+          )}
+          {collectingAll ? "Collecting..." : "Collect All"}
+        </Button>
       </div>
       <div className="divide-y divide-border/40">
         {markets.map((market) => {
@@ -103,7 +154,7 @@ export function FeeCollector() {
                 size="sm"
                 className="gap-1.5"
                 onClick={() => handleCollect(market.pubkey, market.id)}
-                disabled={isProcessing}
+                disabled={isProcessing || collectingAll}
               >
                 {isProcessing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
