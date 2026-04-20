@@ -161,6 +161,41 @@ export async function executeResolveMarket(
     .rpc();
 }
 
+/** Buy outcome tokens to reach a target probability (Binary / MultiOutcome). */
+export async function executeBuyToPrice(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  outcome: number,
+  targetProbability: BN,
+  maxCollateral: BN,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .buyToPrice({ outcome, targetProbability, maxCollateral })
+    .accountsPartial({
+      ...accounts,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+}
+
+/** Sell outcome tokens to reach a target probability (Binary / MultiOutcome). */
+export async function executeSellToPrice(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  outcome: number,
+  targetProbability: BN,
+  minCollateralOut: BN,
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .sellToPrice({ outcome, targetProbability, minCollateralOut })
+    .accountsPartial(accounts)
+    .rpc();
+}
+
 /** Sell distribution position (Continuous markets). */
 export async function executeSellDistribution(
   program: Program<DekantPm>,

@@ -34,6 +34,20 @@ export interface EstimateSellByCollateralResult {
   newProbabilities: number[];
 }
 
+export interface EstimateBuyToPriceResult {
+  collateralNeeded: number;
+  tokensOut: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
+export interface EstimateSellToPriceResult {
+  tokensToSell: number;
+  collateralOut: number;
+  fee: number;
+  newProbabilities: number[];
+}
+
 @Injectable()
 export class AmmService {
   constructor(private readonly marketService: MarketService) {}
@@ -411,6 +425,169 @@ export class AmmService {
     const newProbabilities = this.computeProbabilities(newReserves, kNew);
 
     return { tokensNeeded, fee, newProbabilities };
+  }
+
+  async estimateBuyToPrice(
+    marketId: number,
+    outcome: number,
+    targetProbability: number,
+    tradeFeesBps = 30,
+  ): Promise<EstimateBuyToPriceResult> {
+    const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
+    if (market.marketType === 2) {
+      throw new BadRequestException(
+        'Buy-to-price is only available for discrete markets',
+      );
+    }
+
+    const reserves = market.reserves.map(Number);
+    const totalMinted = Number(market.totalMinted);
+    const targetProb = targetProbability / SCALE;
+
+    // Current probability
+    const xI = totalMinted - reserves[outcome];
+    const kSq = totalMinted * totalMinted;
+    const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
+
+    if (targetProb <= currentProb) {
+      throw new BadRequestException(
+        'Target probability must be higher than current probability',
+      );
+    }
+    if (targetProb >= 1) {
+      throw new BadRequestException('Target probability must be < 100%');
+    }
+
+    // sum of x_j^2 for j != outcome
+    let sumOthersXSq = 0;
+    for (let j = 0; j < reserves.length; j++) {
+      if (j !== outcome) {
+        const x = totalMinted - reserves[j];
+        sumOthersXSq += x * x;
+      }
+    }
+
+    // K_new^2 = sumOthersXSq / (1 - targetProb)
+    const kNewSq = sumOthersXSq / (1 - targetProb);
+    const kNew = Math.sqrt(kNewSq);
+    const effectiveCollateral = Math.ceil(kNew - totalMinted);
+
+    if (effectiveCollateral <= 0) {
+      throw new BadRequestException('Cannot reach target probability');
+    }
+
+    // Gross up for fees
+    const grossCollateral = Math.ceil(
+      (effectiveCollateral * 10000) / (10000 - tradeFeesBps),
+    );
+    const fee = Math.floor((grossCollateral * tradeFeesBps) / 10000);
+
+    // Compute tokens out using actual effective amount
+    const actualEffective = grossCollateral - fee;
+    const tokensOut = this.computeBuy(
+      [...reserves],
+      totalMinted,
+      outcome,
+      actualEffective,
+    );
+
+    // Compute new probabilities
+    const newReserves = reserves.map((r) => r + actualEffective);
+    const kNewActual = totalMinted + actualEffective;
+    const sumOthersXSqNew = newReserves.reduce((sum, r, i) => {
+      if (i === outcome) return sum;
+      const x = kNewActual - r;
+      return sum + x * x;
+    }, 0);
+    const xNewI = Math.sqrt(kNewActual * kNewActual - sumOthersXSqNew);
+    newReserves[outcome] = kNewActual - xNewI;
+    const newProbabilities = this.computeProbabilities(newReserves, kNewActual);
+
+    return { collateralNeeded: grossCollateral, tokensOut, fee, newProbabilities };
+  }
+
+  async estimateSellToPrice(
+    marketId: number,
+    outcome: number,
+    targetProbability: number,
+    tradeFeesBps = 30,
+  ): Promise<EstimateSellToPriceResult> {
+    const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
+    if (market.marketType === 2) {
+      throw new BadRequestException(
+        'Sell-to-price is only available for discrete markets',
+      );
+    }
+
+    const reserves = market.reserves.map(Number);
+    const totalMinted = Number(market.totalMinted);
+    const targetProb = targetProbability / SCALE;
+
+    // Current probability
+    const xI = totalMinted - reserves[outcome];
+    const kSq = totalMinted * totalMinted;
+    const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
+
+    if (targetProb >= currentProb) {
+      throw new BadRequestException(
+        'Target probability must be lower than current probability',
+      );
+    }
+    if (targetProb < 0) {
+      throw new BadRequestException('Target probability must be >= 0');
+    }
+
+    // sum of x_j^2 for j != outcome
+    let sumOthersXSq = 0;
+    for (let j = 0; j < reserves.length; j++) {
+      if (j !== outcome) {
+        const x = totalMinted - reserves[j];
+        sumOthersXSq += x * x;
+      }
+    }
+
+    // Compute tokens to sell
+    let tokensToSell: number;
+    if (targetProb === 0) {
+      tokensToSell = Math.ceil(xI);
+    } else {
+      const xTargetSq = (targetProb * sumOthersXSq) / (1 - targetProb);
+      const xTarget = Math.sqrt(xTargetSq);
+      tokensToSell = Math.ceil(xI - xTarget);
+    }
+
+    if (tokensToSell <= 0) {
+      throw new BadRequestException('Cannot reach target probability');
+    }
+
+    // Forward compute sell to get collateral out
+    const grossCollateral = this.computeSell(
+      [...reserves],
+      totalMinted,
+      outcome,
+      tokensToSell,
+    );
+    const fee = Math.floor((grossCollateral * tradeFeesBps) / 10000);
+    const collateralOut = grossCollateral - fee;
+
+    // Compute new probabilities
+    const newReserves = [...reserves];
+    newReserves[outcome] += tokensToSell;
+    let kNewSq = 0;
+    for (const r of newReserves) {
+      const x = totalMinted - r;
+      kNewSq += x * x;
+    }
+    const kNew = Math.sqrt(kNewSq);
+    const collateralBurn = totalMinted - kNew;
+    for (let i = 0; i < newReserves.length; i++) {
+      newReserves[i] -= collateralBurn;
+    }
+    const newProbabilities = this.computeProbabilities(newReserves, kNew);
+
+    return { tokensToSell, collateralOut, fee, newProbabilities };
   }
 
   private computeBuy(

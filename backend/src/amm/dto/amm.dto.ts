@@ -104,3 +104,47 @@ export class EstimateSellDto {
   @IsOptional()
   sigma?: number;
 }
+
+export class EstimateBuyToPriceDto {
+  @ApiProperty({ description: 'Market ID' })
+  @IsNumber()
+  @IsNotEmpty()
+  marketId!: number;
+
+  @ApiProperty({ description: 'Outcome index' })
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  outcome!: number;
+
+  @ApiProperty({
+    description:
+      'Target probability (SCALE-denominated, e.g. 700000000 = 70%)',
+  })
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(1)
+  targetProbability!: number;
+}
+
+export class EstimateSellToPriceDto {
+  @ApiProperty({ description: 'Market ID' })
+  @IsNumber()
+  @IsNotEmpty()
+  marketId!: number;
+
+  @ApiProperty({ description: 'Outcome index' })
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  outcome!: number;
+
+  @ApiProperty({
+    description:
+      'Target probability (SCALE-denominated, e.g. 300000000 = 30%)',
+  })
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  targetProbability!: number;
+}
