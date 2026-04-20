@@ -22,6 +22,9 @@ import { TradeEntity } from '../../src/market/entity/trade.entity';
 import { UserPositionEntity } from '../../src/user/entity/user-position.entity';
 import { LpPositionEntity } from '../../src/user/entity/lp-position.entity';
 import { UserRoleEntity } from '../../src/user/entity/user-role.entity';
+import { SettingsService } from '../../src/settings/settings.service';
+import { SettingsController } from '../../src/settings/settings.controller';
+import { SettingEntity } from '../../src/settings/setting.entity';
 import { mockMarket } from './mock-factories';
 
 export const JWT_SECRET = 'e2e-test-secret-key-at-least-32-chars-long';
@@ -35,6 +38,7 @@ export interface TestApp {
   positionRepo: Record<string, jest.Mock>;
   lpPositionRepo: Record<string, jest.Mock>;
   roleRepo: Record<string, jest.Mock>;
+  settingRepo: Record<string, jest.Mock>;
   getAuthToken: (wallet?: string) => string;
 }
 
@@ -78,6 +82,14 @@ export async function createTestApp(): Promise<TestApp> {
     find: jest.fn().mockResolvedValue([]),
   };
 
+  const settingRepo: Record<string, jest.Mock> = {
+    findOne: jest.fn().mockResolvedValue(null),
+    create: jest.fn((dto: any) => dto),
+    save: jest.fn((entity: any) =>
+      Promise.resolve({ ...entity, updatedAt: new Date() }),
+    ),
+  };
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [
       ConfigModule.forRoot({ isGlobal: true }),
@@ -93,6 +105,7 @@ export async function createTestApp(): Promise<TestApp> {
       AmmController,
       UserController,
       AdminController,
+      SettingsController,
     ],
     providers: [
       AuthService,
@@ -111,6 +124,8 @@ export async function createTestApp(): Promise<TestApp> {
         useValue: lpPositionRepo,
       },
       { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
+      { provide: getRepositoryToken(SettingEntity), useValue: settingRepo },
+      SettingsService,
     ],
   }).compile();
 
@@ -140,6 +155,7 @@ export async function createTestApp(): Promise<TestApp> {
     positionRepo,
     lpPositionRepo,
     roleRepo,
+    settingRepo,
     getAuthToken,
   };
 }
