@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** 2026-02-24
-**Status:** Frontend feature-complete (F-1 through F-14, F-16 done; F-15, F-17, F-18 remaining)
+**Status:** Frontend feature-complete (F-1 through F-17 done; F-18→F-21 remaining)
 **Audience:** Frontend developer(s) building the Next.js web application
 
 ---

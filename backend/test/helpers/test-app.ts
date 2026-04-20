@@ -84,10 +84,13 @@ export async function createTestApp(): Promise<TestApp> {
 
   const settingRepo: Record<string, jest.Mock> = {
     findOne: jest.fn().mockResolvedValue(null),
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn((dto: any) => dto),
     save: jest.fn((entity: any) =>
-      Promise.resolve({ ...entity, updatedAt: new Date() }),
+      Promise.resolve({ ...entity, id: entity.id ?? 1, updatedAt: new Date() }),
     ),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+    delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 
   const moduleFixture: TestingModule = await Test.createTestingModule({

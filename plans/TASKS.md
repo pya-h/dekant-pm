@@ -79,8 +79,11 @@ FRONTEND                                                    │
   F-7 + B-9 ──► F-14 (continuous sell UI)
   F-8 ──► F-15 (buy-to-price / sell-to-price UI)
   F-8 ──► F-16 (pre-trade validation & error messages)
-  F-7 ──► F-17 (interactive graph trading for continuous)
-  F-8 ──► F-18 (frontend unit & integration tests)
+  F-7 ──► F-17 (liquidity provision UI)
+  F-7 ──► F-18 (interactive graph trading for continuous)
+  B-11 + F-10 ──► F-19 (admin protocol settings UI)
+  F-19 ──► F-20 (responsive design review)
+  F-8 ──► F-21 (frontend unit & integration tests)
 
 DEVKIT (program interaction scripts)
   S-1 ──► S-2 ──► S-3 ──► S-4
@@ -1081,31 +1084,28 @@ DEVELOPER REVIEW (human-led, after all implementation)
 **Goal:** Implement an optional scheduled task in the backend that automatically calls `collectFees` on all resolved (or fee-bearing) markets at a configurable interval.
 
 **Deliverable — Settings infrastructure:**
-- Create a `SettingsEntity` table/entity for storing key-value protocol settings (reusable for future settings)
-  - Fields: `key` (string, unique PK), `value` (jsonb or string), `updatedAt` (timestamp)
-- Add a `SettingsService` for reading/writing settings
-- Add a `SettingsController` with an authenticated `PUT /settings/:key` endpoint (superadmin only)
-- The fee collection interval is stored under key `fee-collection-interval`
-- Allowed values: `"none"` (disabled), `"6h"`, `"12h"`, `"24h"`, `"48h"`
+- Typed `settings` table with auto-increment PK, `name`, `is_active` (boolean), `fee_collect_interval`, `deadline_check_interval`, timestamps
+- Multiple preset rows can exist; one is active at a time. Admins can create presets and switch between them
+- `SettingsService` with `getActive()`, `create()`, `update()`, `activate(id)`, `remove(id)`, typed interval getters
+- `SettingsController` with auth-protected endpoints: `GET /settings` (active), `GET /settings/all`, `POST /settings` (create preset), `PATCH /settings` (update active), `POST /settings/:id/activate`, `DELETE /settings/:id`
+- Fee collection interval values: `"none"` (disabled), `"6h"`, `"12h"`, `"24h"`, `"48h"`
+- Deadline check interval values: `"30s"`, `"1m"`, `"2m"`, `"5m"`, `"10m"`
 
 **Deliverable — Fee collection cron:**
-- Implement a `@Cron`-based (or `@Interval`-based) scheduled task in a `FeeCollectionService`
-- On each tick: check the configured interval setting; if disabled (`"none"`), skip
-- If enabled: iterate over all markets that have `protocolFeeAccumulated > 0` (or all resolved markets), and call `collectFees` on-chain for each
-- The cron should run at the shortest possible interval (e.g., every 5 minutes) and internally track the last execution time, only running the actual collection when the configured interval has elapsed
-- Use a backend-held keypair (superadmin or treasury key from env) for signing the transactions
-- Log each collection attempt (success/failure) with market ID and amount collected
-- Handle errors gracefully — a failure on one market should not prevent collecting from others
+- `FeeCollectionService` with `@Cron(EVERY_5_MINUTES)` tick
+- On each tick: reads active settings for fee collection interval; if `"none"`, skip
+- Iterates markets with `protocolFeeAccumulated > 0`, calls `collectFees` on-chain for each
+- Uses `COLLECTOR_KEYPAIR` env var (path to JSON keypair) for signing
+- Logs each collection attempt (success/failure) with market ID and amount
+- A failure on one market does not prevent collecting from others
 
-**Deliverable — Configuration API:**
-- `GET /settings/fee-collection-interval` — returns current interval
-- `PUT /settings/fee-collection-interval` — update interval (superadmin auth required)
-- On update, the cron service should pick up the new interval on its next tick
+**Deliverable — Configurable deadline checking:**
+- `MarketDeadlineService` uses `@Cron(EVERY_30_SECONDS)` tick, reads active settings for `deadlineCheckInterval`, only runs sweep when configured interval has elapsed
 
 **Tests:**
-- Unit test: SettingsService read/write
-- Unit test: FeeCollectionService respects interval setting, skips when disabled
-- E2E: PUT settings endpoint requires auth, rejects non-superadmin
+- Unit tests: SettingsService CRUD, interval getters, onModuleInit seeding
+- Unit tests: FeeCollectionService respects interval setting, skips when disabled
+- E2e: Settings CRUD endpoints (auth, validation, create/update/activate/delete presets)
 
 **Depends on:** B-8
 
@@ -1542,7 +1542,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 - Try to buy with more USDC than wallet holds → clear "insufficient balance" message, no wallet popup
 - Try to sell more shares than held → clear "insufficient holdings" message
 - Try to trade on a paused/resolved market → clear status message
-- Try to claim on a market where user has no position → clear message
+- Try to claim on a ثmarket where user has no position → clear message
 - Actual on-chain error (e.g., stale reserves race condition) → still shows fallback error with mapped message
 
 **Depends on:** F-8
@@ -1617,25 +1617,68 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
-### F-19: Admin Fee Collection Interval Settings
+### F-19: Admin Protocol Settings UI
 
-**Goal:** Add a small section to the admin panel that allows superadmins to configure the automated fee collection interval used by backend task B-11.
+**Goal:** Add an admin settings section where superadmins can view and update protocol-level configuration — fee collection interval, market deadline check interval, and manage settings presets.
 
-**Deliverable — `components/admin/fee-schedule.tsx` (new):**
-- Dropdown or radio group to select fee collection interval: "None" (disabled), "Every 6 hours", "Every 12 hours", "Every 24 hours", "Every 48 hours"
-- When "None" is selected, the backend's automated fee collection cron is disabled — admins must manually collect fees via the "Collect Fees" tab
-- Save button that updates the setting via a backend API endpoint (`PUT /settings/fee-collection-interval` or similar)
-- Display current setting
+**Context:** Backend now has a typed `settings` table with columns: `id` (auto PK), `name`, `is_active` (one active row at a time), `fee_collect_interval`, `deadline_check_interval`. Multiple preset rows can exist; admins switch between them by activating one. API endpoints: `GET /settings` (active), `GET /settings/all`, `POST /settings` (create preset), `PATCH /settings` (update active), `POST /settings/:id/activate`, `DELETE /settings/:id`.
+
+**Deliverable — `components/admin/protocol-settings.tsx` (new):**
+- Display current active settings: fee collection interval, deadline check interval
+- Dropdown for fee collection interval: "None" (disabled), "Every 6h", "Every 12h", "Every 24h", "Every 48h"
+- Dropdown for deadline check interval: "30s", "1m", "2m", "5m", "10m"
+- Save button that PATCHes the active settings
+- When fee interval is "None", the backend's automated fee collection cron is disabled — admins must manually collect fees via the "Collect Fees" tab
+
+**Deliverable — `components/admin/settings-presets-modal.tsx` (new):**
+- Modal accessible from a "Manage Presets" button in the settings section
+- Lists all settings rows with their name, values, and active/inactive status
+- Create new preset (name + initial values)
+- Activate a preset (switches active row)
+- Delete inactive presets
+- Cannot delete the currently active preset
 
 **Deliverable — Admin page update:**
-- Add the fee schedule section within the existing "Fees" tab or as a subsection of "Collect Fees"
+- Add protocol settings section within the admin dashboard (new tab or subsection)
 - Superadmin only
 
-**Depends on:** B-11, F-17
+**Depends on:** B-11, F-10
 
 ---
 
-### F-20: Frontend Unit & Integration Tests
+### F-20: Responsive Design Review & Refactor
+
+**Goal:** Full review and refactor of the frontend to ensure the platform is fully responsive across desktop, tablet, and mobile screen sizes.
+
+**Context:** The platform has been built with desktop-first layouts. This task audits all pages and components for responsive behavior and fixes any issues found.
+
+**Deliverable:**
+- Audit all pages for responsive behavior at common breakpoints (mobile 375px, tablet 768px, desktop 1280px+):
+  - Market discovery / listing page
+  - Market detail / trading page
+  - Portfolio page
+  - Admin dashboard
+  - Oracle dashboard
+  - Market creation form
+  - Navigation bar & footer
+- Fix any layout issues found:
+  - Ensure no horizontal scroll on mobile
+  - Trading panel stacks vertically on narrow screens
+  - Tables become scrollable or convert to card layout on mobile
+  - Modals and dialogs are usable on mobile
+  - Navigation collapses to hamburger menu on mobile (if not already)
+  - Charts and graphs resize correctly
+- Test with browser DevTools responsive mode at each breakpoint
+
+**Non-goals:**
+- No native mobile app considerations
+- No PWA features
+
+**Depends on:** F-19
+
+---
+
+### F-21: Frontend Unit & Integration Tests
 
 **Goal:** Add unit and integration tests for the frontend to verify that its sections, tools, and services work correctly.
 
@@ -1775,7 +1818,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 ## Developer Review Tasks (Human-Led)
 
 > **Purpose:** Final verification phase before production. These tasks are primarily done by a developer (human), not automated tooling. They cover correctness, security, integration testing, and strategic decisions.
-> **When:** After all implementation tasks are complete (or at least after P-20, P-21, B-10, B-11, F-17→F-20).
+> **When:** After all implementation tasks are complete (or at least after P-20, P-21, B-10, B-11, F-18→F-21).
 > **Reference files:** `plans/POSSIBLE-BUGS.md`, `plans/POSSIBLE_FUTURE.md`, `plans/BUG_REPORT.md`, `plans/TDD.md`, `plans/PRD.md`
 
 ---
@@ -1962,7 +2005,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 **Checklist:**
 
 1. **Code quality**
-   - [ ] All tests pass: Rust unit (205+), integration (70+), backend unit (8+ suites), backend e2e (133+), frontend (when F-20 done)
+   - [ ] All tests pass: Rust unit (205+), integration (70+), backend unit (8+ suites), backend e2e (133+), frontend (when F-21 done)
    - [ ] No `TODO` or `FIXME` comments left unresolved in critical paths
    - [ ] `cargo clippy` and `eslint` clean (or warnings triaged)
    - [ ] All items in `POSSIBLE-BUGS.md` addressed or explicitly accepted with rationale
@@ -2002,10 +2045,10 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
 | Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9, B-11 done; B-10 remaining |
-| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-17 done; F-18→F-20 remaining |
+| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-17 done; F-18→F-21 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
-| **Total** | **65** | | |
+| **Total** | **66** | | |
 
 ### Critical Path (longest dependency chain):
 
