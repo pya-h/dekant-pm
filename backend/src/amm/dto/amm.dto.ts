@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class EstimateBuyDto {
@@ -15,6 +15,7 @@ export class EstimateBuyDto {
   @ApiProperty({ description: 'Collateral amount' })
   @IsNumber()
   @IsNotEmpty()
+  @Min(1)
   amount!: number;
 
   @ApiPropertyOptional({ description: 'Distribution center (continuous markets)' })
@@ -37,11 +38,13 @@ export class EstimateBuyBySharesDto {
   @ApiProperty({ description: 'Outcome index' })
   @IsNumber()
   @IsNotEmpty()
+  @Min(0)
   outcome!: number;
 
   @ApiProperty({ description: 'Desired token amount (base units)' })
   @IsNumber()
   @IsNotEmpty()
+  @Min(1)
   desiredTokens!: number;
 }
 
@@ -54,11 +57,13 @@ export class EstimateSellByCollateralDto {
   @ApiPropertyOptional({ description: 'Outcome index (discrete markets)' })
   @IsNumber()
   @IsOptional()
+  @Min(0)
   outcome?: number;
 
   @ApiProperty({ description: 'Desired collateral received (base units)' })
   @IsNumber()
   @IsNotEmpty()
+  @Min(1)
   desiredCollateral!: number;
 
   @ApiPropertyOptional({ description: 'Distribution center (continuous markets)' })
@@ -86,6 +91,7 @@ export class EstimateSellDto {
   @ApiProperty({ description: 'Token amount to sell' })
   @IsNumber()
   @IsNotEmpty()
+  @Min(1)
   amount!: number;
 
   @ApiPropertyOptional({ description: 'Distribution center (continuous markets)' })

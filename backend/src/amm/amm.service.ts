@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { MarketService } from '../market/market.service';
 import { computeBinWeights } from './util/normal';
 
@@ -38,6 +38,14 @@ export interface EstimateSellByCollateralResult {
 export class AmmService {
   constructor(private readonly marketService: MarketService) {}
 
+  private validateOutcome(outcome: number, numOutcomes: number): void {
+    if (!Number.isInteger(outcome) || outcome < 0 || outcome >= numOutcomes) {
+      throw new BadRequestException(
+        `Invalid outcome index ${outcome}: must be 0..${numOutcomes - 1}`,
+      );
+    }
+  }
+
   async estimateBuy(
     marketId: number,
     outcome: number,
@@ -45,6 +53,7 @@ export class AmmService {
     tradeFeesBps = 30,
   ): Promise<EstimateBuyResult> {
     const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
 
@@ -83,6 +92,7 @@ export class AmmService {
     tradeFeesBps = 30,
   ): Promise<EstimateSellResult> {
     const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
 
@@ -224,6 +234,7 @@ export class AmmService {
     tradeFeesBps = 30,
   ): Promise<EstimateBuyBySharesResult> {
     const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
 
@@ -264,6 +275,7 @@ export class AmmService {
     tradeFeesBps = 30,
   ): Promise<EstimateSellByCollateralResult> {
     const market = await this.marketService.findById(marketId);
+    this.validateOutcome(outcome, market.numOutcomes);
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
 

@@ -83,6 +83,16 @@ export class MarketEntity {
   @Column({ type: 'bigint', nullable: true, name: 'range_max' })
   rangeMax!: string | null;
 
+  // On-chain fee & LP tracking
+  @Column({ type: 'numeric', default: '0', name: 'protocol_fee_accumulated' })
+  protocolFeeAccumulated!: string;
+
+  @Column({ type: 'numeric', default: '0', name: 'lp_fee_accumulated' })
+  lpFeeAccumulated!: string;
+
+  @Column({ type: 'numeric', default: '0', name: 'lp_shares_total' })
+  lpSharesTotal!: string;
+
   // Derived / aggregated
   @Column({ type: 'numeric', default: 0, name: 'total_volume' })
   totalVolume!: string;

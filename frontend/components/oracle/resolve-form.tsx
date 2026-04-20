@@ -101,7 +101,9 @@ export function ResolveForm({ market }: ResolveFormProps) {
         // For continuous markets, outcome is ignored on-chain (computed from value)
         // Set outcome to 0 as placeholder
         outcome = 0;
-        value = new BN(Math.round(parseFloat(continuousValue) * SCALE));
+        // Parse decimal string to SCALE-denominated integer without float precision loss.
+        // e.g. "123.456789012" → "123456789012" (9 decimal places = SCALE)
+        value = decimalToScaledBN(continuousValue);
       } else {
         outcome = selectedOutcome!;
         value = new BN(0);
@@ -287,4 +289,24 @@ export function ResolveForm({ market }: ResolveFormProps) {
       </Dialog>
     </div>
   );
+}
+
+/**
+ * Convert a decimal string to a BN scaled by SCALE (10^9) without
+ * intermediate floating-point — avoids precision loss for values with
+ * many fractional digits.
+ */
+function decimalToScaledBN(input: string): BN {
+  const SCALE_DIGITS = 9;
+  const trimmed = input.trim();
+  const negative = trimmed.startsWith("-");
+  const abs = negative ? trimmed.slice(1) : trimmed;
+
+  const [whole = "0", frac = ""] = abs.split(".");
+  // Pad or truncate fractional part to exactly SCALE_DIGITS digits
+  const padded = (frac + "0".repeat(SCALE_DIGITS)).slice(0, SCALE_DIGITS);
+  const combined = whole + padded;
+  // Remove leading zeros but keep at least "0"
+  const cleaned = combined.replace(/^0+/, "") || "0";
+  return negative ? new BN(cleaned).neg() : new BN(cleaned);
 }
