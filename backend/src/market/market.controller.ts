@@ -18,6 +18,8 @@ import { MarketService } from './market.service';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 import { AuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/decorator/roles.decorator';
 
 @ApiTags('markets')
 @Controller('markets')
@@ -62,11 +64,13 @@ export class MarketController {
   }
 
   @Post()
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('admin')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create market metadata (authenticated, Creator+)' })
+  @ApiOperation({ summary: 'Create market metadata (Admin+)' })
   @ApiResponse({ status: 201, description: 'Market metadata created' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Insufficient role' })
   create(@Body() dto: CreateMarketDto) {
     return this.marketService.create(dto);
   }

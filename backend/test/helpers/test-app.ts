@@ -8,6 +8,7 @@ import { HealthModule } from '../../src/health/health.module';
 import { AuthService } from '../../src/auth/auth.service';
 import { AuthController } from '../../src/auth/auth.controller';
 import { AuthGuard } from '../../src/auth/guard/auth.guard';
+import { RolesGuard } from '../../src/auth/guard/roles.guard';
 import { MarketService } from '../../src/market/market.service';
 import { MarketController } from '../../src/market/market.controller';
 import { AmmService } from '../../src/amm/amm.service';
@@ -28,6 +29,7 @@ import { SettingEntity } from '../../src/settings/setting.entity';
 import { mockMarket } from './mock-factories';
 
 export const JWT_SECRET = 'e2e-test-secret-key-at-least-32-chars-long';
+export const TEST_SUPERADMIN = 'TestWallet1111111111111111111111111111111111';
 
 export interface TestApp {
   app: INestApplication;
@@ -93,6 +95,9 @@ export async function createTestApp(): Promise<TestApp> {
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 
+  // Default test wallet is recognized as superadmin so existing e2e tests pass
+  process.env.SUPERADMIN_ADDRESS = TEST_SUPERADMIN;
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [
       ConfigModule.forRoot({ isGlobal: true }),
@@ -113,6 +118,7 @@ export async function createTestApp(): Promise<TestApp> {
     providers: [
       AuthService,
       AuthGuard,
+      RolesGuard,
       MarketService,
       AmmService,
       UserService,

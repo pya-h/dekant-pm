@@ -18,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { IsOptional, IsIn, IsString, MaxLength } from 'class-validator';
 import { AuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/decorator/roles.decorator';
 import {
   SettingsService,
   VALID_FEE_INTERVALS,
@@ -65,13 +67,14 @@ function toResponse(s: { id: number; name: string; isActive: boolean; feeCollect
 }
 
 @ApiTags('settings')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RolesGuard)
+@Roles('superadmin')
 @Controller('settings')
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Get()
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get active protocol settings' })
   async getSettings() {
     const s = await this.settingsService.getActive();
@@ -79,8 +82,6 @@ export class SettingsController {
   }
 
   @Get('all')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'List all settings presets' })
   async listAll() {
     const rows = await this.settingsService.listAll();
@@ -88,8 +89,6 @@ export class SettingsController {
   }
 
   @Post()
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new settings preset (inactive)' })
   async createSettings(@Body() dto: CreateSettingsDto) {
     const s = await this.settingsService.create(dto);
@@ -97,8 +96,6 @@ export class SettingsController {
   }
 
   @Patch()
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update active protocol settings' })
   async updateSettings(@Body() dto: UpdateSettingsDto) {
     const s = await this.settingsService.update(dto);
@@ -106,8 +103,6 @@ export class SettingsController {
   }
 
   @Post(':id/activate')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Activate a settings preset by ID' })
   async activate(@Param('id', ParseIntPipe) id: number) {
     const existing = await this.settingsService.getById(id);
@@ -117,8 +112,6 @@ export class SettingsController {
   }
 
   @Delete(':id')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete an inactive settings preset' })
   async remove(@Param('id', ParseIntPipe) id: number) {
     const existing = await this.settingsService.getById(id);
