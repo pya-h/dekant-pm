@@ -160,7 +160,10 @@ export default function MarketsPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup
                 value={sortBy}
-                onValueChange={(v) => setSortBy(v as MarketFilters["sortBy"])}
+                onValueChange={(v) => {
+                  setSortBy(v as MarketFilters["sortBy"]);
+                  setPage(1);
+                }}
               >
                 {sortOptions.map((opt) => (
                   <DropdownMenuRadioItem key={opt.value} value={opt.value}>

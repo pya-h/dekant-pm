@@ -1069,6 +1069,41 @@ CROSS-CUTTING
 
 ---
 
+### B-11: Automated Fee Collection Cron Job
+
+**Goal:** Implement an optional scheduled task in the backend that automatically calls `collectFees` on all resolved (or fee-bearing) markets at a configurable interval.
+
+**Deliverable — Settings infrastructure:**
+- Create a `SettingsEntity` table/entity for storing key-value protocol settings (reusable for future settings)
+  - Fields: `key` (string, unique PK), `value` (jsonb or string), `updatedAt` (timestamp)
+- Add a `SettingsService` for reading/writing settings
+- Add a `SettingsController` with an authenticated `PUT /settings/:key` endpoint (superadmin only)
+- The fee collection interval is stored under key `fee-collection-interval`
+- Allowed values: `"none"` (disabled), `"6h"`, `"12h"`, `"24h"`, `"48h"`
+
+**Deliverable — Fee collection cron:**
+- Implement a `@Cron`-based (or `@Interval`-based) scheduled task in a `FeeCollectionService`
+- On each tick: check the configured interval setting; if disabled (`"none"`), skip
+- If enabled: iterate over all markets that have `protocolFeeAccumulated > 0` (or all resolved markets), and call `collectFees` on-chain for each
+- The cron should run at the shortest possible interval (e.g., every 5 minutes) and internally track the last execution time, only running the actual collection when the configured interval has elapsed
+- Use a backend-held keypair (superadmin or treasury key from env) for signing the transactions
+- Log each collection attempt (success/failure) with market ID and amount collected
+- Handle errors gracefully — a failure on one market should not prevent collecting from others
+
+**Deliverable — Configuration API:**
+- `GET /settings/fee-collection-interval` — returns current interval
+- `PUT /settings/fee-collection-interval` — update interval (superadmin auth required)
+- On update, the cron service should pick up the new interval on its next tick
+
+**Tests:**
+- Unit test: SettingsService read/write
+- Unit test: FeeCollectionService respects interval setting, skips when disabled
+- E2E: PUT settings endpoint requires auth, rejects non-superadmin
+
+**Depends on:** B-8
+
+---
+
 ## Frontend Tasks
 
 ### F-1: Next.js Project Scaffolding ✅
@@ -1507,9 +1542,48 @@ CROSS-CUTTING
 
 ---
 
-### F-17: Interactive Graph Trading for Continuous Markets
+### F-17: Liquidity Provision UI
 
-**Goal:** Improve the continuous market trading UX by allowing users to set their trade point by directly interacting with and dragging on the probability distribution graph itself (similar to Metaculus).
+**Goal:** Add frontend support for adding and removing liquidity from markets, including transaction builders, UI components, and portfolio integration.
+
+**Pre-implementation step — Math verification:**
+Before implementing the UI, thoroughly analyze and verify the on-chain `add_liquidity` and `remove_liquidity` instruction mathematics:
+- Confirm LP share minting/burning calculations are correct
+- Verify that adding/removing liquidity does not distort market probabilities or break the AMM invariant (`sqrt(sum(x_i^2)) = K`)
+- Check that LP operations don't create exploitable arbitrage opportunities or cause inconsistency with trading operations
+- Validate LP fee accumulation and distribution math
+- Document any edge cases or constraints (e.g., minimum liquidity, removing all liquidity)
+
+**Deliverable — `lib/transactions.ts` (update):**
+- Add `executeAddLiquidity(program, marketPubkey, user, amount)` — calls the on-chain `add_liquidity` instruction
+- Add `executeRemoveLiquidity(program, marketPubkey, user, shares)` — calls the on-chain `remove_liquidity` instruction
+- Both instructions already exist in the program (P-16/P-17)
+
+**Deliverable — `components/liquidity/liquidity-panel.tsx` (new):**
+- Add/remove liquidity interface (modal or dedicated section — NOT embedded directly in market detail/trading panel)
+- The market detail page should include a hint or info section about "Liquidity Provision" that links to or opens this panel
+- Add tab: amount input (USDC), estimated LP shares to receive, current pool stats (total LP shares, user's share %)
+- Remove tab: LP shares input, estimated USDC to receive, fee earnings breakdown
+- Display current user LP position if any
+
+**Deliverable — Portfolio integration:**
+- LP positions already display in the portfolio "Liquidity" tab (implemented)
+- Add link from LP position cards to the liquidity panel for the corresponding market
+
+**Tests (manual):**
+- Navigate to market detail → see liquidity provision hint/link
+- Open liquidity panel → add liquidity → LP shares received, portfolio updated
+- Remove liquidity → USDC received, LP shares decreased
+- Verify market probabilities unchanged after add/remove
+- Verify LP fee earnings visible
+
+**Depends on:** F-7, F-8
+
+---
+
+### F-18: Interactive Graph Trading for Continuous Markets
+
+**Goal:** Improve the continuous market trading UX by allowing users to set their trade point by directly interacting with and dragging on the probability distribution graph itself (similar to Metaculus); Notice that the current approach should not be replaced; It should be available for users that want to use the old way and the Interactive approach should be implemented alongside that.
 
 **Context:** Currently the trade page shows a distribution graph in the sidebar, and users set their trade point using input sliders and text boxes for mu/sigma. This works but isn't intuitive — users should be able to directly manipulate the distribution curve.
 
@@ -1536,7 +1610,25 @@ CROSS-CUTTING
 
 ---
 
-### F-18: Frontend Unit & Integration Tests
+### F-19: Admin Fee Collection Interval Settings
+
+**Goal:** Add a small section to the admin panel that allows superadmins to configure the automated fee collection interval used by backend task B-11.
+
+**Deliverable — `components/admin/fee-schedule.tsx` (new):**
+- Dropdown or radio group to select fee collection interval: "None" (disabled), "Every 6 hours", "Every 12 hours", "Every 24 hours", "Every 48 hours"
+- When "None" is selected, the backend's automated fee collection cron is disabled — admins must manually collect fees via the "Collect Fees" tab
+- Save button that updates the setting via a backend API endpoint (`PUT /settings/fee-collection-interval` or similar)
+- Display current setting
+
+**Deliverable — Admin page update:**
+- Add the fee schedule section within the existing "Fees" tab or as a subsection of "Collect Fees"
+- Superadmin only
+
+**Depends on:** B-11, F-17
+
+---
+
+### F-20: Frontend Unit & Integration Tests
 
 **Goal:** Add unit and integration tests for the frontend to verify that its sections, tools, and services work correctly.
 

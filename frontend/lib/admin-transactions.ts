@@ -164,6 +164,42 @@ export async function executeUnpauseMarket(
 }
 
 // ---------------------------------------------------------------------------
+// Fee collection (superadmin only)
+// ---------------------------------------------------------------------------
+
+export async function executeCollectFees(
+  program: Program<DekantPm>,
+  authority: PublicKey,
+  marketPubkey: PublicKey,
+): Promise<string> {
+  const [protocolConfig] = deriveProtocolConfig();
+  const [vaultAuthority] = deriveVaultAuthority(marketPubkey);
+
+  // Fetch on-chain market to get vault and collateralMint
+  const marketAccount = await program.account.market.fetch(marketPubkey);
+  const vault = marketAccount.vault as PublicKey;
+  const collateralMint = marketAccount.collateralMint as PublicKey;
+
+  // Fetch protocol config to get treasury wallet
+  const config = await program.account.protocolConfig.fetch(protocolConfig);
+  const treasury = config.treasury as PublicKey;
+  const treasuryAta = getAta(collateralMint, treasury);
+
+  return program.methods
+    .collectFees()
+    .accountsPartial({
+      authority,
+      protocolConfig,
+      market: marketPubkey,
+      vaultAuthority,
+      vault,
+      treasuryAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+}
+
+// ---------------------------------------------------------------------------
 // Market creation
 // ---------------------------------------------------------------------------
 

@@ -3,8 +3,9 @@
 import { useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { useUserPositions } from "@/hooks/use-positions";
+import { useUserPositions, useLpPositions } from "@/hooks/use-positions";
 import { PositionCard } from "@/components/portfolio/position-card";
+import { LpPositionCard } from "@/components/portfolio/lp-position-card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -13,6 +14,7 @@ import {
   computeProbabilities,
   formatUsdc,
   type UserPosition,
+  type LpPosition,
 } from "@/lib/types";
 import { Wallet, TrendingUp, AlertCircle } from "lucide-react";
 
@@ -22,6 +24,7 @@ export default function PortfolioPage() {
 
   const address = publicKey?.toBase58();
   const { data: positions, isLoading, isError, error, refetch } = useUserPositions(address);
+  const { data: lpPositions, isLoading: lpLoading } = useLpPositions(address);
 
   // Group positions
   const { active, claimable, past, summary } = useMemo(() => {
@@ -69,6 +72,12 @@ export default function PortfolioPage() {
       summary: { totalValue, totalPnl, activeCount: act.length },
     };
   }, [positions]);
+
+  // Filter LP positions with non-zero shares
+  const activeLpPositions = useMemo(() => {
+    if (!lpPositions) return [];
+    return lpPositions.filter((lp) => Number(lp.shares) > 0);
+  }, [lpPositions]);
 
   // Not connected
   if (!connected) {
@@ -136,7 +145,7 @@ export default function PortfolioPage() {
             Retry
           </Button>
         </div>
-      ) : !positions || (active.length === 0 && claimable.length === 0 && past.length === 0) ? (
+      ) : !positions || (active.length === 0 && claimable.length === 0 && past.length === 0 && (!activeLpPositions || activeLpPositions.length === 0)) ? (
         <EmptyPortfolio />
       ) : (
         <Tabs defaultValue={claimable.length > 0 ? "claimable" : "active"}>
@@ -154,6 +163,14 @@ export default function PortfolioPage() {
               {claimable.length > 0 && (
                 <span className="ml-1 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] tabular-nums text-emerald-400">
                   {claimable.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="lp" className="gap-1.5">
+              Liquidity
+              {activeLpPositions && activeLpPositions.length > 0 && (
+                <span className="ml-1 rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[10px] tabular-nums text-violet-400">
+                  {activeLpPositions.length}
                 </span>
               )}
             </TabsTrigger>
@@ -180,6 +197,18 @@ export default function PortfolioPage() {
               <EmptyTabMessage message="No payouts to claim" />
             ) : (
               <PositionGrid positions={claimable} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="lp" className="mt-4">
+            {!activeLpPositions || activeLpPositions.length === 0 ? (
+              <EmptyTabMessage message="No liquidity positions" />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {activeLpPositions.map((pos) => (
+                  <LpPositionCard key={pos.id} position={pos} />
+                ))}
+              </div>
             )}
           </TabsContent>
 
