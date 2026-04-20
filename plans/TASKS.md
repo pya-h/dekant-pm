@@ -90,6 +90,13 @@ CROSS-CUTTING
   P-19 ──► P-20 (math & logic review)
   P-19 ──► P-21 (expand program tests)
   B-8 ──► B-10 (expand backend tests)
+
+DEVELOPER REVIEW (human-led, after all implementation)
+  D-1 (math & logic audit)
+  D-2 (full-stack manual testing)
+  D-3 (program security review)
+  D-4 (design decisions & roadmap)
+  D-5 (pre-launch checklist)
 ```
 
 ---
@@ -1765,16 +1772,240 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
+## Developer Review Tasks (Human-Led)
+
+> **Purpose:** Final verification phase before production. These tasks are primarily done by a developer (human), not automated tooling. They cover correctness, security, integration testing, and strategic decisions.
+> **When:** After all implementation tasks are complete (or at least after P-20, P-21, B-10, B-11, F-17→F-20).
+> **Reference files:** `plans/POSSIBLE-BUGS.md`, `plans/POSSIBLE_FUTURE.md`, `plans/BUG_REPORT.md`, `plans/TDD.md`, `plans/PRD.md`
+
+---
+
+### D-1: Mathematics, Business Logic & AMM Correctness Audit
+
+**Goal:** Verify the mathematical foundations and business logic of the entire protocol against prediction market theory and reference implementations.
+
+**Steps:**
+
+1. **L2-Norm AMM review**
+   - Re-derive the cost function `C(x) = sqrt(sum(x_i^2))` and confirm it matches the implementation in `programs/dekant-pm/src/amm/`
+   - Verify price function `p_i = x_i / sqrt(sum(x_j^2))` correctly computes marginal prices
+   - Confirm the invariant `K = total_minted` holds through buy, sell, add_liquidity, remove_liquidity
+   - Check that the L2-norm satisfies the properties required for a valid CFAMM (no-arbitrage, path-independence, bounded prices in [0,1])
+
+2. **Distribution trading (continuous markets)**
+   - Verify weight calculation from normal PDF discretization over bins
+   - Compare against the Paradigm "Distribution Markets" paper (Paradigm Research, 2024) — confirm the implementation follows the paper's approach or document deviations
+   - Check mu/sigma → bin weight mapping for edge cases: mu at range boundaries, very small/large sigma, bins at tails
+
+3. **Fixed-point arithmetic**
+   - Review `math.rs` for overflow/underflow in u128 SCALE arithmetic
+   - Verify rounding direction is consistent (always round in protocol's favor)
+   - Check `normal.rs` PDF approximation accuracy — compare outputs against a known-good implementation (e.g., Python `scipy.stats.norm.pdf`)
+   - Look for precision loss in chained multiplications/divisions
+
+4. **Payout & settlement logic**
+   - Verify `claim_payout` math for all market types (binary, multi, continuous)
+   - Confirm payout_pool = total_minted is sufficient for all claims (no vault drain)
+   - Check LP withdrawal math: proportional collateral + fee share
+
+5. **Fee system**
+   - Verify protocol fee and LP fee calculations don't create rounding exploits
+   - Check that fees are applied consistently across all trade types
+   - Confirm `collectFees` instruction correctly transfers accumulated fees
+
+**References:**
+- Paradigm, "Distribution Markets" (2024) — continuous market design
+- Hanson, "Logarithmic Market Scoring Rules" (2003) — LMSR foundation
+- Othman et al., "A Practical Liquidity-Sensitive Automated Market Maker" (2010) — AMM design principles
+- Solana Cookbook, "Program Security" — common Solana-specific pitfalls
+
+**Deliverable:** Written findings document. Fix any bugs found.
+
+**Depends on:** P-20 (AI-assisted math review should be done first)
+
+---
+
+### D-2: Full-Stack Manual Testing — All Clients
+
+**Goal:** Manually test every user flow through all clients (frontend, devkit CLI, backend API) on both localnet and devnet, verifying they produce correct on-chain results.
+
+**Steps:**
+
+1. **Localnet setup & baseline**
+   - Run `scripts/setup.sh` — confirm validator, backend, frontend all start cleanly
+   - Run `scripts/e2e-smoke.sh` — all automated checks pass
+   - Note any warnings or degraded behavior
+
+2. **Devkit CLI — full lifecycle per market type**
+   For each of: binary, multi-outcome, continuous:
+   - `setup init` → `assign-role` (admin, oracle, creator)
+   - `market create-*` → verify on-chain account created
+   - `trade buy` / `trade sell` → verify reserves update, position account created/updated
+   - (Continuous) `trade buy-dist` / `trade sell-dist` → verify distribution weight accounting
+   - `trade buy-to-price` → verify target probability reached
+   - `trade add-lp` / `trade remove-lp` → verify LP shares and reserves
+   - `resolve market` → verify state transition
+   - `market claim` → verify payout received
+   - `query` commands → verify all read correctly after each operation
+   - Cross-check: after each operation, compare devkit `query` output with backend API response
+
+3. **Frontend — full user journey**
+   For each market type:
+   - Create market (admin) → appears in discovery page
+   - Buy/sell as trader → portfolio updates, probabilities change
+   - (Continuous) distribution trade → verify graph updates
+   - Resolve (oracle dashboard) → market shows resolved
+   - Claim payout → balance updates, position zeroed
+   - Admin: pause/unpause, collect fees
+   - Edge cases: wallet disconnect mid-flow, expired market, zero-balance trade attempt
+
+4. **Backend API — direct testing**
+   - Use Swagger UI or curl to hit each endpoint
+   - Verify AMM estimates match actual on-chain results (within tolerance)
+   - Test auth: unauthenticated requests rejected, role enforcement works
+   - Test indexer: create a trade on-chain via devkit, confirm backend picks it up
+
+5. **Devnet verification**
+   - Repeat key flows (create, trade, resolve, claim) against devnet deployment
+   - Verify Docker containers healthy, indexer syncing, frontend connecting
+
+**Deliverable:** Bug list with severity. Fix critical/high bugs before proceeding.
+
+**Depends on:** All implementation tasks complete
+
+---
+
+### D-3: Program Security Review
+
+**Goal:** Audit the Solana program for security vulnerabilities, access control issues, and economic exploits.
+
+**Steps:**
+
+1. **Access control audit**
+   - For each instruction: verify the signer constraints are correct and sufficient
+   - Confirm role checks: only assigned oracle resolves, only admin pauses, only superadmin collects fees
+   - Check PDA derivation seeds — no collision possible between different account types
+   - Verify `has_one`, `constraint`, and `#[access_control]` attributes are complete
+
+2. **Account validation**
+   - All accounts passed to instructions are validated (owner checks, discriminator checks via Anchor)
+   - No instruction accepts a user-controlled account where a PDA is expected
+   - Token accounts validated for correct mint and authority
+   - Verify no account can be passed as two different parameters (aliasing attacks)
+
+3. **Arithmetic safety**
+   - Confirm all arithmetic uses checked operations where overflow is possible
+   - Review the overflow report in `plans/BUG_REPORT.md` — verify all flagged issues are resolved
+   - Check for division by zero (especially in price computation with empty reserves)
+
+4. **State transition safety**
+   - Map all valid state transitions: Active → Paused → Active, Active → PendingResolution → Resolved
+   - Verify each instruction checks market state before executing
+   - Confirm no instruction allows skipping a state (e.g., Active → Resolved directly)
+   - Check `POSSIBLE-BUGS.md` items — confirm known gaps are documented, decide on mitigations
+
+5. **Economic exploits**
+   - Sandwich attack: can a user front-run another's trade for profit? (Likely yes, inherent to AMMs — document, don't "fix")
+   - Rounding exploitation: can a user profit by making many tiny trades that accumulate rounding in their favor?
+   - LP manipulation: can someone add liquidity, trade to move prices, then remove liquidity for profit?
+   - Flash loan: does any instruction allow atomic deposit+withdraw that could be exploited?
+
+6. **Tooling (optional)**
+   - Run `cargo clippy` with all warnings — address any findings
+   - Consider running `soteria` or `xray` if available for automated vulnerability scanning
+
+**Deliverable:** Security findings document with severity ratings. Fix critical/high issues immediately.
+
+**Depends on:** P-21 (expanded tests provide more confidence)
+
+---
+
+### D-4: Design Decisions & Roadmap Consultation
+
+**Goal:** Make informed decisions on open design questions that require human judgment, team discussion, or domain expertise.
+
+**Topics to decide:**
+
+1. **Oracle model**
+   - Current: single immutable oracle per market (see `POSSIBLE-BUGS.md` for deadlock risk)
+   - Options to evaluate: multi-sig oracle, time-locked emergency resolution, decentralized oracle integration (UMA, Pyth, Switchboard), dispute mechanism
+   - Decision: which solution(s) to implement, and when
+
+2. **AMM model**
+   - Current: L2-norm CFAMM — works, but verify it's the right choice long-term
+   - Alternatives: LMSR (logarithmic), CPMM (constant product), hybrid approaches
+   - Key questions: Is the L2-norm the best fit for this use case? Are there known limitations that will surface at scale? Should we support multiple AMM types per market?
+
+3. **Items from `POSSIBLE_FUTURE.md`**
+   - Review each item — categorize as: "do before launch", "do in v2", "won't do"
+   - Prioritize based on: user safety, regulatory requirements, competitive necessity
+
+4. **Fee model**
+   - Current: protocol fee + LP fee on trades
+   - Questions: Are fee percentages configurable per market? Should there be creator fees? Is the current fee structure competitive with Polymarket/Metaculus?
+
+5. **Governance & upgradeability**
+   - Current: program is not upgradeable (presumably)
+   - Decision: should the program be upgradeable? If so, what governance model? Multi-sig? Timelock?
+   - What admin keys need to be secured for production?
+
+**Deliverable:** Decision document for each topic. Create implementation tasks for any decided changes.
+
+**Depends on:** D-1, D-3 (math and security audits inform these decisions)
+
+---
+
+### D-5: Pre-Launch Checklist
+
+**Goal:** Final verification that the protocol is production-ready.
+
+**Checklist:**
+
+1. **Code quality**
+   - [ ] All tests pass: Rust unit (205+), integration (70+), backend unit (8+ suites), backend e2e (133+), frontend (when F-20 done)
+   - [ ] No `TODO` or `FIXME` comments left unresolved in critical paths
+   - [ ] `cargo clippy` and `eslint` clean (or warnings triaged)
+   - [ ] All items in `POSSIBLE-BUGS.md` addressed or explicitly accepted with rationale
+
+2. **Security**
+   - [ ] D-3 findings resolved (critical/high)
+   - [ ] Admin/oracle/superadmin keys are hardware wallets or multi-sig
+   - [ ] Program authority secured (upgrade authority revoked or behind governance)
+   - [ ] No hardcoded secrets in codebase
+
+3. **Operations**
+   - [ ] Deployment scripts tested on devnet
+   - [ ] Monitoring & alerting in place (indexer lag, RPC failures, vault balance anomalies)
+   - [ ] Backup & recovery plan for PostgreSQL
+   - [ ] Fee collection working (manual or automated via B-11)
+
+4. **Documentation**
+   - [ ] User-facing docs: how to trade, how to provide liquidity, how to create markets
+   - [ ] Developer docs: architecture overview, how to deploy, how to run tests
+   - [ ] API docs: Swagger/OpenAPI spec reviewed and accurate
+
+5. **Legal & compliance (if applicable)**
+   - [ ] Terms of service drafted
+   - [ ] Jurisdiction-specific restrictions reviewed
+   - [ ] Oracle resolution dispute process documented for users
+
+**Deliverable:** Completed checklist. Any blocking items tracked as new tasks.
+
+**Depends on:** D-1, D-2, D-3, D-4
+
+---
+
 ## Summary: Task Count & Ordering
 
 | Layer | Tasks | IDs | Status |
 |-------|-------|-----|--------|
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
-| Backend | 10 | B-1 → B-10 | ⬅️ B-1→B-9 done; B-10 remaining |
-| Frontend | 18 | F-1 → F-18 | ⬅️ F-1→F-14, F-16 done; F-15, F-17, F-18 remaining |
+| Backend | 11 | B-1 → B-11 | ⬅️ B-1→B-9 done; B-10, B-11 remaining |
+| Frontend | 20 | F-1 → F-20 | ⬅️ F-1→F-14, F-16 done; F-15, F-17→F-20 remaining |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
-| **Total** | **57** | | |
+| Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
+| **Total** | **65** | | |
 
 ### Critical Path (longest dependency chain):
 
