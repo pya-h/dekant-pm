@@ -106,7 +106,7 @@ export function FeeCollector() {
 
   return (
     <div className="rounded-xl border border-border/40 bg-card/50">
-      <div className="flex items-center justify-between border-b border-border/40 px-5 py-3">
+      <div className="flex flex-col gap-3 border-b border-border/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Collect Protocol Fees

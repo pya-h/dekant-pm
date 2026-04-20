@@ -114,7 +114,7 @@ export default function PortfolioPage() {
 
       {/* Summary stats */}
       {!isLoading && !isError && positions && positions.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <SummaryCard
             label="Portfolio Value"
             value={formatUsdc(summary.totalValue)}
@@ -297,7 +297,7 @@ function PortfolioSkeleton() {
   return (
     <div className="space-y-6">
       {/* Summary skeleton */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
