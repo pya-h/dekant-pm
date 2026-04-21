@@ -725,6 +725,8 @@ Transfer (collateral_out + fee_share) to LP
 
 After oracle resolves with winning outcome `w`:
 
+> **Note (2026-03-28):** The proportional payout formula below was the original design. The implementation was refactored to **1:1 fixed payout** (`gross_payout = winning_tokens`). See `RESOLUTION_REFACTOR_TASKS.md` and `MAJOR_BUGS.md` (BUG-003) for rationale.
+
 ```
 // For binary/multi: w = outcome index
 // For continuous: w = bin index containing resolved value
