@@ -395,16 +395,13 @@ Trader claims:
 
 ### Root cause
 
-The L2-norm AMM has an **implicit pool position** in every outcome — tokens that are "outstanding" (`x[i] = total_minted - reserves[i]`) but not held by any trader. These implicit positions belong to LPs. At resolution:
+The bug has two layers — an accounting error and a deeper architectural mismatch:
 
-```
-x[winning] = trader_holdings + pool_implicit_position
-```
+**Accounting error:** `claim_payout` never decrements `total_minted`, so `remove_liquidity` computes LP payouts from a stale value.
 
-- Traders should receive: `trader_holdings × total_minted / x[winning]`
-- LPs should receive the remainder: `total_minted × pool_implicit / x[winning]`
+**Architectural mismatch:** The current payout model is **parimutuel** (proportional pool distribution), where traders claim the ENTIRE `total_minted` pool. LPs also try to withdraw from `total_minted`. Both mechanisms draw from the same pool — whoever goes second gets nothing. This double-claim is inherent to the proportional model when combined with a separate LP share system.
 
-But the code gives LPs `total_minted × shares / lp_shares_total` (the **full** pool, not just the residual), because `total_minted` was never adjusted.
+In the proportional formula `payout = winning_tokens × total_minted / x[winning]`, the sum of all trader payouts equals exactly `total_minted` — leaving zero for LPs. The LP's implicit winning position (`reserves[winning]` tokens) is dissolved and given to traders.
 
 ### Why the existing test passes
 
@@ -421,97 +418,109 @@ The [binary-market.ts](tests/binary-market.ts) integration test (line 269→327)
 
 This is **false**. `claim_payout` never modifies `total_minted`. The entire section 7 analysis of "LPs get less after claims" is based on this incorrect premise.
 
-### Proposed fixes
+### Fix: Switch to 1:1 Fixed Payout (Recommended)
 
-#### Approach A: Snapshot payout pool at resolution (recommended)
+**Status: DECIDED — this is the approach we are implementing.**
 
-At resolution time, compute and store the total trader payout obligation:
+The root cause isn't just a missing decrement — it's that the proportional (parimutuel) model is architecturally incompatible with a separate LP share system. The fix is to switch to **1:1 fixed payout**, where each winning token redeems for exactly 1 unit of collateral. This is the model used by Polymarket, Kalshi, Augur, Gnosis CTF, and every major prediction market.
+
+See `plans/resolution-compare.md` for the full analysis and `plans/resolution-report-tl.md` for the decision report.
+
+#### The change
 
 ```rust
-// In resolve_market handler, after setting resolved_outcome:
-let winning = market.resolved_outcome as usize;
-let winning_tokens_total = market.total_minted - market.reserves[winning] as u128;
-// Store the pool amount that belongs to traders
-market.trader_payout_pool = market.total_minted;  // snapshot
-market.winning_tokens_total = winning_tokens_total; // snapshot
-// Compute LP residual: collateral not owed to traders
-// trader_total_claim = Σ holdings[winning] × total_minted / winning_tokens_total
-// Since Σ holdings = winning_tokens_total (by invariant... see note below),
-// this equals total_minted. But pool implicit position means Σ trader holdings < winning_tokens_total.
-// So we need to track actual trader holdings sum or derive LP residual differently.
+// BEFORE (proportional — buggy):
+let winning_tokens_total = market.total_minted
+    .checked_sub(market.reserves[winning_outcome] as u128)?;
+let payout_pool = market.total_minted;
+let gross_payout = mul_div(winning_tokens as u128, payout_pool, winning_tokens_total)?;
+
+// AFTER (1:1 — correct):
+let gross_payout = winning_tokens as u128;   // 1 token = 1 collateral
 ```
 
-**Note:** The comment at `market.rs:74` claims `total_minted = reserves[i] + Σ_users(holdings[i])`, but this invariant is **not maintained** — at creation, no user holds anything yet `x[i] > 0`. The implicit pool position breaks this stated invariant. This needs investigation as part of the fix.
-
-#### Approach B: Decrement total_minted in claim_payout
+Post-resolution LP withdrawal draws from the residual (`reserves[winning]`) instead of `total_minted`:
 
 ```rust
-// After computing gross_payout in claim_payout:
-let market = &mut ctx.accounts.market;
-market.total_minted = market.total_minted
-    .checked_sub(gross_payout as u128)
-    .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+// In remove_liquidity, when market is resolved:
+let lp_residual = market.reserves[market.resolved_outcome as usize] as u128;
+let collateral_out = lp_residual * shares / lp_shares_total;
 ```
 
-**Problem:** This changes `payout_pool` for subsequent claimers — BUT since `winning_tokens_total` (which depends on `total_minted - reserves[winning]`) would also need updating, the payout formula becomes order-dependent. The comment at line 85 of claim_payout.rs was trying to prevent exactly this. Would need to also decrement `reserves[winning]` by the tokens claimed to keep the ratio consistent.
+#### Why this eliminates BUG-003 by design
 
-#### Approach C: Separate LP and trader pools at resolution
+```
+Vault holds:     total_minted + fees
+Traders claim:   x[winning]                     (= total_minted - reserves[winning])
+LPs claim:       reserves[winning] + fee_share
 
-At resolution, split `total_minted` into two pools:
-
-```rust
-// In resolve_market:
-let trader_pool = /* computed from actual trader holdings of winning outcome */;
-let lp_residual = total_minted - trader_pool;
-market.trader_payout_pool = trader_pool;
-market.lp_residual_pool = lp_residual;
+x[winning] + reserves[winning] = total_minted   (by definition, always)
+→ No overlap, no double-counting, order-independent  ✓
 ```
 
-- `claim_payout` draws from `trader_payout_pool` and decrements it
-- `remove_liquidity` (when resolved) draws from `lp_residual_pool` instead of `total_minted`
+The two claim pools are **disjoint portions** of `total_minted`. No shared mutable denominator, no need to decrement anything during claims.
 
-**Problem:** Computing `trader_pool` requires summing all user positions on-chain, which is not feasible in a single transaction. Would need to iterate all UserPosition accounts.
+#### Why 1:1 over fixing proportional
 
-#### Approach D: Decrement both total_minted and reserves in claim_payout
+| Issue | Fix within proportional | 1:1 fix |
+|-------|------------------------|---------|
+| BUG-003 (double-claim) | Complex — needs careful accounting of two overlapping pools | Eliminated by design |
+| Payout uncertainty | Inherent to the model — cannot fix | Eliminated (payout always = tokens × 1) |
+| LP value donation | Inherent — pool's winning tokens go to traders | LP retains winning position |
+| Mental model mismatch | Inherent — AMM prices ≠ settlement | Eliminated (price ≈ probability, payout = 1) |
+| Industry alignment | No major platform uses proportional | Matches all major platforms |
+
+#### Development cost
+
+~1.5–2 days. Core change is ~45 lines of Rust. No state migration, no new accounts/instructions. Most effort goes to testing.
+
+See `plans/resolution-report-detailed.md` §3 for the full implementation plan.
+
+### Alternative approaches (kept for reference)
+
+The following approaches attempt to fix BUG-003 WITHIN the proportional model. They are **not recommended** — we are proceeding with 1:1 instead. Documented here for completeness.
+
+#### Alt-A: Snapshot payout pool at resolution
+
+Store `trader_payout_pool` and `winning_tokens_total` at resolution time. Problem: computing the trader pool requires summing all user positions on-chain, which isn't feasible in a single transaction.
+
+#### Alt-B: Decrement total_minted in claim_payout
 
 ```rust
-// After transferring payout:
 market.total_minted = market.total_minted.checked_sub(gross_payout as u128)?;
-// Also reduce the winning reserve by the tokens consumed:
-market.reserves[winning] = market.reserves[winning]
-    .checked_sub(winning_tokens as u64)?;
 ```
 
-This keeps the ratio `total_minted / (total_minted - reserves[winning])` constant across claims, preserving order-independence while correctly tracking how much collateral remains in the pool.
+Problem: changes `payout_pool` for subsequent claimers. The formula becomes order-dependent unless `reserves[winning]` is also decremented.
 
-**Verification:** After decrementing both:
-- New payout_pool = total_minted - gross_payout
-- New winning_tokens_total = (total_minted - gross_payout) - (reserves[winning] - winning_tokens)
-- Ratio = (total_minted - gross_payout) / ((total_minted - reserves[winning]) - winning_tokens + gross_payout)
+#### Alt-C: Separate LP and trader pools at resolution
 
-Needs algebraic verification that the ratio stays consistent for all claim orderings.
+Split `total_minted` into `trader_payout_pool` and `lp_residual_pool`. Problem: same as Alt-A — requires iterating all UserPosition accounts.
 
-### Recommendation
+#### Alt-D: Decrement both total_minted and reserves in claim_payout
 
-**Approach D** is the most promising — it keeps claims order-independent while correctly tracking the pool. Needs formal algebraic verification that the payout ratio is preserved.
+```rust
+market.total_minted = market.total_minted.checked_sub(gross_payout as u128)?;
+market.reserves[winning] = market.reserves[winning].checked_sub(winning_tokens as u64)?;
+```
 
-**Approach A** (snapshot) is simpler but requires knowing the total trader claim at resolution time, which isn't straightforward without iterating all positions.
+Keeps the ratio constant. Needs algebraic verification of order-independence. Even if correct, still has the proportional model's inherent problems (payout uncertainty, LP value donation, mental model mismatch).
 
 ### Key files for implementation
 
-- `programs/dekant-pm/src/instructions/trading/claim_payout.rs` — must decrement `total_minted` (and possibly `reserves`)
-- `programs/dekant-pm/src/instructions/trading/remove_liquidity.rs` — may need resolved-market-specific logic
-- `programs/dekant-pm/src/instructions/market/resolve_market.rs` — if snapshotting at resolution
-- `programs/dekant-pm/src/state/market.rs` — may need new fields (`trader_payout_pool`, `lp_residual_pool`)
-- `tests/binary-market.ts` — existing test passes by coincidence; needs adversarial test
+- `programs/dekant-pm/src/instructions/trading/claim_payout.rs` — change formula to 1:1
+- `programs/dekant-pm/src/instructions/trading/remove_liquidity.rs` — add resolved-market branch
+- `programs/dekant-pm/src/state/market.rs` — optional helper method
+- `backend/src/amm/amm.service.ts` — update payout estimation
+- `tests/binary-market.ts` — existing test passes by coincidence; needs update
 - `plans/lp-analysis.md` — Section 4 and Section 7 need correction
 
 ### Required tests
 
-- **Claim-then-LP-remove (100% shares):** trader claims, then LP (sole LP) removes all shares → must succeed
-- **LP-remove-then-claim:** LP removes first, then trader claims → trader must still get correct payout
-- **Multiple claims then LP remove:** several traders claim sequentially, then LP removes → LP gets residual
-- **Interleaved claims and LP removes:** mix of claims and LP withdrawals → all get correct amounts
-- **No-trade market:** market resolves without any trading → LP gets full collateral back
+- **Basic 1:1 claim:** trader claims winning tokens, receives exactly that amount in collateral
+- **Claim-then-LP-remove (100% shares):** trader claims, then LP removes all → both succeed, vault = 0 + protocol fees
+- **LP-remove-then-claim:** LP removes first, then trader claims → both get correct amounts
+- **Multiple claims then LP remove:** several traders claim, then LP removes → LP gets residual
+- **Interleaved claims and LP removes:** mix of claims and LP withdrawals → all amounts correct
+- **No-trade market:** market resolves without any trading → LP gets full collateral back (reserves[winning] = total_minted/sqrt(N), so LP gets that amount)
 
 ---
