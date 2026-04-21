@@ -1187,3 +1187,59 @@ fn test_validate_outcome_max_u16() {
         error!(DekantPmError::InvalidOutcome)
     );
 }
+
+// ── compute_lp_resolved_payout tests ────────────────────────────────
+
+#[test]
+fn test_compute_lp_resolved_payout_proportional() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.state = STATE_RESOLVED;
+    m.resolved_outcome = 0;
+    m.reserves = vec![300_000, 500_000];
+    m.lp_shares_total = 1_000_000;
+
+    // LP with 500_000 shares out of 1_000_000 total
+    let payout = m.compute_lp_resolved_payout(500_000).unwrap();
+    // Expected: 300_000 * 500_000 / 1_000_000 = 150_000
+    assert_eq!(payout, 150_000);
+}
+
+#[test]
+fn test_compute_lp_resolved_payout_full_shares() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.state = STATE_RESOLVED;
+    m.resolved_outcome = 0;
+    m.reserves = vec![300_000, 500_000];
+    m.lp_shares_total = 1_000_000;
+
+    let payout = m.compute_lp_resolved_payout(1_000_000).unwrap();
+    assert_eq!(payout, 300_000);
+}
+
+#[test]
+fn test_compute_lp_resolved_payout_zero_reserves() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.state = STATE_RESOLVED;
+    m.resolved_outcome = 0;
+    m.reserves = vec![0, 500_000];
+    m.lp_shares_total = 1_000_000;
+
+    let payout = m.compute_lp_resolved_payout(500_000).unwrap();
+    assert_eq!(payout, 0);
+}
+
+#[test]
+fn test_compute_lp_resolved_payout_rejects_excess_shares() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.state = STATE_RESOLVED;
+    m.resolved_outcome = 0;
+    m.reserves = vec![300_000, 500_000];
+    m.lp_shares_total = 1_000_000;
+
+    let result = m.compute_lp_resolved_payout(1_000_001);
+    assert!(result.is_err());
+}

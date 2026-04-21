@@ -198,7 +198,7 @@ Although only `reserves[winning]` has monetary value post-resolution, LP withdra
 
 ---
 
-### TASK P-R4: Build verification
+### TASK P-R4: ✅ Build verification
 
 After making all three code changes:
 
@@ -218,7 +218,7 @@ anchor build
 
 ---
 
-### TASK T-R1: Update `tests/binary-market.ts` — Strengthen claim assertions
+### TASK T-R1: ✅ Update `tests/binary-market.ts` — Strengthen claim assertions
 
 **File:** `tests/binary-market.ts` (lines 269-297 — "trader A claims payout (winner)")
 
@@ -257,7 +257,7 @@ expect(Number(vaultBal)).to.be.greaterThanOrEqual(Number(market.protocolFeeAccum
 
 ---
 
-### TASK T-R2: Update `tests/multi-market.ts` — Strengthen claim assertions
+### TASK T-R2: ✅ Update `tests/multi-market.ts` — Strengthen claim assertions
 
 **File:** `tests/multi-market.ts` (lines 116-159 — "winner claims; loser fails")
 
@@ -265,7 +265,7 @@ expect(Number(vaultBal)).to.be.greaterThanOrEqual(Number(market.protocolFeeAccum
 
 ---
 
-### TASK T-R3: Update `tests/continuous-market.ts` — Strengthen claim assertions
+### TASK T-R3: ✅ Update `tests/continuous-market.ts` — Strengthen claim assertions
 
 **File:** `tests/continuous-market.ts` (lines 142-170 — "trader A claims payout from continuous market")
 
@@ -277,7 +277,7 @@ expect(Number(vaultBal)).to.be.greaterThanOrEqual(Number(market.protocolFeeAccum
 
 ---
 
-### TASK T-R4: New test file `tests/resolution-1to1.ts` — Comprehensive 1:1 payout tests
+### TASK T-R4: ✅ New test file `tests/resolution-1to1.ts` — Comprehensive 1:1 payout tests
 
 Create a new integration test file focused on the 1:1 payout model and vault solvency. This is the most critical test file for the refactor.
 
@@ -394,7 +394,7 @@ Create a new integration test file focused on the 1:1 payout model and vault sol
 
 ---
 
-### TASK T-R5: Add unit test for `compute_lp_resolved_payout` in `state_market.rs`
+### TASK T-R5: ✅ Add unit test for `compute_lp_resolved_payout` in `state_market.rs`
 
 **File:** `programs/dekant-pm/tests/unit/state_market.rs`
 
@@ -456,7 +456,7 @@ Note: These tests need to construct a `Market` struct directly. Check if existin
 
 ---
 
-### TASK T-R6: Run all program tests
+### TASK T-R6: ✅ Run all program tests
 
 ```bash
 # Rust unit tests
