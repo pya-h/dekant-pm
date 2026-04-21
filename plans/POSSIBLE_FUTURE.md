@@ -12,6 +12,7 @@ Items not in MVP scope, tracked here for future consideration. Ordered by certai
 
 ## Possible (architectural changes)
 
+- **Partial resolution (Gnosis-style Condition Tokens)** — Instead of a single absolute winning outcome, the oracle resolves with fractional weights across outcomes (e.g., A=0.8, B=0.2). Each trader's payout becomes `sum(holdings[i] * weight[i])` rather than just `holdings[winner]`. This enables nuanced resolution where multiple outcomes can be "partially right." Requires changes to on-chain resolution logic (`resolved_outcome` becomes a weight vector), claim payout formula, and LP residual computation.
 - **Hybrid transaction flow** — Backend constructs transactions, frontend signs and submits. Gives server-side validation (enforce business rules, prevent bad inputs before hitting chain) without custody. Adds one round-trip but keeps self-custody. Would require a new backend module that builds and serializes Solana transactions, plus frontend changes to receive and sign them.
 - **Orderbook / hybrid AMM** — Add limit orders alongside the AMM. Significant complexity.
 - **Conditional markets** — "If X, what will Y be?" dependency graphs between markets.

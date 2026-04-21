@@ -4,7 +4,6 @@ use crate::state::*;
 use crate::constants::*;
 use crate::errors::DekantPmError;
 use crate::events::PayoutClaimed;
-use crate::engine::fixed_point::mul_div;
 
 // ── Accounts ─────────────────────────────────────────────────────────
 
@@ -74,29 +73,8 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
     let winning_tokens = position.holdings[winning_outcome];
     require!(winning_tokens > 0, DekantPmError::NothingToClaim);
 
-    // Total outstanding tokens of the winning outcome (held by traders).
-    let winning_tokens_total = market
-        .total_minted
-        .checked_sub(market.reserves[winning_outcome] as u128)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-
-    require!(winning_tokens_total > 0, DekantPmError::NothingToClaim);
-
-    // The payout pool is total_minted: the aggregate collateral backing all
-    // complete sets.  We must NOT derive this from vault_balance because the
-    // vault balance shrinks with every prior claim, creating a first-claimer
-    // advantage (later claimers would see a smaller pool and receive less
-    // than their fair share).  total_minted is order-independent and exactly
-    // equals vault - lp_fee_accumulated - protocol_fee_accumulated when no
-    // LP withdrawals have occurred.
-    let payout_pool = market.total_minted;
-
-    let gross_payout = mul_div(
-        winning_tokens as u128,
-        payout_pool,
-        winning_tokens_total,
-    )
-    .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+    // 1:1 fixed payout: each winning token redeems for exactly 1 unit of collateral.
+    let gross_payout = winning_tokens as u128;
 
     let gross_payout_u64 = u64::try_from(gross_payout)
         .map_err(|_| error!(DekantPmError::MathOverflow))?;

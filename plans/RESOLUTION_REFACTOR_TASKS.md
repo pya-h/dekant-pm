@@ -12,7 +12,7 @@ All changes are in `programs/dekant-pm/src/`.
 
 ---
 
-### TASK P-R1: Modify `claim_payout.rs` — Switch to 1:1 payout formula
+### TASK P-R1: ✅ Modify `claim_payout.rs` — Switch to 1:1 payout formula
 
 **File:** `programs/dekant-pm/src/instructions/trading/claim_payout.rs`
 
@@ -60,7 +60,7 @@ All changes are in `programs/dekant-pm/src/`.
 
 ---
 
-### TASK P-R2: Modify `market.rs` — Add resolved LP payout helper
+### TASK P-R2: ✅ Modify `market.rs` — Add resolved LP payout helper
 
 **File:** `programs/dekant-pm/src/state/market.rs`
 
@@ -89,7 +89,7 @@ pub fn compute_lp_resolved_payout(&self, shares: u128) -> Result<u128> {
 
 ---
 
-### TASK P-R3: Modify `remove_liquidity.rs` — Add resolved-market branch
+### TASK P-R3: ✅ Modify `remove_liquidity.rs` — Add resolved-market branch
 
 **File:** `programs/dekant-pm/src/instructions/trading/remove_liquidity.rs`
 
@@ -145,13 +145,18 @@ This is the most complex change. The handler must differentiate between active/p
 
    // ── Update market state ──────────────────────────────────────────
    if market.is_resolved() {
-       // Only decrement the winning reserve (no AMM scaling needed).
-       let winning_idx = market.resolved_outcome as usize;
-       let out_u64 = u64::try_from(collateral_out)
-           .map_err(|_| error!(DekantPmError::MathOverflow))?;
-       market.reserves[winning_idx] = market.reserves[winning_idx]
-           .checked_sub(out_u64)
-           .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
+       // Scale ALL reserves proportionally by remaining LP ownership.
+       // Only reserves[winning] has monetary value, but we keep all reserves
+       // consistent so market state remains mathematically correct after withdrawal.
+       let remaining = market.lp_shares_total
+           .checked_sub(args.shares_to_burn)
+           .ok_or_else(|| error!(DekantPmError::InsufficientShares))?;
+       // k_squared is irrelevant post-resolution; discard it.
+       let _ = amm::scale_reserves(
+           &mut market.reserves,
+           remaining,
+           market.lp_shares_total,
+       )?;
    } else {
        // Active/PendingResolution: scale all reserves proportionally.
        let total_before = market.total_minted;
@@ -181,16 +186,15 @@ This is the most complex change. The handler must differentiate between active/p
 
 | Aspect | Resolved market | Active/Pending market |
 |--------|----------------|----------------------|
-| Collateral source | `reserves[winning]` | `total_minted` |
-| AMM scaling | NO — skip `scale_reserves` | YES — as before |
+| Collateral source | `reserves[winning]` via `compute_lp_resolved_payout` | `total_minted` via `compute_collateral_for_withdrawal` |
+| Reserve scaling | ALL reserves scaled by `remaining / lp_shares_total` | All reserves scaled by `(total_minted - collateral_out) / total_minted` |
 | `total_minted` update | NO — irrelevant post-resolution | YES — decremented |
-| `k_squared` update | NO — irrelevant post-resolution | YES — recalculated |
-| `reserves` update | Only `reserves[winning]` decremented | All reserves scaled |
+| `k_squared` update | Computed but discarded (irrelevant post-resolution) | YES — recalculated and stored |
 | Fee share | Same formula | Same formula |
 | Shares update | Same | Same |
 
-**Why `reserves[winning]` must be decremented:**
-Multiple LPs may withdraw sequentially. If LP1 takes their share but `reserves[winning]` isn't decremented, LP2's computation `reserves[winning] * shares / lp_shares_total` would be computed with the original reserves but reduced `lp_shares_total`, giving LP2 more than their fair share. Decrementing both `reserves[winning]` and `lp_shares_total` keeps the ratio correct.
+**Why ALL reserves are scaled (not just winning):**
+Although only `reserves[winning]` has monetary value post-resolution, LP withdrawal conceptually removes the LP's proportional share of the *entire* pool position. Scaling all reserves keeps market state mathematically consistent — after all LPs withdraw, all reserves reach 0 rather than leaving orphaned losing-outcome tokens. This also ensures `compute_lp_resolved_payout` stays correct for sequential multi-LP withdrawals: both `reserves[winning]` and `lp_shares_total` shrink proportionally, preserving the ratio.
 
 ---
 

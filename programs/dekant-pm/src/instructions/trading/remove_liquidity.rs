@@ -86,25 +86,51 @@ pub fn handle_remove_liquidity(
         DekantPmError::InsufficientShares
     );
 
-    let collateral_out = market.compute_collateral_for_withdrawal(args.shares_to_burn)?;
+    // ── Compute collateral owed to LP ────────────────────────────────
+    let collateral_out = if market.is_resolved() {
+        // Resolved: LP's share of the residual winning-outcome reserves.
+        // In 1:1 mode, traders claim x[winning], leaving reserves[winning] for LPs.
+        market.compute_lp_resolved_payout(args.shares_to_burn)?
+    } else {
+        // Active/PendingResolution: proportional share of total_minted (existing AMM logic).
+        market.compute_collateral_for_withdrawal(args.shares_to_burn)?
+    };
+
     let fee_share = market.compute_lp_fee_share(args.shares_to_burn)?;
     let total_payout = collateral_out
         .checked_add(fee_share)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    let total_before = market.total_minted;
-    let numerator = total_before
-        .checked_sub(collateral_out)
-        .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
+    // ── Update market state ──────────────────────────────────────────
+    if market.is_resolved() {
+        // Scale ALL reserves proportionally by remaining LP ownership.
+        // Only reserves[winning] has monetary value, but we keep all reserves
+        // consistent so market state remains mathematically correct after withdrawal.
+        let remaining = market.lp_shares_total
+            .checked_sub(args.shares_to_burn)
+            .ok_or_else(|| error!(DekantPmError::InsufficientShares))?;
+        // k_squared is irrelevant post-resolution; discard it.
+        let _ = amm::scale_reserves(
+            &mut market.reserves,
+            remaining,
+            market.lp_shares_total,
+        )?;
+    } else {
+        // Active/PendingResolution: scale all reserves proportionally.
+        let total_before = market.total_minted;
+        let numerator = total_before
+            .checked_sub(collateral_out)
+            .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
 
-    let new_k_squared = amm::scale_reserves(
-        &mut market.reserves,
-        numerator,
-        total_before,
-    )?;
+        let new_k_squared = amm::scale_reserves(
+            &mut market.reserves,
+            numerator,
+            total_before,
+        )?;
 
-    market.k_squared = new_k_squared;
-    market.total_minted = numerator;
+        market.k_squared = new_k_squared;
+        market.total_minted = numerator;
+    }
     market.lp_shares_total = market
         .lp_shares_total
         .checked_sub(args.shares_to_burn)
