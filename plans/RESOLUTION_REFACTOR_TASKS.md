@@ -472,7 +472,7 @@ Both must pass with zero failures.
 
 ## Phase 3: Backend Assessment
 
-### TASK B-R1: Verify no backend code changes needed
+### TASK B-R1: ✅ Verify no backend code changes needed
 
 **Verification checklist:**
 
@@ -493,7 +493,7 @@ Both must pass with zero failures.
 - The indexer just reads events and updates DB flags
 - Market entity stores `resolvedOutcome`, `totalMinted`, `reserves` etc. — schema unchanged
 
-### TASK B-R2: Run backend tests to confirm no regressions
+### TASK B-R2: ✅ Run backend tests to confirm no regressions
 
 ```bash
 cd backend && npm test         # 172 unit tests across 12 suites
@@ -506,7 +506,7 @@ All should pass unchanged. If any fail, investigate — it's a pre-existing issu
 
 ## Phase 4: Frontend Assessment
 
-### TASK F-R1: Verify no frontend code changes needed
+### TASK F-R1: ✅ Verify no frontend code changes needed
 
 **Key finding: The frontend already displays 1:1 payouts.** All resolved-market value computations return `holdings[winningOutcome]` directly (face value = 1 token = 1 collateral), which IS the 1:1 model.
 
@@ -524,7 +524,7 @@ All should pass unchanged. If any fail, investigate — it's a pre-existing issu
 **Accuracy improvement (no code change needed):**
 Before this refactor, the frontend showed `holdings[winIdx]` (1:1 estimate) but the on-chain payout was `holdings[winIdx] * total_minted / x[winning]` (proportional, always >= 1:1). So the displayed estimate was **lower** than actual payout. After the refactor, on-chain matches the display exactly.
 
-### TASK F-R2: Run frontend build to confirm no regressions
+### TASK F-R2: ✅ Run frontend build to confirm no regressions
 
 ```bash
 cd frontend && PATH="/usr/local/n/versions/node/23.3.0/bin:$PATH" pnpm next build
@@ -536,7 +536,7 @@ Must complete cleanly with Turbopack.
 
 ## Phase 5: Devkit & CLI Assessment
 
-### TASK C-R1: Verify no devkit/CLI code changes needed
+### TASK C-R1: ✅ Verify no devkit/CLI code changes needed
 
 | Component | Payout logic? | Change needed? |
 |---|---|---|
@@ -555,7 +555,7 @@ Must complete cleanly with Turbopack.
 
 ---
 
-### TASK D-R1: Update `plans/MAJOR_BUGS.md` — Mark BUG-003 as fixed
+### TASK D-R1: ✅ Update `plans/MAJOR_BUGS.md` — Mark BUG-003 as fixed
 
 **File:** `plans/MAJOR_BUGS.md`
 
@@ -566,7 +566,7 @@ Update BUG-003 section:
 
 ---
 
-### TASK D-R2: Update `plans/details/lp-analysis.md` — Correct false claims
+### TASK D-R2: ✅ Update `plans/details/lp-analysis.md` — Correct false claims
 
 **File:** `plans/details/lp-analysis.md`
 
@@ -579,13 +579,13 @@ Add a note at the top of the affected sections:
 
 ---
 
-### TASK D-R3: Update `plans/CONTEXT.md` — Session context
+### TASK D-R3: ✅ Update `plans/CONTEXT.md` — Session context
 
 Add an entry noting the 1:1 refactor completion with date, files changed, and tests added.
 
 ---
 
-### TASK D-R4: Update `plans/TASKS.md` — Mark related tasks
+### TASK D-R4: ✅ Update `plans/TASKS.md` — Mark related tasks
 
 If P-20 (Math Review) includes reviewing the payout formula, note that it has been addressed by the 1:1 refactor.
 
