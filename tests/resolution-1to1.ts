@@ -505,10 +505,11 @@ describe("1:1 Resolution — Scenario 7: Continuous market 1:1 claim", () => {
     const position = await ctx.program.account.userPosition.fetch(posA);
     const winningTokens = position.holdings[winningBin].toNumber();
 
-    if (winningTokens > 0) {
-      const result = await claimPayout(ctx.traderA, traderAAta, marketPda, vaultAuthority, vault);
-      expect(result.net).to.equal(result.gross - result.fee);
-    }
+    // Hard assertion: distribution centered at 155 resolved at 155 MUST populate the winning bin
+    expect(winningTokens).to.be.greaterThan(0, "Distribution N(155,20) must have tokens in winning bin for resolve value 155");
+
+    const result = await claimPayout(ctx.traderA, traderAAta, marketPda, vaultAuthority, vault);
+    expect(result.net).to.equal(result.gross - result.fee);
   });
 
   it("LP removes and vault stays solvent", async () => {

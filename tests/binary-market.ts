@@ -73,6 +73,9 @@ describe("Binary Market Lifecycle", () => {
       ctx.program.programId
     );
 
+    const marketBefore = await ctx.program.account.market.fetch(marketPda);
+    const vaultBefore = Number((await getAccount(ctx.provider.connection, vault)).amount);
+
     await ctx.program.methods
       .buy({ outcome: 0, collateralAmount: new BN(buyAmountA) })
       .accountsPartial({
@@ -90,9 +93,25 @@ describe("Binary Market Lifecycle", () => {
       .rpc();
 
     const position = await ctx.program.account.userPosition.fetch(userPositionPda);
-    expect(position.holdings[0].toNumber()).to.be.greaterThan(0);
+    const marketAfter = await ctx.program.account.market.fetch(marketPda);
+    const vaultAfter = Number((await getAccount(ctx.provider.connection, vault)).amount);
+
+    // Tokens received must be substantial relative to collateral spent (not just > 0)
+    expect(position.holdings[0].toNumber()).to.be.greaterThan(buyAmountA / 10,
+      "Tokens received should be substantial relative to collateral");
     expect(position.holdings[1].toNumber()).to.equal(0);
     expect(position.totalDeposited.toNumber()).to.equal(buyAmountA);
+
+    // Reserve for bought outcome must decrease (tokens drained from pool)
+    expect(marketAfter.reserves[0].toNumber()).to.be.lessThan(
+      marketBefore.reserves[0].toNumber()
+    );
+    // Total minted must increase by the net collateral (after fees)
+    expect(marketAfter.totalMinted.toNumber()).to.be.greaterThan(
+      marketBefore.totalMinted.toNumber()
+    );
+    // Vault must receive the collateral
+    expect(vaultAfter).to.equal(vaultBefore + buyAmountA);
   });
 
   it("trader B buys outcome 1 (No)", async () => {
@@ -131,7 +150,9 @@ describe("Binary Market Lifecycle", () => {
       .rpc();
 
     const position = await ctx.program.account.userPosition.fetch(userPositionPda);
-    expect(position.holdings[1].toNumber()).to.be.greaterThan(0);
+    expect(position.holdings[1].toNumber()).to.be.greaterThan(buyAmountB / 10,
+      "Tokens received should be substantial relative to collateral");
+    expect(position.holdings[0].toNumber()).to.equal(0);
     expect(position.totalDeposited.toNumber()).to.equal(buyAmountB);
   });
 
@@ -142,6 +163,7 @@ describe("Binary Market Lifecycle", () => {
       ctx.program.programId
     );
     const positionBefore = await ctx.program.account.userPosition.fetch(userPositionPda);
+    const marketBefore = await ctx.program.account.market.fetch(marketPda);
     const sellAmount = Math.floor(positionBefore.holdings[0].toNumber() / 2);
     expect(sellAmount).to.be.greaterThan(0);
 
@@ -166,8 +188,17 @@ describe("Binary Market Lifecycle", () => {
     expect(positionAfter.holdings[0].toNumber()).to.equal(
       positionBefore.holdings[0].toNumber() - sellAmount
     );
+    const marketAfter = await ctx.program.account.market.fetch(marketPda);
     const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
-    expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    const collateralReceived = Number(ataBalAfter) - Number(ataBalBefore);
+    // Collateral received must be meaningful (not just > 0), and less than sellAmount due to fees/slippage
+    expect(collateralReceived).to.be.greaterThan(0);
+    expect(collateralReceived).to.be.lessThan(sellAmount,
+      "Sell return should be less than token amount due to AMM slippage and fees");
+    // Reserve for sold outcome must increase (tokens returned to pool)
+    expect(marketAfter.reserves[0].toNumber()).to.be.greaterThan(
+      marketBefore.reserves[0].toNumber()
+    );
   });
 
   it("LP adds liquidity", async () => {
@@ -189,6 +220,7 @@ describe("Binary Market Lifecycle", () => {
       ctx.program.programId
     );
     const marketBefore = await ctx.program.account.market.fetch(marketPda);
+    const vaultBefore = Number((await getAccount(ctx.provider.connection, vault)).amount);
 
     await ctx.program.methods
       .addLiquidity({ amount: new BN(lpAmount) })
@@ -206,13 +238,25 @@ describe("Binary Market Lifecycle", () => {
       .rpc();
 
     const lp = await ctx.program.account.lpPosition.fetch(lpPositionPda);
-    expect(lp.shares.toString()).to.not.equal("0");
     expect(lp.depositedCollateral.toNumber()).to.equal(lpAmount);
 
     const marketAfter = await ctx.program.account.market.fetch(marketPda);
-    expect(marketAfter.lpSharesTotal.toString()).to.not.equal(
-      marketBefore.lpSharesTotal.toString()
+    const vaultAfter = Number((await getAccount(ctx.provider.connection, vault)).amount);
+
+    // LP shares should be proportional: shares = amount * lpSharesTotal / totalMinted
+    const expectedShares = Math.floor(
+      lpAmount * marketBefore.lpSharesTotal.toNumber() / marketBefore.totalMinted.toNumber()
     );
+    // Allow ±1 for rounding
+    expect(Math.abs(lp.shares.toNumber() - expectedShares)).to.be.lessThanOrEqual(1,
+      `LP shares ${lp.shares.toNumber()} should be ~${expectedShares}`);
+
+    // lpSharesTotal must increase by the shares minted
+    expect(marketAfter.lpSharesTotal.toNumber()).to.equal(
+      marketBefore.lpSharesTotal.toNumber() + lp.shares.toNumber()
+    );
+    // Vault must receive the collateral
+    expect(vaultAfter).to.equal(vaultBefore + lpAmount);
   });
 
   it("rejects trade after deadline (lazy enforcement)", async () => {
@@ -342,6 +386,7 @@ describe("Binary Market Lifecycle", () => {
       ctx.program.programId
     );
     const lp = await ctx.program.account.lpPosition.fetch(lpPositionPda);
+    const marketBefore = await ctx.program.account.market.fetch(marketPda);
     const ataBalBefore = (await getAccount(ctx.provider.connection, lpProviderAta)).amount;
 
     await ctx.program.methods
@@ -359,14 +404,20 @@ describe("Binary Market Lifecycle", () => {
       .rpc();
 
     const lpAfter = await ctx.program.account.lpPosition.fetch(lpPositionPda);
-    expect(lpAfter.shares.toString()).to.equal("0");
+    expect(lpAfter.shares.toNumber()).to.equal(0);
 
     const ataBalAfter = (await getAccount(ctx.provider.connection, lpProviderAta)).amount;
-    expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    const lpPayout = Number(ataBalAfter) - Number(ataBalBefore);
+    expect(lpPayout).to.be.greaterThan(0, "LP should receive collateral on removal");
 
-    // After LP removes, check vault still has enough for protocol fees
+    // After LP removes, vault must still cover protocol fees (dead collateral stays)
     const vaultBal = (await getAccount(ctx.provider.connection, vault)).amount;
     const market = await ctx.program.account.market.fetch(marketPda);
     expect(Number(vaultBal)).to.be.greaterThanOrEqual(Number(market.protocolFeeAccumulated));
+
+    // Market lpSharesTotal must decrease
+    expect(market.lpSharesTotal.toNumber()).to.equal(
+      marketBefore.lpSharesTotal.toNumber() - lp.shares.toNumber()
+    );
   });
 });

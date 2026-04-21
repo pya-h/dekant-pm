@@ -50,6 +50,8 @@ describe("Multi-Outcome Market Lifecycle", () => {
     const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
     await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(50_000_000));
 
+    const marketBefore = await ctx.program.account.market.fetch(marketPda);
+
     await ctx.program.methods
       .buy({ outcome: outcomeA, collateralAmount: new BN(buyAmountA) })
       .accountsPartial({
@@ -65,6 +67,8 @@ describe("Multi-Outcome Market Lifecycle", () => {
       })
       .signers([ctx.traderA])
       .rpc();
+
+    const marketAfterA = await ctx.program.account.market.fetch(marketPda);
 
     const [posB] = findUserPosition(marketPda, ctx.traderB.publicKey, ctx.program.programId);
     const traderBAta = await getOrCreateAta(ctx.collateralMint, ctx.traderB.publicKey, ctx.traderB);
@@ -86,10 +90,30 @@ describe("Multi-Outcome Market Lifecycle", () => {
       .signers([ctx.traderB])
       .rpc();
 
+    const marketAfterB = await ctx.program.account.market.fetch(marketPda);
     const positionA = await ctx.program.account.userPosition.fetch(posA);
     const positionB = await ctx.program.account.userPosition.fetch(posB);
-    expect(positionA.holdings[outcomeA].toNumber()).to.be.greaterThan(0);
-    expect(positionB.holdings[outcomeB].toNumber()).to.be.greaterThan(0);
+
+    // Tokens received must be substantial
+    expect(positionA.holdings[outcomeA].toNumber()).to.be.greaterThan(buyAmountA / 10);
+    expect(positionB.holdings[outcomeB].toNumber()).to.be.greaterThan(buyAmountB / 10);
+
+    // Other outcomes must be zero for each trader
+    for (let i = 0; i < NUM_OUTCOMES; i++) {
+      if (i !== outcomeA) expect(positionA.holdings[i].toNumber()).to.equal(0);
+      if (i !== outcomeB) expect(positionB.holdings[i].toNumber()).to.equal(0);
+    }
+
+    // Reserves for bought outcomes must decrease; totalMinted must grow
+    expect(marketAfterA.reserves[outcomeA].toNumber()).to.be.lessThan(
+      marketBefore.reserves[outcomeA].toNumber()
+    );
+    expect(marketAfterB.reserves[outcomeB].toNumber()).to.be.lessThan(
+      marketAfterA.reserves[outcomeB].toNumber()
+    );
+    expect(marketAfterB.totalMinted.toNumber()).to.be.greaterThan(
+      marketBefore.totalMinted.toNumber()
+    );
   });
 
   it("oracle resolves multi-outcome market (outcome 2 wins)", async () => {

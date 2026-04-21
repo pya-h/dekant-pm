@@ -11,7 +11,7 @@ import { ensureSetup } from "./helpers/setup";
 import { findUserPosition } from "./helpers/pda";
 import { getOrCreateAta, mintTokens } from "./helpers/accounts";
 import { createContinuousMarket, createBinaryMarket } from "./helpers/market-helper";
-import { MARKET_TYPE_CONTINUOUS, SCALE, MIN_TRADE, randomAmount } from "./helpers/constants";
+import { MARKET_TYPE_CONTINUOUS, SCALE, MIN_TRADE } from "./helpers/constants";
 
 describe("Continuous Market Lifecycle", () => {
   let marketPda: PublicKey;
@@ -51,6 +51,8 @@ describe("Continuous Market Lifecycle", () => {
     const traderAAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
     await mintTokens(ctx.collateralMint, traderAAta, (ctx.superadmin as any).payer, BigInt(50_000_000));
 
+    const marketBefore = await ctx.program.account.market.fetch(marketPda);
+
     await ctx.program.methods
       .buyDistribution({
         mu: new BN(150).mul(SCALE),
@@ -75,13 +77,29 @@ describe("Continuous Market Lifecycle", () => {
       .rpc();
 
     const position = await ctx.program.account.userPosition.fetch(posA);
-    const totalTokens = position.holdings.reduce(
-      (sum: number, h: any) => sum + h.toNumber(), 0
-    );
+    const marketAfter = await ctx.program.account.market.fetch(marketPda);
+    const holdings = position.holdings.map((h: any) => h.toNumber());
+    const totalTokens = holdings.reduce((s: number, h: number) => s + h, 0);
     expect(totalTokens).to.be.greaterThan(0);
+
+    // Distribution shape: mu=150 in range [100, 300] with 64 bins
+    // Bin width = 200/64 = 3.125. mu=150 → bin index ~(150-100)/3.125 = 16
+    const muBin = Math.floor((150 - 100) / ((300 - 100) / NUM_BINS));
+    expect(holdings[muBin]).to.be.greaterThan(0,
+      `Bin ${muBin} (center of distribution) must have tokens`);
+
+    // Non-zero bins should cluster around the center (within ~2-3 sigma)
+    const nonZeroBins = holdings.filter((h: number) => h > 0).length;
+    expect(nonZeroBins).to.be.greaterThan(1, "Distribution should spread across multiple bins");
+    expect(nonZeroBins).to.be.lessThan(NUM_BINS, "Distribution should not fill all bins equally");
+
+    // totalMinted must increase
+    expect(marketAfter.totalMinted.toNumber()).to.be.greaterThan(
+      marketBefore.totalMinted.toNumber()
+    );
   });
 
-  it("trader B buys distribution N(200, 10)", async () => {
+  it("trader B buys distribution N(200, 10) — narrower, different center", async () => {
     const [posB] = findUserPosition(marketPda, ctx.traderB.publicKey, ctx.program.programId);
     const traderBAta = await getOrCreateAta(ctx.collateralMint, ctx.traderB.publicKey, ctx.traderB);
     await mintTokens(ctx.collateralMint, traderBAta, (ctx.superadmin as any).payer, BigInt(50_000_000));
@@ -110,10 +128,23 @@ describe("Continuous Market Lifecycle", () => {
       .rpc();
 
     const position = await ctx.program.account.userPosition.fetch(posB);
-    const totalTokens = position.holdings.reduce(
-      (sum: number, h: any) => sum + h.toNumber(), 0
-    );
+    const holdings = position.holdings.map((h: any) => h.toNumber());
+    const totalTokens = holdings.reduce((s: number, h: number) => s + h, 0);
     expect(totalTokens).to.be.greaterThan(0);
+
+    // mu=200 in [100,300] with 64 bins → bin ~32
+    const muBin = Math.floor((200 - 100) / ((300 - 100) / NUM_BINS));
+    expect(holdings[muBin]).to.be.greaterThan(0,
+      `Bin ${muBin} (center for mu=200) must have tokens`);
+
+    // Narrower sigma (10 vs 20) → fewer non-zero bins than trader A
+    const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const positionA = await ctx.program.account.userPosition.fetch(posA);
+    const holdingsA = positionA.holdings.map((h: any) => h.toNumber());
+    const nonZeroBinsA = holdingsA.filter((h: number) => h > 0).length;
+    const nonZeroBinsB = holdings.filter((h: number) => h > 0).length;
+    expect(nonZeroBinsB).to.be.lessThanOrEqual(nonZeroBinsA,
+      "Narrower sigma should have fewer non-zero bins");
   });
 
   it("oracle resolves with value 155 (close to trader A's center)", async () => {
@@ -137,6 +168,12 @@ describe("Continuous Market Lifecycle", () => {
     const resolved = await ctx.program.account.market.fetch(marketPda);
     expect(resolved.state).to.equal(3);
     expect(resolved.resolvedValue.toString()).to.equal(new BN(155).mul(SCALE).toString());
+
+    // Validate bin mapping: value 155 in range [100, 300] with 64 bins
+    // bin = floor((155 - 100) * 64 / (300 - 100)) = floor(55 * 64 / 200) = floor(17.6) = 17
+    const expectedBin = Math.floor((155 - 100) * NUM_BINS / (300 - 100));
+    expect(resolved.resolvedOutcome).to.equal(expectedBin,
+      `Resolved outcome bin should be ${expectedBin} for value 155 in [100, 300] with ${NUM_BINS} bins`);
   });
 
   it("trader A claims payout from continuous market", async () => {
@@ -148,36 +185,37 @@ describe("Continuous Market Lifecycle", () => {
     const winningBin = market.resolvedOutcome;
     const winningTokens = positionBefore.holdings[winningBin].toNumber();
 
-    if (winningTokens > 0) {
-      const ataBalBefore = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+    // Hard assertion: distribution centered at 150 with resolve at 155 MUST populate the winning bin
+    expect(winningTokens).to.be.greaterThan(0, "Distribution N(150,20) must have tokens in winning bin for resolve value 155");
 
-      await ctx.program.methods
-        .claimPayout()
-        .accountsPartial({
-          trader: ctx.traderA.publicKey,
-          market: marketPda,
-          protocolConfig: ctx.protocolConfig,
-          userPosition: posA,
-          vaultAuthority,
-          vault,
-          traderAta: traderAAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([ctx.traderA])
-        .rpc();
+    const ataBalBefore = (await getAccount(ctx.provider.connection, traderAAta)).amount;
 
-      const positionAfter = await ctx.program.account.userPosition.fetch(posA);
-      expect(positionAfter.claimed).to.be.true;
+    await ctx.program.methods
+      .claimPayout()
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority,
+        vault,
+        traderAta: traderAAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([ctx.traderA])
+      .rpc();
 
-      // Exact 1:1 payout: winning_tokens minus redemption fee
-      const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
-      const redemptionFeeBps = config.redemptionFeeBps;
-      const expectedFee = Math.floor(winningTokens * redemptionFeeBps / 10_000);
-      const expectedNet = winningTokens - expectedFee;
+    const positionAfter = await ctx.program.account.userPosition.fetch(posA);
+    expect(positionAfter.claimed).to.be.true;
 
-      const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
-      expect(Number(ataBalAfter) - Number(ataBalBefore)).to.equal(expectedNet);
-    }
+    // Exact 1:1 payout: winning_tokens minus redemption fee
+    const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
+    const redemptionFeeBps = config.redemptionFeeBps;
+    const expectedFee = Math.floor(winningTokens * redemptionFeeBps / 10_000);
+    const expectedNet = winningTokens - expectedFee;
+
+    const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
+    expect(Number(ataBalAfter) - Number(ataBalBefore)).to.equal(expectedNet);
   });
 });
 
@@ -265,13 +303,26 @@ describe("Sell Distribution on Continuous Market", () => {
       .rpc();
 
     const positionAfterSell = await ctx.program.account.userPosition.fetch(posA);
-    const totalAfterSell = positionAfterSell.holdings.reduce(
-      (sum: number, h: any) => sum + h.toNumber(), 0
-    );
+    const holdingsAfterSell = positionAfterSell.holdings.map((h: any) => h.toNumber());
+    const totalAfterSell = holdingsAfterSell.reduce((s: number, h: number) => s + h, 0);
     expect(totalAfterSell).to.be.lessThan(totalBought);
 
+    // Per-bin validation: every bin's holdings must decrease or stay at 0
+    const holdingsAfterBuy = positionAfterBuy.holdings.map((h: any) => h.toNumber());
+    for (let i = 0; i < holdingsAfterBuy.length; i++) {
+      expect(holdingsAfterSell[i]).to.be.lessThanOrEqual(holdingsAfterBuy[i],
+        `Bin ${i} holdings must not increase after sell`);
+    }
+
+    // Bins that had tokens should have some removed (at least one bin should decrease)
+    const decreasedBins = holdingsAfterBuy.filter(
+      (h: number, i: number) => h > 0 && holdingsAfterSell[i] < h
+    ).length;
+    expect(decreasedBins).to.be.greaterThan(0, "At least one bin should have tokens removed");
+
     const ataBalAfter = (await getAccount(ctx.provider.connection, traderAAta)).amount;
-    expect(Number(ataBalAfter)).to.be.greaterThan(Number(ataBalBefore));
+    const collateralReceived = Number(ataBalAfter) - Number(ataBalBefore);
+    expect(collateralReceived).to.be.greaterThan(0, "Sell should return collateral");
   });
 
   it("rejects sell distribution below MIN_TRADE_AMOUNT", async () => {
