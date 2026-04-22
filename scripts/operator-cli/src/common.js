@@ -15,6 +15,7 @@ const {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getOrCreateAssociatedTokenAccount,
+  getAssociatedTokenAddressSync,
   mintTo,
   createMint,
   getAccount,
@@ -186,6 +187,10 @@ async function createCollateralMint(connection, payer) {
   return createMint(connection, payer, payer.publicKey, null, USDC_DECIMALS);
 }
 
+function deriveAta(mint, owner) {
+  return getAssociatedTokenAddressSync(mint, owner);
+}
+
 async function getTokenBalance(connection, tokenAccount) {
   const account = await getAccount(connection, tokenAccount);
   return account.amount;
@@ -317,6 +322,7 @@ module.exports = {
   // Token
   airdropSol,
   getOrCreateAta,
+  deriveAta,
   mintTokens,
   createCollateralMint,
   getTokenBalance,
