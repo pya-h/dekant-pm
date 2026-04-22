@@ -7,10 +7,13 @@ const {
   Keypair,
   PublicKey,
   SystemProgram,
+  LAMPORTS_PER_SOL,
   airdropSol,
   getOrCreateAta,
   mintTokens,
   getTokenBalance,
+  transferSol,
+  getNetworkMints,
   findProtocolConfig,
   findUserRole,
   parseTokenAmount,
@@ -136,23 +139,38 @@ async function fundUser(state) {
   });
   if (!selected || selected === "cancel") return;
 
-  // Determine collateral mint
-  let mint;
+  // Build source choices
+  const sourceChoices = [
+    { name: "Enter mint address / Native SOL", value: "manual" },
+    { name: "Browse network tokens", value: "network" },
+  ];
   if (state.markets.length > 0) {
-    const source = await select({
-      message: "Token source:",
+    sourceChoices.push({ name: "From market collateral", value: "market" });
+  }
+  sourceChoices.push({ name: chalk.red("Cancel"), value: "cancel" });
+
+  const source = await select({
+    message: "Token source:",
+    choices: sourceChoices,
+  });
+  if (source === "cancel") return;
+
+  let mint = null;
+  let isSol = false;
+
+  if (source === "manual") {
+    const manualChoice = await select({
+      message: "Select token type:",
       choices: [
-        { name: "From market collateral", value: "market" },
-        { name: "Enter mint address", value: "manual" },
+        { name: "Native SOL (transfer)", value: "sol" },
+        { name: "Enter mint address", value: "mint" },
+        { name: chalk.red("Cancel"), value: "cancel" },
       ],
     });
+    if (manualChoice === "cancel") return;
 
-    if (source === "market") {
-      const market = await selectMarket(state, {
-        message: "Select market (for collateral mint):",
-      });
-      if (!market || market === "cancel") return;
-      mint = market.mint;
+    if (manualChoice === "sol") {
+      isSol = true;
     } else {
       const mintStr = await input({ message: "Token mint address:" });
       try {
@@ -163,47 +181,95 @@ async function fundUser(state) {
         return;
       }
     }
-  } else {
-    const mintStr = await input({ message: "Token mint address:" });
+  } else if (source === "network") {
+    console.log(chalk.dim("\n  Fetching token mints from network..."));
     try {
-      mint = new PublicKey(mintStr);
-    } catch {
-      console.log(chalk.red("  Invalid mint address."));
+      const mints = await getNetworkMints(state.connection);
+      if (mints.length === 0) {
+        console.log(chalk.yellow("  No token mints found on the network."));
+        await pressKey();
+        return;
+      }
+      const mintChoices = mints.map((m) => ({
+        name: m.toBase58(),
+        value: m,
+      }));
+      mintChoices.push({ name: chalk.red("Cancel"), value: "cancel" });
+      const selectedMint = await select({
+        message: `Select token mint (${mints.length} found):`,
+        choices: mintChoices,
+      });
+      if (selectedMint === "cancel") return;
+      mint = selectedMint;
+    } catch (e) {
+      showError(e);
       await pressKey();
       return;
     }
+  } else if (source === "market") {
+    const market = await selectMarket(state, {
+      message: "Select market (for collateral mint):",
+    });
+    if (!market || market === "cancel") return;
+    mint = market.mint;
   }
 
-  const amountStr = await input({
-    message: "Amount (USDC):",
-    default: state.randomMode ? state.rand.fundAmount() : "100",
-  });
+  if (isSol) {
+    const amountStr = await input({
+      message: "Amount (SOL):",
+      default: state.randomMode ? "5" : "10",
+    });
 
-  console.log(
-    chalk.dim(`\n  Minting ${amountStr} USDC to ${selected.label}...`)
-  );
-
-  try {
-    const amount = parseTokenAmount(amountStr);
-    const ata = await getOrCreateAta(
-      state.connection,
-      mint,
-      selected.pubkey,
-      state.superuser.keypair
-    );
-    await mintTokens(
-      state.connection,
-      mint,
-      ata,
-      state.superuser.keypair,
-      BigInt(amount.toString())
+    console.log(
+      chalk.dim(`\n  Transferring ${amountStr} SOL to ${selected.label}...`)
     );
 
-    const balance = await getTokenBalance(state.connection, ata);
-    showSuccess(`Funded ${selected.label} with ${amountStr} USDC`);
-    console.log(`  New balance: ${formatTokenAmount(balance)} USDC`);
-  } catch (e) {
-    showError(e);
+    try {
+      const lamports = Math.round(parseFloat(amountStr) * LAMPORTS_PER_SOL);
+      await transferSol(
+        state.connection,
+        state.superuser.keypair,
+        selected.pubkey,
+        lamports
+      );
+      const balance = await state.connection.getBalance(selected.pubkey);
+      const solBalance = (balance / LAMPORTS_PER_SOL).toFixed(4);
+      showSuccess(`Funded ${selected.label} with ${amountStr} SOL`);
+      console.log(`  New balance: ${solBalance} SOL`);
+    } catch (e) {
+      showError(e);
+    }
+  } else {
+    const amountStr = await input({
+      message: "Amount (tokens):",
+      default: state.randomMode ? state.rand.fundAmount() : "100",
+    });
+
+    console.log(
+      chalk.dim(`\n  Minting ${amountStr} tokens to ${selected.label}...`)
+    );
+
+    try {
+      const amount = parseTokenAmount(amountStr);
+      const ata = await getOrCreateAta(
+        state.connection,
+        mint,
+        selected.pubkey,
+        state.superuser.keypair
+      );
+      await mintTokens(
+        state.connection,
+        mint,
+        ata,
+        state.superuser.keypair,
+        BigInt(amount.toString())
+      );
+      const balance = await getTokenBalance(state.connection, ata);
+      showSuccess(`Funded ${selected.label} with ${amountStr} tokens`);
+      console.log(`  New balance: ${formatTokenAmount(balance)} tokens`);
+    } catch (e) {
+      showError(e);
+    }
   }
 
   await pressKey();

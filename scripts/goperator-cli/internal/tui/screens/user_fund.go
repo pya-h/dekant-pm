@@ -14,27 +14,40 @@ import (
 )
 
 type fundUserScreen struct {
-	state        *state.SessionState
-	form         *huh.Form
-	phase        Phase
-	userChoice   string
-	sourceChoice string
-	marketChoice string
-	mintStr      string
-	amount       string
-	mint         solana.PublicKey
-	result       string
-	err          error
+	state             *state.SessionState
+	form              *huh.Form
+	phase             Phase
+	userChoice        string
+	sourceChoice      string
+	manualChoice      string
+	marketChoice      string
+	networkMintChoice string
+	mintStr           string
+	amount            string
+	mint              solana.PublicKey
+	isSolTransfer     bool
+	networkMints      []solana.PublicKey
+	result            string
+	err               error
 }
 
 const (
 	phaseFundUser Phase = iota
 	phaseFundSource
-	phaseFundMarket
+	phaseFundManualChoice
+	phaseFundMintInput
+	phaseFundNetworkLoad
+	phaseFundNetworkSelect
+	phaseFundMarketSelect
 	phaseFundAmount
 	phaseFundExec
 	phaseFundDone
 )
+
+type mintsLoadedMsg struct {
+	mints []solana.PublicKey
+	err   error
+}
 
 func NewFundUserScreen(s *state.SessionState) tea.Model {
 	if len(s.Users) == 0 {
@@ -80,10 +93,23 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case doneMsg:
-		m.state.AddTxLog("Fund User", msg.sig, true, m.amount+" USDC -> "+m.userChoice)
-		m.result = fmt.Sprintf("Funded %s with %s USDC", m.userChoice, m.amount)
+		m.result = msg.result
 		m.phase = phaseFundDone
 		return m, nil
+
+	case mintsLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			m.phase = phaseFundDone
+			return m, nil
+		}
+		m.networkMints = msg.mints
+		if len(msg.mints) == 0 {
+			m.err = fmt.Errorf("no token mints found on the network")
+			m.phase = phaseFundDone
+			return m, nil
+		}
+		return m, m.advanceToNetworkSelect()
 	}
 
 	switch m.phase {
@@ -106,17 +132,72 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = f
 		}
 		if m.form.State == huh.StateCompleted {
-			if m.sourceChoice == "Cancel" {
+			switch m.sourceChoice {
+			case "Cancel":
 				return m, returnToMenu(nil)
+			case "manual":
+				return m, m.advanceToManualChoice()
+			case "network":
+				m.phase = phaseFundNetworkLoad
+				return m, m.loadNetworkMints()
+			case "market":
+				return m, m.advanceToMarketSelect()
 			}
-			if m.sourceChoice == "manual" {
-				return m, m.advanceToMintInput()
-			}
-			return m, m.advanceToMarketSelect()
 		}
 		return m, cmd
 
-	case phaseFundMarket:
+	case phaseFundManualChoice:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			switch m.manualChoice {
+			case "Cancel":
+				return m, returnToMenu(nil)
+			case "sol":
+				m.isSolTransfer = true
+				m.amount = "10"
+				return m, m.advanceToAmount()
+			case "mint":
+				return m, m.advanceToMintInput()
+			}
+		}
+		return m, cmd
+
+	case phaseFundMintInput:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			pk, err := solana.PublicKeyFromBase58(m.mintStr)
+			if err != nil {
+				m.err = fmt.Errorf("invalid mint address: %s", m.mintStr)
+				m.phase = phaseFundDone
+				return m, nil
+			}
+			m.mint = pk
+			return m, m.advanceToAmount()
+		}
+		return m, cmd
+
+	case phaseFundNetworkSelect:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			if m.networkMintChoice == "Cancel" {
+				return m, returnToMenu(nil)
+			}
+			pk, _ := solana.PublicKeyFromBase58(m.networkMintChoice)
+			m.mint = pk
+			return m, m.advanceToAmount()
+		}
+		return m, cmd
+
+	case phaseFundMarketSelect:
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
@@ -125,22 +206,11 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.marketChoice == "Cancel" {
 				return m, returnToMenu(nil)
 			}
-			// Resolve mint from market or from manual input
-			if m.sourceChoice == "manual" {
-				pk, err := solana.PublicKeyFromBase58(m.mintStr)
-				if err != nil {
-					m.err = fmt.Errorf("invalid mint address: %s", m.mintStr)
-					m.phase = phaseFundDone
-					return m, nil
-				}
-				m.mint = pk
-			} else {
-				market := resolveMarketChoice(m.state, m.marketChoice)
-				if market == nil {
-					return m, returnToMenu(nil)
-				}
-				m.mint = market.Mint
+			market := resolveMarketChoice(m.state, m.marketChoice)
+			if market == nil {
+				return m, returnToMenu(nil)
 			}
+			m.mint = market.Mint
 			return m, m.advanceToAmount()
 		}
 		return m, cmd
@@ -161,24 +231,82 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *fundUserScreen) advanceToSource() tea.Cmd {
-	if len(m.state.Markets) == 0 {
-		// No markets — skip to manual mint input
-		m.sourceChoice = "manual"
-		return m.advanceToMintInput()
+	opts := []huh.Option[string]{
+		huh.NewOption("Enter mint address / Native SOL", "manual"),
+		huh.NewOption("Browse network tokens", "network"),
 	}
+	if len(m.state.Markets) > 0 {
+		opts = append(opts, huh.NewOption("From market collateral", "market"))
+	}
+	opts = append(opts, huh.NewOption("Cancel", "Cancel"))
+
 	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Token source").
-				Options(
-					huh.NewOption("From market collateral", "market"),
-					huh.NewOption("Enter mint address", "manual"),
-					huh.NewOption("Cancel", "Cancel"),
-				).
+				Options(opts...).
 				Value(&m.sourceChoice),
 		),
 	)
 	m.phase = phaseFundSource
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) advanceToManualChoice() tea.Cmd {
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Select token type").
+				Options(
+					huh.NewOption("Native SOL (transfer)", "sol"),
+					huh.NewOption("Enter mint address", "mint"),
+					huh.NewOption("Cancel", "Cancel"),
+				).
+				Value(&m.manualChoice),
+		),
+	)
+	m.phase = phaseFundManualChoice
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) advanceToMintInput() tea.Cmd {
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Token mint address").
+				Value(&m.mintStr).
+				Placeholder("Enter base58 mint address"),
+		),
+	)
+	m.phase = phaseFundMintInput
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) loadNetworkMints() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		mints, err := m.state.Client.GetNetworkMints(ctx)
+		return mintsLoadedMsg{mints: mints, err: err}
+	}
+}
+
+func (m *fundUserScreen) advanceToNetworkSelect() tea.Cmd {
+	opts := make([]huh.Option[string], 0, len(m.networkMints)+1)
+	for _, mint := range m.networkMints {
+		addr := mint.String()
+		opts = append(opts, huh.NewOption(addr, addr))
+	}
+	opts = append(opts, huh.NewOption("Cancel", "Cancel"))
+
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Select token mint (%d found)", len(m.networkMints))).
+				Options(opts...).
+				Value(&m.networkMintChoice),
+		),
+	)
+	m.phase = phaseFundNetworkSelect
 	return m.form.Init()
 }
 
@@ -192,30 +320,21 @@ func (m *fundUserScreen) advanceToMarketSelect() tea.Cmd {
 				Value(&m.marketChoice),
 		),
 	)
-	m.phase = phaseFundMarket
-	return m.form.Init()
-}
-
-func (m *fundUserScreen) advanceToMintInput() tea.Cmd {
-	m.form = huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Token mint address").
-				Value(&m.mintStr).
-				Placeholder("Enter base58 mint address"),
-		),
-	)
-	m.phase = phaseFundMarket // reuse the same phase for form completion
+	m.phase = phaseFundMarketSelect
 	return m.form.Init()
 }
 
 func (m *fundUserScreen) advanceToAmount() tea.Cmd {
+	title := "Amount (tokens)"
+	if m.isSolTransfer {
+		title = "Amount (SOL)"
+	}
 	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Amount (USDC)").
+				Title(title).
 				Value(&m.amount).
-				Placeholder("100"),
+				Placeholder(m.amount),
 		),
 	)
 	m.phase = phaseFundAmount
@@ -230,28 +349,51 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 		}
 
 		ctx := context.Background()
+
+		if m.isSolTransfer {
+			// Parse SOL amount to lamports
+			solFloat := 0.0
+			fmt.Sscanf(m.amount, "%f", &solFloat)
+			lamports := uint64(solFloat * 1_000_000_000)
+
+			sig, err := m.state.Client.TransferSOL(ctx, m.state.Superuser.Keypair, user.Pubkey, lamports)
+			if err != nil {
+				return errMsg{err: fmt.Errorf("transfer SOL: %w", err)}
+			}
+
+			// Get new balance
+			balance, err := m.state.Client.GetSOLBalance(ctx, user.Pubkey)
+			if err != nil {
+				return doneMsg{result: fmt.Sprintf("Transferred %s SOL to %s", m.amount, m.userChoice), sig: sig}
+			}
+
+			solBal := float64(balance) / 1_000_000_000
+			return doneMsg{
+				result: fmt.Sprintf("Transferred %s SOL to %s (balance: %.4f SOL)", m.amount, m.userChoice, solBal),
+				sig:    sig,
+			}
+		}
+
+		// SPL token mint
 		amount := util.ParseTokenAmount(m.amount)
 
-		// Get or create ATA
 		ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, m.mint)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("create ATA: %w", err)}
 		}
 
-		// Mint tokens
 		err = m.state.Client.MintTo(ctx, m.state.Superuser.Keypair, m.mint, ata, amount)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("mint tokens: %w", err)}
 		}
 
-		// Get new balance
 		balance, err := m.state.Client.GetTokenBalance(ctx, ata)
 		if err != nil {
-			return doneMsg{result: "funded (balance check failed)", sig: solana.Signature{}}
+			return doneMsg{result: fmt.Sprintf("Funded %s with %s tokens", m.userChoice, m.amount), sig: solana.Signature{}}
 		}
 
 		return doneMsg{
-			result: fmt.Sprintf("Funded %s with %s USDC (balance: %s USDC)",
+			result: fmt.Sprintf("Funded %s with %s tokens (balance: %s)",
 				m.userChoice, m.amount, util.FormatTokenAmount(balance)),
 			sig: solana.Signature{},
 		}
@@ -261,9 +403,15 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 func (m *fundUserScreen) View() string {
 	title := styles.StyleTitle.Render("  Fund User\n\n")
 	switch m.phase {
-	case phaseFundUser, phaseFundSource, phaseFundMarket, phaseFundAmount:
+	case phaseFundUser, phaseFundSource, phaseFundManualChoice, phaseFundMintInput,
+		phaseFundNetworkSelect, phaseFundMarketSelect, phaseFundAmount:
 		return title + m.form.View()
+	case phaseFundNetworkLoad:
+		return title + styles.StyleDim.Render("  Fetching token mints from network...")
 	case phaseFundExec:
+		if m.isSolTransfer {
+			return title + styles.StyleDim.Render("  Transferring SOL...")
+		}
 		return title + styles.StyleDim.Render("  Minting tokens...")
 	case phaseFundDone:
 		if m.err != nil {
