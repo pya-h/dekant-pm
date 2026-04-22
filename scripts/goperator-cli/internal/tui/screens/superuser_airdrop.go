@@ -51,6 +51,7 @@ func NewSuperuserAirdropScreen(s *state.SessionState) tea.Model {
 		state:  s,
 		form:   form,
 		amount: amount,
+		phase:  phaseSuAirdropForm,
 	}
 }
 
@@ -129,8 +130,11 @@ func (m *superuserAirdropScreen) execAirdrop() tea.Cmd {
 		}
 
 		// Fetch new balance
-		bal, _ := m.state.Client.GetSOLBalance(ctx, m.state.Superuser.Pubkey)
-		newBal := fmt.Sprintf("%.4f SOL", float64(bal)/float64(solana.LAMPORTS_PER_SOL))
+		bal, balErr := m.state.Client.GetSOLBalance(ctx, m.state.Superuser.Pubkey)
+		newBal := "(balance check failed)"
+		if balErr == nil {
+			newBal = fmt.Sprintf("%.4f SOL", float64(bal)/float64(solana.LAMPORTS_PER_SOL))
+		}
 
 		return doneMsg{
 			result: fmt.Sprintf("Airdropped %s SOL to superuser\n  New balance: %s", m.amount, newBal),

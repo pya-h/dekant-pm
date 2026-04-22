@@ -166,7 +166,11 @@ func (m *createTokenScreen) execCreateToken() tea.Cmd {
 		if _, err := fmt.Sscanf(m.supply, "%f", &supplyFloat); err != nil || supplyFloat <= 0 {
 			return errMsg{err: fmt.Errorf("invalid supply: %s", m.supply)}
 		}
-		rawAmount := uint64(supplyFloat * math.Pow10(dec))
+		rawFloat := supplyFloat * math.Pow10(dec)
+		if rawFloat > float64(math.MaxUint64) || rawFloat < 0 {
+			return errMsg{err: fmt.Errorf("supply too large for %d decimals (max: %.0f)", dec, float64(math.MaxUint64)/math.Pow10(dec))}
+		}
+		rawAmount := uint64(rawFloat)
 
 		// Create ATA for superuser
 		ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, m.state.Superuser.Pubkey, mintPk)
@@ -181,13 +185,17 @@ func (m *createTokenScreen) execCreateToken() tea.Cmd {
 		}
 
 		// Get balance
-		balance, _ := m.state.Client.GetTokenBalance(ctx, ata)
+		balance, balErr := m.state.Client.GetTokenBalance(ctx, ata)
+		balStr := formatAmountWithDecimals(balance, dec)
+		if balErr != nil {
+			balStr = "(balance check failed)"
+		}
 
 		return doneMsg{
 			result: fmt.Sprintf("Created SPL token \"%s\"\n  Mint: %s\n  Decimals: %d\n  Minted to Superuser: %s\n  Balance: %s",
 				m.name, mintPk.String(), dec,
 				formatAmountWithDecimals(rawAmount, dec),
-				formatAmountWithDecimals(balance, dec)),
+				balStr),
 		}
 	}
 }

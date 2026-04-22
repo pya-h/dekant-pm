@@ -16,6 +16,7 @@ const {
   outcomeLabel,
   SCALE,
   MARKET_TYPE_CONTINUOUS,
+  MARKET_STATE_RESOLVED,
   MARKET_STATE_NAMES,
   TOKEN_PROGRAM_ID,
 } = require("../common");
@@ -124,7 +125,7 @@ async function claimPayout(state) {
   const [marketPda] = findMarket(sm.id, state.programId);
   const marketData = await state.superProgram.account.market.fetch(marketPda);
 
-  if (marketData.state !== 3) {
+  if (marketData.state !== MARKET_STATE_RESOLVED) {
     console.log(
       chalk.yellow(
         `  Market is not resolved (state: ${MARKET_STATE_NAMES[marketData.state]})`

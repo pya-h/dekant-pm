@@ -15,6 +15,7 @@ const {
   SCALE,
   MARKET_TYPE_CONTINUOUS,
   MARKET_TYPE_NAMES,
+  MARKET_STATE_RESOLVED,
   MARKET_STATE_NAMES,
 } = require("../common");
 
@@ -57,7 +58,7 @@ async function queryMarketInfo(state) {
     console.log(`\n  Range: [${rangeMin}, ${rangeMax}]`);
   }
 
-  if (market.state === 3) {
+  if (market.state === MARKET_STATE_RESOLVED) {
     console.log(chalk.green("\n  Resolved:"));
     printKV([
       ["Winner", outcomeLabel(market.marketType, market.resolvedOutcome)],
@@ -75,7 +76,7 @@ async function queryMarketInfo(state) {
     market.marketType,
     market.reserves,
     market.totalMinted,
-    market.state === 3 ? market.resolvedOutcome : undefined
+    market.state === MARKET_STATE_RESOLVED ? market.resolvedOutcome : undefined
   );
 
   // ASCII chart for continuous markets
@@ -143,7 +144,7 @@ async function viewPosition(state) {
       if (h.toNumber() > 0) {
         hasHoldings = true;
         const label = outcomeLabel(market.marketType, i);
-        const isWinner = market.state === 3 && i === market.resolvedOutcome;
+        const isWinner = market.state === MARKET_STATE_RESOLVED && i === market.resolvedOutcome;
         console.log(
           `    ${label.padEnd(12)} ${h.toString()}${isWinner ? chalk.green(" (winner)") : ""}`
         );
