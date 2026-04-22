@@ -1,5 +1,6 @@
 const { select } = require("@inquirer/prompts");
 const chalk = require("chalk");
+const { pressKey } = require("../ui");
 const {
   findMarket,
   computeProbabilities,
@@ -28,6 +29,7 @@ async function selectMarket(state, opts) {
     console.log(
       chalk.yellow("  No markets available. Create a market first.")
     );
+    await pressKey();
     return null;
   }
 

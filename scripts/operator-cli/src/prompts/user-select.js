@@ -1,5 +1,6 @@
 const { select } = require("@inquirer/prompts");
 const chalk = require("chalk");
+const { pressKey } = require("../ui");
 const {
   getOrCreateAta,
   getTokenBalance,
@@ -19,6 +20,7 @@ async function selectUser(state, opts) {
   opts = opts || {};
   if (state.users.length === 0 && !opts.includeSuperuser) {
     console.log(chalk.yellow("  No users available. Add a user first."));
+    await pressKey();
     return null;
   }
 
@@ -65,6 +67,7 @@ async function selectUser(state, opts) {
 
   if (choices.length === 0) {
     console.log(chalk.yellow("  No users available."));
+    await pressKey();
     return null;
   }
 
