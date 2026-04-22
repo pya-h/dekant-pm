@@ -3,13 +3,13 @@ const { select, Separator } = require("@inquirer/prompts");
 const chalk = require("chalk");
 const { SessionState } = require("./state");
 const { clear, banner, pressKey } = require("./ui");
-const { addUser, assignRole, fundUser } = require("./actions/user");
+const { addUser, assignRole } = require("./actions/user");
 const { createMarket, pauseUnpause } = require("./actions/market");
 const { buyOutcome, sellOutcome } = require("./actions/trade");
 const { addLiquidity, removeLiquidity } = require("./actions/liquidity");
 const { resolveMarket, claimPayout, collectFees } = require("./actions/settle");
 const { queryMarketInfo, viewPosition, viewBalances } = require("./actions/query");
-const { airdropSuperuser } = require("./actions/superuser");
+const { fundingTools } = require("./actions/funding");
 
 async function main() {
   clear();
@@ -59,12 +59,11 @@ async function main() {
         message: "What would you like to do?",
         choices: [
           ...(canContinue ? [{ name: chalk.cyan("Continue From Before"), value: "continue" }] : []),
-          new Separator(chalk.dim("── Superuser ──")),
-          { name: "Airdrop SOL to Superuser", value: "airdrop-super" },
           new Separator(chalk.dim("── User Management ──")),
           { name: "Add New User", value: "add-user" },
           { name: "Assign Role", value: "assign-role" },
-          { name: "Fund User", value: "fund-user" },
+          new Separator(chalk.dim("── Funding Tools ──")),
+          { name: "Funding Tools", value: "funding-tools", description: "Fund users, charge superuser, create tokens" },
           new Separator(chalk.dim("── Market Operations ──")),
           { name: "Create Market", value: "create-market" },
           { name: "Pause / Unpause Market", value: "pause-unpause" },
@@ -105,17 +104,14 @@ async function main() {
           }
           await pressKey();
           break;
-        case "airdrop-super":
-          await airdropSuperuser(state);
-          break;
         case "add-user":
           await addUser(state);
           break;
         case "assign-role":
           await assignRole(state);
           break;
-        case "fund-user":
-          await fundUser(state);
+        case "funding-tools":
+          await fundingTools(state);
           break;
         case "create-market":
           await createMarket(state);
@@ -156,7 +152,7 @@ async function main() {
       }
 
       // Save session after state-changing actions
-      if (!["view-position", "query-market", "view-balances", "continue"].includes(action)) {
+      if (!["view-position", "query-market", "view-balances", "continue", "funding-tools"].includes(action)) {
         state.saveSession();
         canContinue = false;
       }
