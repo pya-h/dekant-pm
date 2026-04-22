@@ -17,6 +17,4 @@ target/
 test-ledger/
 scripts/.state/
 scripts/SCRIPT-ERRORS.md
-plans/DONT-FORGET.me
-plans/POSSIBLE-BUGS.md
-plans/details
+specs/details
