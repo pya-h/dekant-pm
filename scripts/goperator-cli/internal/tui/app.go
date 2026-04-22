@@ -107,6 +107,8 @@ func NewAppModel(s *state.SessionState) AppModel {
 
 func buildMenuItems(canContinue bool) []list.Item {
 	items := []list.Item{
+		MenuItem{Title: "── Superuser ──", Action: "---super"},
+		MenuItem{Title: "Airdrop SOL to Superuser", Action: "airdrop-super", Description: "Fund superuser via airdrop"},
 		MenuItem{Title: "── User Management ──", Action: "---user"},
 		MenuItem{Title: "Add New User", Action: "add-user", Description: "Generate keypair + airdrop SOL"},
 		MenuItem{Title: "Assign Role", Action: "assign-role", Description: "Oracle / Creator / Admin"},

@@ -10,6 +10,8 @@ import (
 // CreateActionScreen creates the appropriate screen model for an action.
 func CreateActionScreen(action string, s *state.SessionState) tea.Model {
 	switch action {
+	case "airdrop-super":
+		return screens.NewSuperuserAirdropScreen(s)
 	case "add-user":
 		return screens.NewAddUserScreen(s)
 	case "assign-role":
