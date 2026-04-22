@@ -69,6 +69,11 @@ func (c *Client) GetBalance(ctx context.Context, pubkey solana.PublicKey) (uint6
 	return resp.Value, nil
 }
 
+// GetSOLBalance returns the SOL balance of a pubkey in lamports.
+func (c *Client) GetSOLBalance(ctx context.Context, pubkey solana.PublicKey) (uint64, error) {
+	return c.GetBalance(ctx, pubkey)
+}
+
 // RequestAirdrop airdrops lamports to a pubkey (localnet only).
 func (c *Client) RequestAirdrop(ctx context.Context, pubkey solana.PublicKey, lamports uint64) (solana.Signature, error) {
 	sig, err := c.RPC.RequestAirdrop(ctx, pubkey, lamports, rpc.CommitmentConfirmed)

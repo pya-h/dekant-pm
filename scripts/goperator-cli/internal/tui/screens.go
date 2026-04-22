@@ -38,6 +38,8 @@ func CreateActionScreen(action string, s *state.SessionState) tea.Model {
 		return screens.NewViewPositionScreen(s)
 	case "query-market":
 		return screens.NewQueryMarketScreen(s)
+	case "view-balances":
+		return screens.NewViewBalancesScreen(s)
 	default:
 		return nil
 	}

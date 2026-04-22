@@ -18,14 +18,20 @@ type fundUserScreen struct {
 	form         *huh.Form
 	phase        Phase
 	userChoice   string
+	sourceChoice string
 	marketChoice string
+	mintStr      string
 	amount       string
+	mint         solana.PublicKey
 	result       string
 	err          error
 }
 
 const (
-	phaseFundForm Phase = iota
+	phaseFundUser Phase = iota
+	phaseFundSource
+	phaseFundMarket
+	phaseFundAmount
 	phaseFundExec
 	phaseFundDone
 )
@@ -34,36 +40,23 @@ func NewFundUserScreen(s *state.SessionState) tea.Model {
 	if len(s.Users) == 0 {
 		return &fundUserScreen{state: s, phase: phaseFundDone, err: fmt.Errorf("no users available. Add a user first")}
 	}
-	if len(s.Markets) == 0 {
-		return &fundUserScreen{state: s, phase: phaseFundDone, err: fmt.Errorf("no markets available. Create a market first")}
-	}
 
 	amount := "100"
 	if s.RandomMode {
 		amount = s.Rand.FundAmount()
 	}
 	m := &fundUserScreen{state: s, amount: amount}
-	userChoices := buildUserChoices(s, false, true)
-	marketChoices := buildMarketChoices(s)
 
-	form := huh.NewForm(
+	userChoices := buildUserChoices(s, false, true)
+	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select user to fund").
 				Options(toHuhOptions(userChoices)...).
 				Value(&m.userChoice),
-			huh.NewSelect[string]().
-				Title("Select market (for collateral mint)").
-				Options(toHuhOptions(marketChoices)...).
-				Value(&m.marketChoice),
-			huh.NewInput().
-				Title("Amount (USDC)").
-				Value(&m.amount).
-				Placeholder("100"),
 		),
 	)
-
-	m.form = form
+	m.phase = phaseFundUser
 	return m
 }
 
@@ -87,22 +80,77 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case doneMsg:
-		m.state.AddTxLog("Fund User", msg.sig, true, m.amount+" USDC → "+m.userChoice)
+		m.state.AddTxLog("Fund User", msg.sig, true, m.amount+" USDC -> "+m.userChoice)
 		m.result = fmt.Sprintf("Funded %s with %s USDC", m.userChoice, m.amount)
 		m.phase = phaseFundDone
 		return m, nil
 	}
 
-	if m.phase == phaseFundForm {
+	switch m.phase {
+	case phaseFundUser:
 		form, cmd := m.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			m.form = f
 		}
-
 		if m.form.State == huh.StateCompleted {
-			if m.userChoice == "Cancel" || m.marketChoice == "Cancel" {
+			if m.userChoice == "Cancel" {
 				return m, returnToMenu(nil)
 			}
+			return m, m.advanceToSource()
+		}
+		return m, cmd
+
+	case phaseFundSource:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			if m.sourceChoice == "Cancel" {
+				return m, returnToMenu(nil)
+			}
+			if m.sourceChoice == "manual" {
+				return m, m.advanceToMintInput()
+			}
+			return m, m.advanceToMarketSelect()
+		}
+		return m, cmd
+
+	case phaseFundMarket:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
+			if m.marketChoice == "Cancel" {
+				return m, returnToMenu(nil)
+			}
+			// Resolve mint from market or from manual input
+			if m.sourceChoice == "manual" {
+				pk, err := solana.PublicKeyFromBase58(m.mintStr)
+				if err != nil {
+					m.err = fmt.Errorf("invalid mint address: %s", m.mintStr)
+					m.phase = phaseFundDone
+					return m, nil
+				}
+				m.mint = pk
+			} else {
+				market := resolveMarketChoice(m.state, m.marketChoice)
+				if market == nil {
+					return m, returnToMenu(nil)
+				}
+				m.mint = market.Mint
+			}
+			return m, m.advanceToAmount()
+		}
+		return m, cmd
+
+	case phaseFundAmount:
+		form, cmd := m.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			m.form = f
+		}
+		if m.form.State == huh.StateCompleted {
 			m.phase = phaseFundExec
 			return m, m.execFund()
 		}
@@ -112,11 +160,72 @@ func (m *fundUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *fundUserScreen) advanceToSource() tea.Cmd {
+	if len(m.state.Markets) == 0 {
+		// No markets — skip to manual mint input
+		m.sourceChoice = "manual"
+		return m.advanceToMintInput()
+	}
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Token source").
+				Options(
+					huh.NewOption("From market collateral", "market"),
+					huh.NewOption("Enter mint address", "manual"),
+					huh.NewOption("Cancel", "Cancel"),
+				).
+				Value(&m.sourceChoice),
+		),
+	)
+	m.phase = phaseFundSource
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) advanceToMarketSelect() tea.Cmd {
+	marketChoices := buildMarketChoices(m.state)
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Select market (for collateral mint)").
+				Options(toHuhOptions(marketChoices)...).
+				Value(&m.marketChoice),
+		),
+	)
+	m.phase = phaseFundMarket
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) advanceToMintInput() tea.Cmd {
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Token mint address").
+				Value(&m.mintStr).
+				Placeholder("Enter base58 mint address"),
+		),
+	)
+	m.phase = phaseFundMarket // reuse the same phase for form completion
+	return m.form.Init()
+}
+
+func (m *fundUserScreen) advanceToAmount() tea.Cmd {
+	m.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Amount (USDC)").
+				Value(&m.amount).
+				Placeholder("100"),
+		),
+	)
+	m.phase = phaseFundAmount
+	return m.form.Init()
+}
+
 func (m *fundUserScreen) execFund() tea.Cmd {
 	return func() tea.Msg {
 		user := resolveUserChoice(m.state, m.userChoice, false)
-		market := resolveMarketChoice(m.state, m.marketChoice)
-		if user == nil || market == nil {
+		if user == nil {
 			return errMsg{err: fmt.Errorf("invalid selection")}
 		}
 
@@ -124,13 +233,13 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 		amount := util.ParseTokenAmount(m.amount)
 
 		// Get or create ATA
-		ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, market.Mint)
+		ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, m.mint)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("create ATA: %w", err)}
 		}
 
 		// Mint tokens
-		err = m.state.Client.MintTo(ctx, m.state.Superuser.Keypair, market.Mint, ata, amount)
+		err = m.state.Client.MintTo(ctx, m.state.Superuser.Keypair, m.mint, ata, amount)
 		if err != nil {
 			return errMsg{err: fmt.Errorf("mint tokens: %w", err)}
 		}
@@ -150,20 +259,18 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 }
 
 func (m *fundUserScreen) View() string {
+	title := styles.StyleTitle.Render("  Fund User\n\n")
 	switch m.phase {
-	case phaseFundForm:
-		return styles.StyleTitle.Render("  Fund User\n\n") + m.form.View()
+	case phaseFundUser, phaseFundSource, phaseFundMarket, phaseFundAmount:
+		return title + m.form.View()
 	case phaseFundExec:
-		return styles.StyleTitle.Render("  Fund User\n\n") +
-			styles.StyleDim.Render("  Minting tokens...")
+		return title + styles.StyleDim.Render("  Minting tokens...")
 	case phaseFundDone:
 		if m.err != nil {
-			return styles.StyleTitle.Render("  Fund User\n\n") +
-				styles.StyleError.Render("  ✗ "+m.err.Error()) +
+			return title + styles.StyleError.Render("  "+m.err.Error()) +
 				"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 		}
-		return styles.StyleTitle.Render("  Fund User\n\n") +
-			styles.StyleSuccess.Render("  ✓ "+m.result) +
+		return title + styles.StyleSuccess.Render("  "+m.result) +
 			"\n\n" + styles.StyleDim.Render("  Press Esc to return")
 	}
 	return ""

@@ -276,7 +276,9 @@ stop_tracked_pids() {
 }
 
 # Start the Solana test validator (localnet only).
+# Pass "reset" as $1 to wipe the ledger; default is to keep existing state.
 start_validator() {
+  local do_reset="${1:-}"
   local program_id
   program_id=$(get_program_id)
   local program_so="$ROOT/target/deploy/dekant_pm.so"
@@ -298,9 +300,15 @@ start_validator() {
   pkill -f "solana-test-validator" 2>/dev/null || true
   sleep 1
 
+  local reset_flag=""
+  if [ "$do_reset" = "reset" ]; then
+    reset_flag="--reset"
+    log "Validator ledger will be wiped (--reset)"
+  fi
+
   solana-test-validator \
     --bpf-program "$program_id" "$program_so" \
-    --reset \
+    $reset_flag \
     --quiet \
     &>/dev/null &
   track_pid $! validator

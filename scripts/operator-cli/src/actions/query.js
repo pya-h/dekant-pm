@@ -6,6 +6,7 @@ const { selectMarket } = require("../prompts/market-select");
 const {
   findMarket,
   findUserPosition,
+  getOrCreateAta,
   getTokenBalance,
   computeProbabilities,
   formatTokenAmount,
@@ -158,4 +159,57 @@ async function viewPosition(state) {
   await pressKey();
 }
 
-module.exports = { queryMarketInfo, viewPosition };
+async function viewBalances(state) {
+  if (state.users.length === 0) {
+    console.log(chalk.yellow("  No users available. Add a user first."));
+    await pressKey();
+    return;
+  }
+
+  console.log(chalk.bold("\n  User Balances\n"));
+
+  const mints = [];
+  const mintLabels = {};
+  for (const m of state.markets) {
+    const key = m.mint.toBase58();
+    if (!mintLabels[key]) {
+      mints.push(m.mint);
+      mintLabels[key] = `Market #${m.id}`;
+    }
+  }
+
+  for (const user of state.users) {
+    console.log(chalk.cyan(`  ${user.label} (${user.pubkey.toBase58().slice(0, 16)}...)`));
+    if (user.roles.length > 0) {
+      console.log(chalk.dim(`    Roles: [${user.roles.join(", ")}]`));
+    }
+
+    // SOL balance
+    try {
+      const solBal = await state.connection.getBalance(user.pubkey);
+      console.log(`    SOL: ${(solBal / 1e9).toFixed(4)}`);
+    } catch {
+      console.log(chalk.dim("    SOL: (error)"));
+    }
+
+    // Token balances
+    for (const mint of mints) {
+      try {
+        const ata = await getOrCreateAta(state.connection, mint, user.pubkey, state.superuser.keypair);
+        const balance = await getTokenBalance(state.connection, ata);
+        console.log(`    ${mintLabels[mint.toBase58()]}: ${formatTokenAmount(balance)} USDC`);
+      } catch {
+        console.log(chalk.dim(`    ${mintLabels[mint.toBase58()]}: 0 USDC`));
+      }
+    }
+
+    if (mints.length === 0) {
+      console.log(chalk.dim("    No markets — no token balances to show"));
+    }
+    console.log();
+  }
+
+  await pressKey();
+}
+
+module.exports = { queryMarketInfo, viewPosition, viewBalances };
