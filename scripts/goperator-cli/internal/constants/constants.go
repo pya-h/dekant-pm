@@ -63,6 +63,7 @@ var (
 	AssociatedTokenProgramID = solana.MustPublicKeyFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
 	SystemProgramID          = solana.SystemProgramID
 	SysvarRentID             = solana.SysVarRentPubkey
+	NativeMint               = solana.MustPublicKeyFromBase58("So11111111111111111111111111111111111111112")
 )
 
 // Instruction Discriminators (first 8 bytes of sha256("global:<snake_case_name>"))

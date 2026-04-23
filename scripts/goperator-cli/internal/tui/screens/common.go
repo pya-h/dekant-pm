@@ -28,6 +28,12 @@ type (
 	dataMsg struct {
 		data interface{}
 	}
+	// stepMsg provides real-time execution progress — each step appends a log
+	// line and optionally triggers the next step via next.
+	stepMsg struct {
+		line string
+		next tea.Cmd
+	}
 )
 
 // returnToMenu sends ActionDoneMsg to return to main menu.
@@ -72,12 +78,16 @@ func resolveUserChoice(s *state.SessionState, choice string, includeSuperuser bo
 	return nil
 }
 
-// buildMarketChoices builds market selection options.
+// buildMarketChoices builds market selection options with mint info.
 func buildMarketChoices(s *state.SessionState) []string {
 	choices := []string{}
 	for _, m := range s.Markets {
 		typeName := constants.MarketTypeNames[m.Type]
-		choices = append(choices, fmt.Sprintf("#%d %s (%s)", m.ID, m.Label, typeName))
+		mintInfo := util.FormatPubkey(m.Mint)
+		if m.MintLabel != "" {
+			mintInfo = m.MintLabel + " (" + mintInfo + ")"
+		}
+		choices = append(choices, fmt.Sprintf("#%d %s (%s) — %s", m.ID, m.Label, typeName, mintInfo))
 	}
 	choices = append(choices, "Cancel")
 	return choices
