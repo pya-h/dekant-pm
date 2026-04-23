@@ -8,7 +8,7 @@ import {
 /** Binary market — reserves tuned so Yes ≈ 49%, No ≈ 51% in the display. */
 export const mockBinaryMarket: MarketSummary = {
   id: "1",
-  pubkey: "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+  pubkey: "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
   marketType: MarketType.Binary,
   state: MarketState.Active,
   creator: "Creator1111111111111111111111111111111111111",
@@ -79,7 +79,7 @@ export const mockUserPosition: UserPosition = {
   id: "pos-1",
   marketId: "1",
   market: mockBinaryMarket,
-  userAddress: "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL",
+  userAddress: "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
   holdings: ["10000000", "5000000"], // 10 Yes, 5 No tokens
   totalDeposited: "12000000",
   totalWithdrawn: "0",

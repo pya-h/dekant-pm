@@ -14,7 +14,7 @@ import { PublicKey } from '@solana/web3.js';
 // memory growth under Jest's module system.
 jest.mock('../common/idl', () => ({
   IDL: {},
-  PROGRAM_ID: new PublicKey('F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL'),
+  PROGRAM_ID: new PublicKey('4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P'),
 }));
 
 jest.mock('@coral-xyz/anchor', () => ({

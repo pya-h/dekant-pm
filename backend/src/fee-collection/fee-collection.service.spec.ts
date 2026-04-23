@@ -1,5 +1,5 @@
 // Set PROGRAM_ID before any imports that reference common/idl.ts
-process.env.PROGRAM_ID = 'F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL';
+process.env.PROGRAM_ID = '4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P';
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';

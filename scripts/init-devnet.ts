@@ -21,7 +21,7 @@ anchor.setProvider(provider);
 const idl = JSON.parse(
   fs.readFileSync("target/idl/dekant_pm.json", "utf-8")
 );
-const programId = new PublicKey("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
+const programId = new PublicKey("4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P");
 const program = new Program(idl, provider);
 
 const PROTOCOL_CONFIG_SEED = Buffer.from("protocol_config");

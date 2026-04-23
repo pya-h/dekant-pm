@@ -503,6 +503,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['292893', '292893'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       return request(app.getHttpServer())
@@ -524,6 +525,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['292893', '292893'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       // Current prob ≈ 50%, target 30% is lower
@@ -538,6 +540,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['292893', '292893'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       return request(app.getHttpServer())
@@ -581,6 +584,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['200000', '400000'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       return request(app.getHttpServer())
@@ -602,6 +606,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['200000', '400000'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       // Current prob ≈ 64%, target 80% is higher
@@ -616,6 +621,7 @@ describe('AMM (e2e)', () => {
         mockMarket({
           reserves: ['200000', '400000'],
           totalMinted: '1000000',
+          kSquared: '1000000000000',
         }),
       );
       return request(app.getHttpServer())

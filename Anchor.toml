@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-dekant_pm = "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL"
+dekant_pm = "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P"
 
 [programs.devnet]
-dekant_pm = "F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL"
+dekant_pm = "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P"
 
 [registry]
 url = "https://api.apr.dev"

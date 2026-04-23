@@ -343,10 +343,10 @@ describe('Roles (e2e)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // 3. Market creation — @Roles('admin')
+  // 3. Market creation — @Roles('admin', 'creator')
   // ═══════════════════════════════════════════════════════════════════
 
-  describe('POST /markets (admin+)', () => {
+  describe('POST /markets (admin/creator+)', () => {
     const dto = validCreateDto();
 
     it('401 — no token', () =>
@@ -386,13 +386,13 @@ describe('Roles (e2e)', () => {
         .expect(403);
     });
 
-    it('403 — valid JWT, creator role (not admin)', () => {
+    it('201 — valid JWT, creator role', () => {
       mockRoles([{ role: 3 }]);
       return request(app.getHttpServer())
         .post('/markets')
         .set('Authorization', `Bearer ${oracleToken}`)
-        .send(dto)
-        .expect(403);
+        .send(validCreateDto())
+        .expect(201);
     });
   });
 

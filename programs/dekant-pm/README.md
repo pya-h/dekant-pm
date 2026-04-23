@@ -8,9 +8,9 @@ This program is the source of truth for all protocol state: markets, trader posi
 
 | Network | Program ID |
 |---------|-----------|
-| **Devnet** | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` |
+| **Devnet** | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` |
 
-Explorer: https://explorer.solana.com/address/F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL?cluster=devnet
+Explorer: https://explorer.solana.com/address/4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P?cluster=devnet
 
 ## Directory Structure
 
