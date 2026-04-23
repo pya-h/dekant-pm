@@ -9,7 +9,8 @@
 use anchor_lang::prelude::*;
 use crate::errors::DekantPmError;
 use crate::constants::SCALE;
-use crate::engine::sqrt::isqrt;
+use crate::engine::sqrt::{isqrt, isqrt_u256};
+use ethnum::U256;
 
 // ── Invariant ────────────────────────────────────────────────────────
 
@@ -212,17 +213,13 @@ pub fn compute_distribution_buy(
 
     let excess = k_new_sq - k_old_sq; // always positive
 
-    let xw_sq = xw
-        .checked_mul(xw)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-    let w2_excess = w2
-        .checked_mul(excess)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-    let disc = xw_sq
-        .checked_add(w2_excess)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+    // Promote to U256 to avoid u128 overflow on xw² and w2·excess.
+    let xw_256 = U256::from(xw);
+    let w2_256 = U256::from(w2);
+    let excess_256 = U256::from(excess);
 
-    let sqrt_disc = isqrt(disc);
+    let disc = xw_256 * xw_256 + w2_256 * excess_256;
+    let sqrt_disc: u128 = isqrt_u256(disc);
 
     // Always ≥ 0 since disc ≥ XW².
     require!(sqrt_disc >= xw, DekantPmError::MathOverflow);
