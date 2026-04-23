@@ -1050,3 +1050,152 @@ fn test_distribution_buy_20x_pool() {
     // Center bin should have highest probability
     assert!(probs[16] > probs[0], "center should have higher prob");
 }
+
+// ── BUG-001: Distribution Buy u128 Overflow ─────────────────────
+//
+// These tests reproduce BUG-001: compute_distribution_buy overflows
+// u128 at moderate liquidity levels on continuous markets due to
+// squaring xw (which contains a SCALE=10^9 factor).
+//
+// EXPECTED BEHAVIOR:
+//   Before fix → these tests FAIL (function returns MathOverflow)
+//   After fix  → these tests PASS (function succeeds)
+//
+// The overflow thresholds (uniform weights):
+//   n=2:   ~$26K USDC (total_minted ~ 2.6e10)
+//   n=256: ~$295K USDC (total_minted ~ 2.95e11)
+
+/// Helper: uniform weights for n bins, each = SCALE / n.
+fn uniform_weights(n: usize) -> Vec<u64> {
+    vec![(SCALE / n as u128) as u64; n]
+}
+
+/// BUG-001 reproduction: 2 bins, $30K USDC liquidity.
+///
+/// xw ≈ 2.12e19 → xw^2 ≈ 4.5e38 > u128::MAX (3.4e38).
+/// Currently returns MathOverflow; after fix should succeed.
+#[test]
+fn test_bug001_overflow_2_bins_30k_usd() {
+    let total_minted: u128 = 30_000_000_000; // $30K USDC (6 decimals)
+    let mut reserves = init_reserves(2, total_minted);
+    let weights = uniform_weights(2);
+    let trade = 1_000_000u64; // $1 USDC
+
+    let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
+
+    assert!(
+        result.is_ok(),
+        "BUG-001: compute_distribution_buy overflows at $30K with 2 bins. \
+         Error: {:?}",
+        result.err()
+    );
+
+    let tokens = result.unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    assert!(total_tokens > 0, "should receive tokens");
+
+    // Uniform weights → equal token distribution
+    let diff = tokens[0].abs_diff(tokens[1]);
+    assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
+}
+
+/// BUG-001 reproduction: 256 bins (MAX_BINS), $300K USDC liquidity.
+///
+/// xw ≈ 1.875e19 → xw^2 ≈ 3.52e38 > u128::MAX (3.4e38).
+/// This is the maximum-bins worst case from the bug report.
+#[test]
+fn test_bug001_overflow_256_bins_300k_usd() {
+    let total_minted: u128 = 300_000_000_000; // $300K USDC
+    let mut reserves = init_reserves(256, total_minted);
+    let weights = uniform_weights(256);
+    let trade = 1_000_000u64; // $1 USDC
+
+    let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
+
+    assert!(
+        result.is_ok(),
+        "BUG-001: compute_distribution_buy overflows at $300K with 256 bins. \
+         Error: {:?}",
+        result.err()
+    );
+
+    let tokens = result.unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    assert!(total_tokens > 0, "should receive tokens");
+}
+
+/// BUG-001 extended: 64 bins, $1M USDC — verifies the fix raises
+/// the ceiling well above practical liquidity levels.
+#[test]
+fn test_bug001_overflow_64_bins_1m_usd() {
+    let total_minted: u128 = 1_000_000_000_000; // $1M USDC
+    let mut reserves = init_reserves(64, total_minted);
+    let weights = uniform_weights(64);
+    let trade = 10_000_000u64; // $10 USDC
+
+    let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
+
+    assert!(
+        result.is_ok(),
+        "BUG-001: compute_distribution_buy should handle $1M with 64 bins. \
+         Error: {:?}",
+        result.err()
+    );
+
+    let tokens = result.unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    assert!(total_tokens > 0, "should receive tokens");
+}
+
+/// BUG-001 secondary overflow: w2 * excess overflows for large trades
+/// on small-bin markets. At n=2, a doubling trade ($15K on $15K pool)
+/// triggers w2*excess overflow before xw^2.
+///
+/// w2 = SCALE^2/2 ≈ 5e17, excess ≈ 3*T^2 ≈ 6.75e20
+/// w2*excess ≈ 3.4e38 → overflows u128.
+#[test]
+fn test_bug001_w2_excess_overflow_doubling_trade() {
+    let total_minted: u128 = 15_000_000_000; // $15K USDC
+    let mut reserves = init_reserves(2, total_minted);
+    let weights = uniform_weights(2);
+    let trade = 15_000_000_000u64; // $15K — doubling the pool
+
+    let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
+
+    assert!(
+        result.is_ok(),
+        "BUG-001: w2*excess overflows for doubling trade at $15K with 2 bins. \
+         Error: {:?}",
+        result.err()
+    );
+
+    let tokens = result.unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    assert!(total_tokens > 0, "should receive tokens");
+}
+
+/// Regression: $20K with 2 bins is below the current overflow threshold
+/// (~$26K). This should pass both before AND after the fix.
+#[test]
+fn test_bug001_regression_below_threshold() {
+    let total_minted: u128 = 20_000_000_000; // $20K USDC — below $26K threshold
+    let mut reserves = init_reserves(2, total_minted);
+    let weights = uniform_weights(2);
+    let trade = 1_000_000u64; // $1 USDC
+
+    let result = compute_distribution_buy(&mut reserves, total_minted, &weights, trade);
+
+    assert!(
+        result.is_ok(),
+        "Regression: should work below overflow threshold. Error: {:?}",
+        result.err()
+    );
+
+    let tokens = result.unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    assert!(total_tokens > 0, "should receive tokens");
+
+    // Uniform weights → equal distribution
+    let diff = tokens[0].abs_diff(tokens[1]);
+    assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
+}
