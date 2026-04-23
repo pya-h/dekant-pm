@@ -77,6 +77,7 @@ func (m *addLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Add Liquidity", msg.err)
 		m.phase = phaseAddLPDone
 		return m, nil
 
@@ -273,6 +274,7 @@ func (m *removeLPScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Remove Liquidity", msg.err)
 		m.phase = phaseRemoveLPDone
 		return m, nil
 

@@ -41,7 +41,7 @@ async function queryMarketInfo(state) {
     ["Creator", market.creator.toBase58()],
     ["Oracle", market.oracle.toBase58()],
     ["Collateral mint", market.collateralMint.toBase58()],
-    ["Vault balance", `${formatTokenAmount(vaultBalance)} USDC`],
+    ["Vault balance", `${formatTokenAmount(vaultBalance)} tokens`],
     ["Deadline", formatTimestamp(market.deadline.toNumber())],
     ["Created", formatTimestamp(market.createdAt.toNumber())],
     ["Outcomes/bins", market.numOutcomes.toString()],
@@ -130,10 +130,10 @@ async function viewPosition(state) {
     console.log();
 
     printKV([
-      ["Total deposited", `${formatTokenAmount(position.totalDeposited)} USDC`],
+      ["Total deposited", `${formatTokenAmount(position.totalDeposited)} tokens`],
       [
         "Total withdrawn",
-        `${formatTokenAmount(position.totalWithdrawn)} USDC`,
+        `${formatTokenAmount(position.totalWithdrawn)} tokens`,
       ],
       ["Claimed", position.claimed ? "Yes" : "No"],
     ]);
@@ -176,7 +176,7 @@ async function viewBalances(state) {
     const key = m.mint.toBase58();
     if (!mintLabels[key]) {
       mints.push(m.mint);
-      mintLabels[key] = `Market #${m.id}`;
+      mintLabels[key] = m.mintLabel || `Market #${m.id} Token`;
     }
   }
 
@@ -196,12 +196,15 @@ async function viewBalances(state) {
 
     // Token balances (derive ATA address without creating on-chain)
     for (const mint of mints) {
+      const mintAddr = mint.toBase58();
+      const label = mintLabels[mintAddr];
+      const shortAddr = mintAddr.slice(0, 12) + "...";
       try {
         const ata = deriveAta(mint, user.pubkey);
         const balance = await getTokenBalance(state.connection, ata);
-        console.log(`    ${mintLabels[mint.toBase58()]}: ${formatTokenAmount(balance)} USDC`);
+        console.log(`    ${label}: ${formatTokenAmount(balance)} (${shortAddr})`);
       } catch {
-        console.log(chalk.dim(`    ${mintLabels[mint.toBase58()]}: 0 USDC`));
+        console.log(chalk.dim(`    ${label}: 0 (${shortAddr})`));
       }
     }
 

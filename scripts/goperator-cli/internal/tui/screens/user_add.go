@@ -66,6 +66,7 @@ func (m *addUserScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.state.LogError("Add User", msg.err)
 		m.phase = phaseAddUserDone
 		return m, nil
 

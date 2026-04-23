@@ -1,4 +1,4 @@
-const { select, input } = require("@inquirer/prompts");
+const { select, input, confirm } = require("@inquirer/prompts");
 const chalk = require("chalk");
 const {
   clear,
@@ -12,6 +12,7 @@ const { selectUser } = require("../prompts/user-select");
 const { selectMarket } = require("../prompts/market-select");
 const {
   Keypair,
+  PublicKey,
   SystemProgram,
   BN,
   findProtocolConfig,
@@ -20,7 +21,10 @@ const {
   findVaultAuthority,
   findLpPosition,
   getOrCreateAta,
+  deriveAta,
   mintTokens,
+  getTokenBalance,
+  getNetworkMints,
   createCollateralMint,
   parseTokenAmount,
   parseDeadline,
@@ -55,7 +59,7 @@ async function createMarket(state) {
 
   // Step 2: common params
   const liquidityStr = await input({
-    message: "Initial liquidity (USDC):",
+    message: "Initial liquidity (tokens):",
     default: state.randomMode ? state.rand.liquidity() : "100",
   });
   const deadlineStr = await input({
@@ -161,6 +165,7 @@ async function createMarket(state) {
         showSuccess("Oracle role assigned");
       } catch (e) {
         showError(e);
+        state.logError("Assign Oracle Role", e);
         await pressKey();
         return;
       }
@@ -177,13 +182,106 @@ async function createMarket(state) {
         default: defaultLabel,
       });
 
-  // Step 6: creator selection with retry loop
+  // Step 6: collateral token source
+  const mintSourceChoices = [
+    { name: "Create new SPL token", value: "new" },
+    { name: "Native SOL (wrapped)", value: "native" },
+    { name: "Enter mint address", value: "address" },
+    { name: "Browse network tokens", value: "network" },
+  ];
+  if (state.markets.length > 0) {
+    mintSourceChoices.push({ name: "From market collateral", value: "market" });
+  }
+  mintSourceChoices.push({ name: chalk.dim("Cancel"), value: "cancel" });
+
+  const mintSource = state.randomMode
+    ? "new"
+    : await select({
+        message: "Collateral token source:",
+        choices: mintSourceChoices,
+      });
+  if (mintSource === "cancel") return;
+
+  let selectedMint = null;
+  let isNewMint = false;
+  let isNativeMint = false;
+  let mintLabel = "";
+
+  if (mintSource === "new") {
+    isNewMint = true;
+  } else if (mintSource === "native") {
+    isNativeMint = true;
+    selectedMint = new PublicKey("So11111111111111111111111111111111111111112");
+    mintLabel = "Wrapped SOL";
+  } else if (mintSource === "address") {
+    const addrStr = await input({
+      message: "Token mint address:",
+    });
+    try {
+      selectedMint = new PublicKey(addrStr);
+    } catch {
+      console.log(chalk.red(`  Invalid mint address: ${addrStr}`));
+      await pressKey();
+      return;
+    }
+    mintLabel = addrStr.slice(0, 12) + "...";
+  } else if (mintSource === "network") {
+    showInfo("Fetching token mints from network...");
+    try {
+      const netMints = await getNetworkMints(state.connection);
+      if (netMints.length === 0) {
+        console.log(chalk.yellow("  No token mints found on the network."));
+        await pressKey();
+        return;
+      }
+      const mintChoices = netMints.map((m) => {
+        const addr = m.toBase58();
+        // Annotate known mints from session
+        const known = findMintLabel(state, m);
+        const displayName = known
+          ? `${known} — ${addr.slice(0, 12)}...`
+          : addr;
+        return { name: displayName, value: addr };
+      });
+      mintChoices.push({ name: chalk.dim("Cancel"), value: "cancel" });
+      const chosen = await select({
+        message: `Select token mint (${netMints.length} found):`,
+        choices: mintChoices,
+      });
+      if (chosen === "cancel") return;
+      selectedMint = new PublicKey(chosen);
+      mintLabel = findMintLabel(state, selectedMint) || chosen.slice(0, 12) + "...";
+    } catch (e) {
+      showError(e);
+      state.logError("Browse Network Tokens", e);
+      await pressKey();
+      return;
+    }
+  } else if (mintSource === "market") {
+    const mkt = await selectMarket(state, {
+      message: "Select market (for collateral mint):",
+      includeCancel: true,
+    });
+    if (!mkt || mkt === "cancel") return;
+    selectedMint = mkt.mint;
+    mintLabel = mkt.mintLabel || `Market #${mkt.id} Token`;
+  }
+
+  // Step 7: balance check for existing tokens
+  let needsFunding = isNewMint; // new mints always need funding
+  const liquidityAmount = parseTokenAmount(liquidityStr);
+
+  if (!isNewMint && selectedMint) {
+    // Step 7a: pick creator first (need to know who to check balance for)
+  }
+
+  // Step 8: creator selection with retry loop
   let created = false;
   while (!created) {
     clear();
     console.log(chalk.bold(`\n  Create ${typeName} Market`));
     printKV([
-      ["Liquidity", `${liquidityStr} USDC`],
+      ["Liquidity", `${liquidityStr} tokens`],
       ["Deadline", deadlineStr],
       ["Outcomes/bins", numOutcomes.toString()],
       [
@@ -193,6 +291,14 @@ async function createMarket(state) {
       ...(marketType === MARKET_TYPE_CONTINUOUS
         ? [["Range", `[${rangeMinHuman}, ${rangeMaxHuman}]`]]
         : []),
+      [
+        "Token",
+        isNewMint
+          ? "New SPL token (auto-created)"
+          : isNativeMint
+          ? "Wrapped SOL"
+          : `${mintLabel} (${selectedMint.toBase58().slice(0, 12)}...)`,
+      ],
     ]);
     console.log();
 
@@ -203,16 +309,59 @@ async function createMarket(state) {
     });
     if (!creator || creator === "cancel") return;
 
+    // Balance check for existing tokens
+    if (!isNewMint && selectedMint) {
+      showInfo("Checking creator token balance...");
+      let balance = BigInt(0);
+      try {
+        const ata = deriveAta(selectedMint, creator.pubkey);
+        balance = await getTokenBalance(state.connection, ata);
+      } catch {
+        // ATA doesn't exist — balance is 0
+      }
+
+      const needed = BigInt(liquidityAmount.toString());
+      if (balance < needed) {
+        const shortfall = needed - balance;
+        const fundMsg = isNativeMint
+          ? `Creator has ${formatTokenAmount(balance)} wrapped SOL but needs ${liquidityStr}. Wrap more SOL from superuser?`
+          : `Creator has ${formatTokenAmount(balance)} tokens but needs ${liquidityStr}. Auto-fund via mint?`;
+        const doFund = await select({
+          message: fundMsg,
+          choices: [
+            { name: "Yes, fund the creator", value: true },
+            { name: "No, cancel", value: false },
+          ],
+        });
+        if (!doFund) {
+          console.log(
+            chalk.yellow(`  Insufficient balance (${formatTokenAmount(balance)} tokens, need ${liquidityStr}).`)
+          );
+          continue; // retry with different creator
+        }
+        needsFunding = true;
+      } else {
+        showInfo(
+          `Creator balance: ${formatTokenAmount(balance)} tokens (sufficient)`
+        );
+        needsFunding = false;
+      }
+    }
+
     try {
       const result = await executeCreateMarket(state, {
         marketType,
         numOutcomes,
         oracle: oracle.pubkey,
-        liquidity: parseTokenAmount(liquidityStr),
+        liquidity: liquidityAmount,
         deadline: parseDeadline(deadlineStr),
         rangeMin,
         rangeMax,
         creator,
+        selectedMint,
+        isNewMint,
+        isNativeMint,
+        needsFunding,
       });
 
       state.markets.push({
@@ -220,6 +369,7 @@ async function createMarket(state) {
         label,
         type: marketType,
         mint: result.mint,
+        mintLabel: result.mintLabel,
         oracle: oracle.pubkey,
         numOutcomes,
         rangeMin: rangeMinHuman,
@@ -231,11 +381,12 @@ async function createMarket(state) {
         ["Market ID", result.marketId.toString()],
         ["Market PDA", result.marketPda.toBase58()],
         ["Vault", result.vault.toBase58()],
-        ["Mint", result.mint.toBase58()],
+        ["Token", `${result.mintLabel} (${result.mint.toBase58()})`],
       ]);
       created = true;
     } catch (e) {
       showError(e);
+      state.logError("Create Market", e);
       console.log(chalk.dim("  Select a different user or Cancel."));
     }
   }
@@ -247,48 +398,126 @@ async function executeCreateMarket(state, opts) {
   const program = state.programForUser(opts.creator.keypair);
   const [protocolConfig] = findProtocolConfig(state.programId);
 
+  // Step 1: Fetch protocol config
+  showInfo("Fetching protocol config...");
   const config = await program.account.protocolConfig.fetch(protocolConfig);
   const marketId = config.marketCount.toNumber();
+  showInfo(`  ✓ Protocol config loaded — next market ID: ${marketId}`);
+
   const [marketPda] = findMarket(marketId, state.programId);
   const [vaultAuthority] = findVaultAuthority(marketPda, state.programId);
   const vaultKp = Keypair.generate();
 
-  // Create mint with superuser as authority
-  showInfo("Creating collateral mint (superuser as authority)...");
-  const collateralMint = await createCollateralMint(
-    state.connection,
-    state.superuser.keypair
-  );
+  // Step 2: Resolve or create mint
+  let collateralMint;
+  let mintLabel;
 
-  // Fund creator for initial liquidity
+  if (opts.isNewMint) {
+    showInfo("Creating new SPL token (superuser as authority)...");
+    collateralMint = await createCollateralMint(
+      state.connection,
+      state.superuser.keypair
+    );
+    mintLabel = `Market#${marketId} Token`;
+    showInfo(
+      `  ✓ Created SPL token: ${mintLabel} (${collateralMint.toBase58().slice(0, 12)}...)`
+    );
+  } else {
+    collateralMint = opts.selectedMint;
+    mintLabel = opts.isNativeMint ? "Wrapped SOL" : findMintLabel(state, collateralMint) || collateralMint.toBase58().slice(0, 12) + "...";
+    showInfo(
+      `  ✓ Using token: ${mintLabel} (${collateralMint.toBase58().slice(0, 12)}...)`
+    );
+  }
+
+  // Step 3: Create ATA + fund if needed
+  showInfo("Preparing creator token account...");
   const creatorAta = await getOrCreateAta(
     state.connection,
     collateralMint,
     opts.creator.pubkey,
     state.superuser.keypair
   );
-  const mintAmount = opts.liquidity.muln(5);
-  await mintTokens(
-    state.connection,
-    collateralMint,
-    creatorAta,
-    state.superuser.keypair,
-    BigInt(mintAmount.toString())
-  );
-  showInfo(
-    `Minted ${formatTokenAmount(mintAmount)} USDC to ${opts.creator.label}`
-  );
+  showInfo(`  ✓ Creator ATA ready (${creatorAta.toBase58().slice(0, 12)}...)`);
 
-  // Derive PDAs
+  if (opts.needsFunding) {
+    if (opts.isNewMint) {
+      // New mint: fund 5x liquidity
+      const mintAmount = opts.liquidity.muln(5);
+      showInfo("Minting tokens to creator (5x liquidity)...");
+      await mintTokens(
+        state.connection,
+        collateralMint,
+        creatorAta,
+        state.superuser.keypair,
+        BigInt(mintAmount.toString())
+      );
+      showInfo(
+        `  ✓ Minted ${formatTokenAmount(mintAmount)} tokens to ${opts.creator.label}`
+      );
+    } else if (opts.isNativeMint) {
+      // Wrapped SOL: wrap the needed amount
+      showInfo("Wrapping SOL for creator...");
+      // For wrapped SOL, we need to transfer SOL to the ATA and sync native
+      // This is handled by @solana/spl-token's createWrappedNativeAccount or manually
+      const { Transaction: SolTx } = require("@solana/web3.js");
+      const amount = BigInt(opts.liquidity.toString());
+      // Convert token amount to lamports (USDC_DECIMALS=6 → ×10^3 for SOL's 9 decimals)
+      const lamports = amount * BigInt(1000);
+      const tx = new SolTx().add(
+        SystemProgram.transfer({
+          fromPubkey: state.superuser.keypair.publicKey,
+          toPubkey: creatorAta,
+          lamports: Number(lamports),
+        }),
+        // SyncNative instruction (variant 17)
+        {
+          keys: [{ pubkey: creatorAta, isSigner: false, isWritable: true }],
+          programId: TOKEN_PROGRAM_ID,
+          data: Buffer.from([17]),
+        }
+      );
+      const sig = await state.connection.sendTransaction(
+        tx,
+        [state.superuser.keypair],
+        { skipPreflight: false, preflightCommitment: "confirmed" }
+      );
+      await state.connection.confirmTransaction(sig, "confirmed");
+      showInfo(`  ✓ Wrapped SOL to creator`);
+    } else {
+      // Existing SPL token: mint the shortfall
+      showInfo("Funding creator via mint...");
+      let currentBalance = BigInt(0);
+      try {
+        currentBalance = await getTokenBalance(state.connection, creatorAta);
+      } catch {
+        // no ATA yet = 0
+      }
+      const needed = BigInt(opts.liquidity.toString());
+      const fundAmount = needed > currentBalance ? needed - currentBalance : needed;
+      await mintTokens(
+        state.connection,
+        collateralMint,
+        creatorAta,
+        state.superuser.keypair,
+        fundAmount
+      );
+      showInfo(
+        `  ✓ Funded creator with ${formatTokenAmount(fundAmount)} tokens (superuser may need mint authority)`
+      );
+    }
+  }
+
+  // Step 4: Derive PDAs
   const [oracleRolePda] = findUserRole(
     opts.oracle,
     ROLE_ORACLE,
     state.programId
   );
-  // Derive creator role PDA: prefer Creator role; fall back to Admin role if the
-  // user has Admin but not Creator. For superuser, role check is bypassed on-chain.
   const isSuperuserCreator = opts.creator.pubkey.equals(state.superuser.pubkey);
-  const sessionCreator = !isSuperuserCreator ? state.findUser(opts.creator.pubkey) : null;
+  const sessionCreator = !isSuperuserCreator
+    ? state.findUser(opts.creator.pubkey)
+    : null;
   let creatorRoleType = ROLE_CREATOR;
   if (!isSuperuserCreator && sessionCreator) {
     if (
@@ -339,7 +568,28 @@ async function executeCreateMarket(state, opts) {
     .signers([vaultKp])
     .rpc();
 
-  return { marketId, marketPda, vault: vaultKp.publicKey, mint: collateralMint };
+  showInfo(`  ✓ Market #${marketId} created successfully`);
+
+  return {
+    marketId,
+    marketPda,
+    vault: vaultKp.publicKey,
+    mint: collateralMint,
+    mintLabel,
+  };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function findMintLabel(state, mint) {
+  const addr = mint.toBase58();
+  if (addr === "So11111111111111111111111111111111111111112") return "Wrapped SOL";
+  for (const m of state.markets) {
+    if (m.mint.toBase58() === addr) {
+      return m.mintLabel || `Market #${m.id} Token`;
+    }
+  }
+  return "";
 }
 
 // ─── Pause / Unpause ─────────────────────────────────────────────────────────
@@ -374,8 +624,6 @@ async function pauseUnpause(state) {
       const program = state.programForUser(user.keypair);
       const [protocolConfig] = findProtocolConfig(state.programId);
 
-      // Derive authorityRole: null for superuser, Admin role PDA for all other users.
-      // Always send the PDA (even if unconfirmed in session) — the program validates on-chain.
       const isSuperuser = user.pubkey.equals(state.superuser.pubkey);
       let authorityRole = null;
       if (!isSuperuser) {
@@ -408,6 +656,7 @@ async function pauseUnpause(state) {
       done = true;
     } catch (e) {
       showError(e);
+      state.logError(`${action} Market`, e);
       console.log(chalk.dim("  Select a different user or Cancel."));
     }
   }

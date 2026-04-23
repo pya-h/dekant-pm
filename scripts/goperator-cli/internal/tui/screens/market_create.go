@@ -130,6 +130,7 @@ func (m *createMarketScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.execLog = append(m.execLog, styles.StyleError.Render("  ✗ "+msg.err.Error()))
 		m.err = msg.err
+		m.state.LogError("Create Market", msg.err)
 		m.phase = phaseMarketDone
 		return m, nil
 

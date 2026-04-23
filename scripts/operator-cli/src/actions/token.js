@@ -87,6 +87,7 @@ async function createSplToken(state) {
     ]);
   } catch (e) {
     showError(e);
+    state.logError("Create Token", e);
   }
 
   await pressKey();

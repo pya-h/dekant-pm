@@ -107,6 +107,7 @@ async function resolveMarket(state) {
       done = true;
     } catch (e) {
       showError(e);
+      state.logError("Resolve Market", e);
       console.log(chalk.dim("  Select a different user or Cancel."));
     }
   }
@@ -219,6 +220,7 @@ async function claimPayout(state) {
     );
   } catch (e) {
     showError(e);
+    state.logError("Claim Payout", e);
   }
 
   await pressKey();
@@ -278,6 +280,7 @@ async function collectFees(state) {
     );
   } catch (e) {
     showError(e);
+    state.logError("Collect Fees", e);
   }
 
   await pressKey();
