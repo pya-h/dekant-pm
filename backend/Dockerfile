@@ -22,4 +22,4 @@ COPY --from=builder /app/idl ./idl
 ENV NODE_ENV=production
 EXPOSE 4000
 
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "node -e \"require('./dist/data-source').default.initialize().then(ds => ds.runMigrations().then(() => ds.destroy()))\" && node dist/main"]
