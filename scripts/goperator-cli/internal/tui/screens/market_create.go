@@ -101,7 +101,7 @@ func NewCreateMarketScreen(s *state.SessionState) tea.Model {
 				).
 				Value(&m.marketType),
 			huh.NewInput().
-				Title("Initial liquidity (tokens)").
+				Title("Initial collateral for liquidity").
 				Value(&m.liquidity).
 				Placeholder("100"),
 			huh.NewInput().

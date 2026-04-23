@@ -175,7 +175,7 @@ async function claimPayout(state) {
     }
 
     // Show holdings
-    console.log(chalk.dim("\n  Holdings:"));
+    console.log(chalk.dim("\n  Holdings (outcome tokens):"));
     for (let i = 0; i < position.holdings.length; i++) {
       const h = position.holdings[i];
       if (h.toNumber() > 0) {
@@ -213,10 +213,10 @@ async function claimPayout(state) {
 
     showSuccess("Payout claimed!");
     console.log(
-      `  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)} tokens`
+      `  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)} collateral`
     );
     console.log(
-      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} tokens`
+      `  Collateral: ${formatTokenAmount(balanceBefore)} → ${formatTokenAmount(balanceAfter)}`
     );
   } catch (e) {
     showError(e);
@@ -243,7 +243,7 @@ async function collectFees(state) {
   const [vaultAuthority] = findVaultAuthority(marketPda, state.programId);
 
   console.log(
-    `  Protocol fees accumulated: ${formatTokenAmount(marketData.protocolFeeAccumulated)} tokens`
+    `  Protocol fees accumulated (collateral): ${formatTokenAmount(marketData.protocolFeeAccumulated)}`
   );
 
   if (marketData.protocolFeeAccumulated.toNumber() === 0) {
@@ -276,7 +276,7 @@ async function collectFees(state) {
       .rpc();
 
     showSuccess(
-      `Collected ${formatTokenAmount(marketData.protocolFeeAccumulated)} fees!`
+      `Collected ${formatTokenAmount(marketData.protocolFeeAccumulated)} collateral in fees!`
     );
   } catch (e) {
     showError(e);

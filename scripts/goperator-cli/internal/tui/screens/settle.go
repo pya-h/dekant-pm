@@ -390,7 +390,7 @@ func (m *claimScreen) execClaim() tea.Cmd {
 		balanceAfter, _ := m.state.Client.GetTokenBalance(ctx, traderAta)
 		payout := balanceAfter - balanceBefore
 
-		m.result = fmt.Sprintf("Payout: %s tokens (balance: %s → %s)",
+		m.result = fmt.Sprintf("Payout: %s collateral (balance: %s → %s)",
 			util.FormatTokenAmount(payout),
 			util.FormatTokenAmount(balanceBefore), util.FormatTokenAmount(balanceAfter))
 		return doneMsg{result: m.result, sig: sig}
@@ -546,7 +546,7 @@ func (m *collectFeesScreen) execCollectFees() tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		m.result = fmt.Sprintf("Collected %s fees from Market #%d",
+		m.result = fmt.Sprintf("Collected %s collateral in fees from Market #%d",
 			util.FormatTokenAmount(md.ProtocolFeeAccumulated), m.market.ID)
 		return doneMsg{result: m.result, sig: sig}
 	}

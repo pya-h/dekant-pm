@@ -90,7 +90,7 @@ async function executeTrade(state, action) {
   try {
     const preAta = deriveAta(marketData.collateralMint, user.pubkey);
     const preBal = await getTokenBalance(state.connection, preAta);
-    console.log(chalk.dim(`  Collateral balance: ${formatTokenAmount(preBal)} tokens`));
+    console.log(chalk.dim(`  Collateral balance: ${formatTokenAmount(preBal)}`));
 
     if (action === "sell" && params.kind !== "distribution") {
       const [userPos] = findUserPosition(marketPda, user.pubkey, state.programId);
@@ -98,7 +98,7 @@ async function executeTrade(state, action) {
         const position = await state.superProgram.account.userPosition.fetch(userPos);
         if (params.outcome < position.holdings.length) {
           const label = outcomeLabel(sm.type, params.outcome);
-          console.log(chalk.dim(`  ${label} token balance: ${formatTokenAmount(position.holdings[params.outcome])}`));
+          console.log(chalk.dim(`  ${label} holdings: ${formatTokenAmount(position.holdings[params.outcome])} outcome tokens`));
         }
       } catch {}
     }
@@ -157,11 +157,11 @@ async function executeTrade(state, action) {
 
     showSuccess(
       action === "buy"
-        ? `Spent ${formatTokenAmount(diff)} tokens`
-        : `Received ${formatTokenAmount(diff)} tokens`
+        ? `Spent ${formatTokenAmount(diff)} collateral`
+        : `Received ${formatTokenAmount(diff)} collateral`
     );
     console.log(
-      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} tokens`
+      `  Collateral: ${formatTokenAmount(balanceBefore)} → ${formatTokenAmount(balanceAfter)}`
     );
 
     printBeforeAfter(
@@ -260,7 +260,7 @@ async function doInverseTrade(state, program, action, accounts, params, marketDa
       reserves, totalMinted, params.outcome, targetShares, tradeFeeBps
     );
     console.log(
-      chalk.dim(`  Computed collateral needed: ${formatTokenAmount(grossCollateral)} tokens`)
+      chalk.dim(`  Computed collateral needed: ${formatTokenAmount(grossCollateral)}`)
     );
     await program.methods
       .buy({ outcome: params.outcome, collateralAmount: new BN(grossCollateral.toString()) })
@@ -273,7 +273,7 @@ async function doInverseTrade(state, program, action, accounts, params, marketDa
       reserves, totalMinted, params.outcome, targetCollateral, tradeFeeBps
     );
     console.log(
-      chalk.dim(`  Computed shares to sell: ${formatTokenAmount(tokensToSell)}`)
+      chalk.dim(`  Computed outcome tokens to sell: ${formatTokenAmount(tokensToSell)}`)
     );
     await program.methods
       .sell({ outcome: params.outcome, tokenAmount: new BN(tokensToSell.toString()) })
