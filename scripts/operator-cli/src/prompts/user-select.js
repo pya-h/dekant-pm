@@ -27,8 +27,18 @@ async function selectUser(state, opts) {
   const choices = [];
 
   if (opts.includeSuperuser) {
+    let suSuffix = "";
+    if (opts.showBalanceForMint) {
+      try {
+        const ata = deriveAta(opts.showBalanceForMint, state.superuser.pubkey);
+        const bal = await getTokenBalance(state.connection, ata);
+        suSuffix = chalk.dim(` (${formatTokenAmount(bal)} tokens)`);
+      } catch {
+        suSuffix = chalk.dim(" (0 tokens)");
+      }
+    }
     choices.push({
-      name: `Superuser (${state.superuser.pubkey.toBase58().slice(0, 12)}...)`,
+      name: `Superuser (${state.superuser.pubkey.toBase58().slice(0, 12)}...)${suSuffix}`,
       value: {
         keypair: state.superuser.keypair,
         label: "Superuser",
