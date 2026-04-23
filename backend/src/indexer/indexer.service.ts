@@ -31,12 +31,24 @@ const MARKET_TYPE_NAMES: Record<number, string> = {
   2: 'Continuous',
 };
 
+/** Indexer tuning constants */
+const HEALTH_CHECK_INTERVAL_MS = 30_000; // 30s between health checks
+const SUBSCRIPTION_SILENCE_MS = 120_000; // 2 min with no events → re-subscribe
+const LAG_THRESHOLD = 100; // slots behind → trigger catch-up
+const MARKET_COUNT_CHECK_EVERY = 5; // verify market count every N health checks
+
 @Injectable()
 export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IndexerService.name);
   private readonly coder = new BorshCoder(IDL as any);
   private subscriptionId: number | null = null;
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private lastEventReceivedAt = 0;
+  private syncing = false;
+  private healthCheckCount = 0;
+  /** Sequential event queue — prevents concurrent onLogs handler execution. */
+  private eventQueue: Array<() => Promise<void>> = [];
+  private draining = false;
 
   constructor(
     @Inject(SOLANA_CONNECTION)
@@ -57,22 +69,63 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     this.logger.log('Starting indexer...');
-    await this.syncAllMarkets();
-    await this.syncAllPositions();
-    await this.syncAllLpPositions();
-    await this.backfill();
+
+    // Each step is independent — a failure in one must not block the others.
+    // Subscription + health-check ALWAYS start even if initial syncs fail.
+    try { await this.syncAllMarkets(); } catch (e) { this.logger.error(`syncAllMarkets failed: ${e}`); }
+    try { await this.syncAllPositions(); } catch (e) { this.logger.error(`syncAllPositions failed: ${e}`); }
+    try { await this.syncAllLpPositions(); } catch (e) { this.logger.error(`syncAllLpPositions failed: ${e}`); }
+    try { await this.backfill(); } catch (e) { this.logger.error(`backfill failed: ${e}`); }
+
     this.subscribeToLogs();
     this.startHealthCheck();
+    this.logger.log('Indexer started');
   }
 
   onModuleDestroy() {
-    if (this.subscriptionId !== null) {
-      this.connection.removeOnLogsListener(this.subscriptionId);
-      this.subscriptionId = null;
-    }
+    this.removeSubscription();
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
     }
+  }
+
+  // ─── Subscription lifecycle ───────────────────────────────────────────────
+
+  /** Safely tear down the current log subscription. */
+  private removeSubscription(): void {
+    if (this.subscriptionId !== null) {
+      try {
+        this.connection.removeOnLogsListener(this.subscriptionId);
+      } catch (err) {
+        this.logger.warn(`Failed to remove log listener: ${err}`);
+      }
+      this.subscriptionId = null;
+    }
+  }
+
+  // ─── Sequential event queue ───────────────────────────────────────────────
+
+  /**
+   * Enqueue a handler so live events are processed one at a time.
+   * Prevents race conditions from concurrent onLogs callbacks.
+   */
+  private enqueue(handler: () => Promise<void>): void {
+    this.eventQueue.push(handler);
+    if (!this.draining) this.drain();
+  }
+
+  private async drain(): Promise<void> {
+    this.draining = true;
+    while (this.eventQueue.length > 0) {
+      const handler = this.eventQueue.shift()!;
+      try {
+        await handler();
+      } catch (err) {
+        this.logger.error(`Queued event handler failed: ${err}`);
+      }
+    }
+    this.draining = false;
   }
 
   // ─── On-chain account fetching ──────────────────────────────────────────────
@@ -82,82 +135,84 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    * This is the "plan B" — whenever we're unsure about DB state, we can
    * just re-sync from the source of truth.
    */
+  /**
+   * Fetch a market account from chain, decode it, and upsert into the DB.
+   *
+   * **Throws on RPC / decode / DB errors** so callers can decide whether
+   * to retry (backfill) or log-and-continue (bulk sync).
+   */
   private async fetchAndSyncMarket(marketId: number): Promise<void> {
-    try {
-      const [marketPda] = deriveMarket(PROGRAM_ID, marketId);
-      const accountInfo = await this.connection.getAccountInfo(marketPda);
-      if (!accountInfo) {
-        this.logger.warn(`Market ${marketId} account not found on-chain`);
-        return;
-      }
+    const [marketPda] = deriveMarket(PROGRAM_ID, marketId);
+    const accountInfo = await this.connection.getAccountInfo(marketPda);
+    if (!accountInfo) {
+      this.logger.warn(`Market ${marketId} account not found on-chain`);
+      return;
+    }
 
-      // BorshCoder returns snake_case field names and BN objects for numerics
-      const d = this.coder.accounts.decode(
-        'Market',
-        accountInfo.data,
-      ) as Record<string, any>;
+    // BorshCoder returns snake_case field names and BN objects for numerics
+    const d = this.coder.accounts.decode(
+      'Market',
+      accountInfo.data,
+    ) as Record<string, any>;
 
-      const numOutcomes = Number(d.num_outcomes);
-      const state = Number(d.state);
-      const reserves: string[] = [];
-      for (let i = 0; i < numOutcomes; i++) {
-        reserves.push(String(d.reserves[i]));
-      }
+    const numOutcomes = Number(d.num_outcomes);
+    const state = Number(d.state);
+    const reserves: string[] = [];
+    for (let i = 0; i < numOutcomes; i++) {
+      reserves.push(String(d.reserves[i]));
+    }
 
-      // If on-chain state is Active but deadline has passed, the market should
-      // be PendingResolution. The on-chain program enforces this lazily (on next
-      // trade), but we proactively reflect it in the DB so the frontend sees it.
-      const deadline = new Date(Number(d.deadline) * 1000);
-      const effectiveState =
-        state === 0 && deadline.getTime() <= Date.now() ? 2 : state;
+    // If on-chain state is Active but deadline has passed, the market should
+    // be PendingResolution. The on-chain program enforces this lazily (on next
+    // trade), but we proactively reflect it in the DB so the frontend sees it.
+    const deadline = new Date(Number(d.deadline) * 1000);
+    const effectiveState =
+      state === 0 && deadline.getTime() <= Date.now() ? 2 : state;
 
-      const onChainFields = {
-        pubkey: marketPda.toBase58(),
-        marketType: Number(d.market_type),
-        state: effectiveState,
-        creator: d.creator.toString(),
-        oracle: d.oracle.toString(),
-        collateralMint: d.collateral_mint.toString(),
-        deadline,
-        numOutcomes,
-        reserves,
-        kSquared: String(d.k_squared),
-        totalMinted: String(d.total_minted),
-        protocolFeeAccumulated: String(d.protocol_fee_accumulated),
-        lpFeeAccumulated: String(d.lp_fee_accumulated),
-        lpSharesTotal: String(d.lp_shares_total),
-        rangeMin: String(d.range_min),
-        rangeMax: String(d.range_max),
-        resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
-        resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
-        resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,
-      };
+    const onChainFields = {
+      pubkey: marketPda.toBase58(),
+      marketType: Number(d.market_type),
+      state: effectiveState,
+      creator: d.creator.toString(),
+      oracle: d.oracle.toString(),
+      collateralMint: d.collateral_mint.toString(),
+      deadline,
+      numOutcomes,
+      reserves,
+      kSquared: String(d.k_squared),
+      totalMinted: String(d.total_minted),
+      protocolFeeAccumulated: String(d.protocol_fee_accumulated),
+      lpFeeAccumulated: String(d.lp_fee_accumulated),
+      lpSharesTotal: String(d.lp_shares_total),
+      rangeMin: String(d.range_min),
+      rangeMax: String(d.range_max),
+      resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
+      resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
+      resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,
+    };
 
-      const existing = await this.marketRepo.findOne({
-        where: { id: String(marketId) },
+    const existing = await this.marketRepo.findOne({
+      where: { id: String(marketId) },
+    });
+
+    if (existing) {
+      await this.marketRepo.update(String(marketId), onChainFields);
+    } else {
+      const typeName = MARKET_TYPE_NAMES[Number(d.market_type)] ?? 'Unknown';
+      const market = this.marketRepo.create({
+        id: String(marketId),
+        title: `${typeName} Market #${marketId}`,
+        description: null,
+        category: null,
+        tags: null,
+        imageUrl: null,
+        outcomeLabels: null,
+        ...onChainFields,
       });
-
-      if (existing) {
-        await this.marketRepo.update(String(marketId), onChainFields);
-      } else {
-        const typeName = MARKET_TYPE_NAMES[Number(d.market_type)] ?? 'Unknown';
-        const market = this.marketRepo.create({
-          id: String(marketId),
-          title: `${typeName} Market #${marketId}`,
-          description: null,
-          category: null,
-          tags: null,
-          imageUrl: null,
-          outcomeLabels: null,
-          ...onChainFields,
-        });
-        await this.marketRepo.save(market);
-        this.logger.log(
-          `Market ${marketId} inserted from on-chain data (no prior metadata)`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn(`Failed to sync market ${marketId} from chain: ${err}`);
+      await this.marketRepo.save(market);
+      this.logger.log(
+        `Market ${marketId} inserted from on-chain data (no prior metadata)`,
+      );
     }
   }
 
@@ -184,7 +239,11 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Found ${marketCount} markets on-chain, syncing...`);
 
       for (let i = 0; i < marketCount; i++) {
-        await this.fetchAndSyncMarket(i);
+        try {
+          await this.fetchAndSyncMarket(i);
+        } catch (err) {
+          this.logger.warn(`Failed to sync market ${i}: ${err}`);
+        }
       }
 
       this.logger.log(`Market sync complete (${marketCount} markets)`);
@@ -266,12 +325,21 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Slot tracking ──────────────────────────────────────────────────────────
 
+  /** In-memory cache; `null` = not yet loaded from DB. */
+  private lastKnownSlot: number | null = null;
+
   private async getLastProcessedSlot(): Promise<number> {
+    if (this.lastKnownSlot !== null) return this.lastKnownSlot;
     const state = await this.indexerStateRepo.findOne({ where: { id: 1 } });
-    return state ? Number(state.lastProcessedSlot) : 0;
+    this.lastKnownSlot = state ? Number(state.lastProcessedSlot) : 0;
+    return this.lastKnownSlot;
   }
 
+  /** Only advances the slot marker forward — never regresses. */
   private async updateLastProcessedSlot(slot: number): Promise<void> {
+    const current = await this.getLastProcessedSlot();
+    if (slot <= current) return;
+    this.lastKnownSlot = slot;
     await this.indexerStateRepo.upsert(
       { id: 1, lastProcessedSlot: String(slot) },
       ['id'],
@@ -344,32 +412,42 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   // ─── Live subscription ──────────────────────────────────────────────────────
 
   private subscribeToLogs(): void {
+    // Tear down any previous subscription before creating a new one.
+    this.removeSubscription();
+    this.lastEventReceivedAt = Date.now();
+
     this.logger.log('Subscribing to program logs...');
 
     this.subscriptionId = this.connection.onLogs(
       PROGRAM_ID,
-      async (logs: Logs) => {
+      (logs: Logs) => {
+        this.lastEventReceivedAt = Date.now();
         if (logs.err) return;
 
-        try {
+        // Queue for sequential processing — prevents concurrent handlers.
+        this.enqueue(async () => {
           const events = parseEventsFromLogs(logs.logs);
           for (const event of events) {
             await this.handleEvent(event, logs.signature, 0);
           }
 
-          const sigStatus = await this.connection.getSignatureStatus(
-            logs.signature,
-          );
-          const slot = sigStatus?.value?.slot ?? 0;
-          if (slot > 0) {
-            await this.updateLastProcessedSlot(slot);
+          try {
+            const sigStatus = await this.connection.getSignatureStatus(
+              logs.signature,
+            );
+            const slot = sigStatus?.value?.slot ?? 0;
+            if (slot > 0) {
+              await this.updateLastProcessedSlot(slot);
+            }
+          } catch (err) {
+            this.logger.warn(`Failed to get signature status: ${err}`);
           }
-        } catch (err) {
-          this.logger.error(`Error processing log: ${err}`);
-        }
+        });
       },
       'confirmed',
     );
+
+    this.logger.log(`Subscribed to logs (id=${this.subscriptionId})`);
   }
 
   // ─── Health check ───────────────────────────────────────────────────────────
@@ -378,19 +456,79 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     this.healthCheckInterval = setInterval(async () => {
       try {
         const lastSlot = await this.getLastProcessedSlot();
-        const currentSlot = await this.connection.getSlot();
+        const currentSlot = await this.connection.getSlot('confirmed');
         const lag = currentSlot - lastSlot;
-        this.logger.debug(`Indexer health: lag=${lag} slots`);
+        const silenceMs = Date.now() - this.lastEventReceivedAt;
 
-        if (lag > 100) {
-          this.logger.warn(`Indexer is ${lag} slots behind. Running sync + backfill.`);
-          await this.syncAllMarkets();
-          await this.backfill();
+        this.logger.debug(
+          `Health: lag=${lag} slots, silence=${Math.round(silenceMs / 1000)}s`,
+        );
+
+        // ── Detect dead WebSocket subscription ──────────────────────────
+        // If we haven't received any event for SUBSCRIPTION_SILENCE_MS and
+        // the chain has moved on, the subscription is likely dead.
+        if (silenceMs > SUBSCRIPTION_SILENCE_MS && lag > 10) {
+          this.logger.warn(
+            `Subscription appears dead (${Math.round(silenceMs / 1000)}s ` +
+            `silence, ${lag} slots behind). Re-subscribing...`,
+          );
+          this.subscribeToLogs();
+        }
+
+        // ── Catch-up when significantly behind ──────────────────────────
+        if (lag > LAG_THRESHOLD && !this.syncing) {
+          this.syncing = true;
+          try {
+            this.logger.warn(
+              `Indexer is ${lag} slots behind. Running catch-up...`,
+            );
+            await this.syncAllMarkets();
+            await this.backfill();
+          } finally {
+            this.syncing = false;
+          }
+        }
+
+        // ── Periodic market-count verification (lightweight safety net) ─
+        this.healthCheckCount++;
+        if (this.healthCheckCount % MARKET_COUNT_CHECK_EVERY === 0) {
+          await this.verifyMarketCount();
         }
       } catch (err) {
         this.logger.warn(`Health check failed: ${err}`);
+        // Connection may be dead — try to re-subscribe so we recover
+        // once the RPC comes back.
+        this.subscribeToLogs();
       }
-    }, 60_000);
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  /**
+   * Lightweight safety net: compare on-chain market_count with DB row count.
+   * If they diverge, sync the missing markets.
+   */
+  private async verifyMarketCount(): Promise<void> {
+    try {
+      const [configPda] = deriveProtocolConfig(PROGRAM_ID);
+      const configInfo = await this.connection.getAccountInfo(configPda);
+      if (!configInfo) return;
+
+      const config = this.coder.accounts.decode(
+        'ProtocolConfig',
+        configInfo.data,
+      ) as Record<string, any>;
+      const onChainCount = Number(config.market_count);
+      const dbCount = await this.marketRepo.count();
+
+      if (onChainCount > dbCount) {
+        this.logger.warn(
+          `Market count mismatch: on-chain=${onChainCount}, DB=${dbCount}. Syncing missing markets...`,
+        );
+        await this.syncAllMarkets();
+      }
+    } catch (err) {
+      this.logger.warn(`Market count verification failed: ${err}`);
+    }
   }
 
   // ─── Event dispatch ─────────────────────────────────────────────────────────
@@ -494,8 +632,12 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       .where('id = :id', { id: marketId })
       .execute();
 
-    // Refresh on-chain state (reserves, kSquared, totalMinted)
-    await this.fetchAndSyncMarket(Number(data.market_id));
+    // Refresh on-chain state (best-effort — caught up by health check if this fails)
+    try {
+      await this.fetchAndSyncMarket(Number(data.market_id));
+    } catch (err) {
+      this.logger.warn(`Failed to refresh market state after trade: ${err}`);
+    }
 
     // Sync user position from on-chain
     await this.fetchAndSyncUserPosition(
@@ -677,8 +819,12 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handleLiquidityChanged(
     data: Record<string, any>,
   ): Promise<void> {
-    // Refresh on-chain market state
-    await this.fetchAndSyncMarket(Number(data.market_id));
+    // Refresh on-chain market state (best-effort)
+    try {
+      await this.fetchAndSyncMarket(Number(data.market_id));
+    } catch (err) {
+      this.logger.warn(`Failed to refresh market after liquidity change: ${err}`);
+    }
 
     // Sync LP position from on-chain (source of truth for cumulative shares)
     await this.fetchAndSyncLpPosition(
