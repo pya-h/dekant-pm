@@ -213,10 +213,10 @@ async function claimPayout(state) {
 
     showSuccess("Payout claimed!");
     console.log(
-      `  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)} USDC`
+      `  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)} tokens`
     );
     console.log(
-      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} USDC`
+      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} tokens`
     );
   } catch (e) {
     showError(e);
@@ -243,7 +243,7 @@ async function collectFees(state) {
   const [vaultAuthority] = findVaultAuthority(marketPda, state.programId);
 
   console.log(
-    `  Protocol fees accumulated: ${formatTokenAmount(marketData.protocolFeeAccumulated)} USDC`
+    `  Protocol fees accumulated: ${formatTokenAmount(marketData.protocolFeeAccumulated)} tokens`
   );
 
   if (marketData.protocolFeeAccumulated.toNumber() === 0) {
@@ -276,7 +276,7 @@ async function collectFees(state) {
       .rpc();
 
     showSuccess(
-      `Collected ${formatTokenAmount(marketData.protocolFeeAccumulated)} USDC fees!`
+      `Collected ${formatTokenAmount(marketData.protocolFeeAccumulated)} fees!`
     );
   } catch (e) {
     showError(e);

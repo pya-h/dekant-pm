@@ -44,9 +44,9 @@ async function selectUser(state, opts) {
       try {
         const ata = deriveAta(opts.showBalanceForMint, u.pubkey);
         const bal = await getTokenBalance(state.connection, ata);
-        suffix += chalk.dim(` (${formatTokenAmount(bal)} USDC)`);
+        suffix += chalk.dim(` (${formatTokenAmount(bal)} tokens)`);
       } catch {
-        suffix += chalk.dim(" (0 USDC)");
+        suffix += chalk.dim(" (0 tokens)");
       }
     }
 

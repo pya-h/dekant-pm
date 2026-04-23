@@ -136,11 +136,11 @@ async function executeTrade(state, action) {
 
     showSuccess(
       action === "buy"
-        ? `Spent ${formatTokenAmount(diff)} USDC`
-        : `Received ${formatTokenAmount(diff)} USDC`
+        ? `Spent ${formatTokenAmount(diff)} tokens`
+        : `Received ${formatTokenAmount(diff)} tokens`
     );
     console.log(
-      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} USDC`
+      `  Balance: ${formatTokenAmount(balanceBefore)} -> ${formatTokenAmount(balanceAfter)} tokens`
     );
 
     printBeforeAfter(
@@ -239,14 +239,14 @@ async function doInverseTrade(state, program, action, accounts, params, marketDa
       reserves, totalMinted, params.outcome, targetShares, tradeFeeBps
     );
     console.log(
-      chalk.dim(`  Computed collateral needed: ${formatTokenAmount(grossCollateral)} USDC`)
+      chalk.dim(`  Computed collateral needed: ${formatTokenAmount(grossCollateral)} tokens`)
     );
     await program.methods
       .buy({ outcome: params.outcome, collateralAmount: new BN(grossCollateral.toString()) })
       .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId })
       .rpc();
   } else {
-    // User wants to sell shares to receive a specific USDC amount
+    // User wants to sell shares to receive a specific collateral amount
     const targetCollateral = BigInt(parseTokenAmount(params.amount).toString());
     const tokensToSell = findTokensForCollateral(
       reserves, totalMinted, params.outcome, targetCollateral, tradeFeeBps

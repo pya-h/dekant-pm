@@ -311,7 +311,7 @@ func (m *createMarketScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if market.MintLabel != "" {
 				m.mintLabel = market.MintLabel
 			} else {
-				m.mintLabel = fmt.Sprintf("Market#%d token", market.ID)
+				m.mintLabel = fmt.Sprintf("Market #%d Token", market.ID)
 			}
 			m.phase = phaseMarketBalanceCheck
 			return m, m.checkBalance()
@@ -555,7 +555,7 @@ func (m *createMarketScreen) findMintLabel(mint solana.PublicKey) string {
 			if mkt.MintLabel != "" {
 				return mkt.MintLabel
 			}
-			return fmt.Sprintf("Market#%d token", mkt.ID)
+			return fmt.Sprintf("Market #%d Token", mkt.ID)
 		}
 	}
 	return ""
@@ -713,7 +713,7 @@ func (ec *marketExecCtx) stepCreateNewMint() tea.Cmd {
 			return errMsg{err: fmt.Errorf("create SPL token: %w", err)}
 		}
 		ec.mintPubkey = mintPubkey
-		ec.mintLabel = fmt.Sprintf("Market#%d Token", ec.marketID)
+		ec.mintLabel = fmt.Sprintf("Market #%d Token", ec.marketID)
 
 		return stepMsg{
 			line: styles.StyleSuccess.Render(fmt.Sprintf(

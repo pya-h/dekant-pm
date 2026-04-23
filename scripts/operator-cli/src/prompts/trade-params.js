@@ -38,7 +38,7 @@ async function collectTradeParams(
       message: "Sigma (spread/std-dev):",
       ...(rm && { default: rand.sigma(rMin, rMax) }),
     });
-    const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
+    const amountLabel = action === "buy" ? "Amount (tokens) to buy" : "Token amount to sell";
     const amount = await input({
       message: `${amountLabel}:`,
       ...(rm && { default: rand.tradeAmount() }),
@@ -48,7 +48,7 @@ async function collectTradeParams(
 
   // Discrete markets: choose trade type
   const actionLabel = action === "buy" ? "Buy" : "Sell";
-  const inverseLabel = action === "buy" ? "by shares" : "by USDC";
+  const inverseLabel = action === "buy" ? "by shares" : "by collateral";
   const subtype = await select({
     message: "Trade type:",
     choices: [
@@ -72,7 +72,7 @@ async function collectTradeParams(
 
   if (subtype === "inverse") {
     const amountLabel =
-      action === "buy" ? "Number of shares to buy" : "USDC to receive";
+      action === "buy" ? "Number of shares to buy" : "Collateral to receive";
     const amount = await input({
       message: `${amountLabel}:`,
       ...(rm && { default: rand.tradeAmount() }),
@@ -80,7 +80,7 @@ async function collectTradeParams(
     const kind = action === "buy" ? "fixedByShares" : "fixedByCollateral";
     return { kind, outcome, amount };
   } else if (subtype === "fixed") {
-    const amountLabel = action === "buy" ? "Amount (USDC) to buy" : "Token amount to sell";
+    const amountLabel = action === "buy" ? "Amount (tokens) to buy" : "Token amount to sell";
     const amount = await input({
       message: `${amountLabel}:`,
       ...(rm && { default: rand.tradeAmount() }),

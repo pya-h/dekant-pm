@@ -23,7 +23,7 @@ async function addLiquidity(state) {
   if (!sm || sm === "cancel") return;
 
   const amountStr = await input({
-    message: "Amount (USDC) to add:",
+    message: "Amount (tokens) to add:",
     default: state.randomMode ? state.rand.liquidity() : "50",
   });
 
@@ -69,7 +69,7 @@ async function addLiquidity(state) {
       })
       .rpc();
 
-    showSuccess(`Added ${amountStr} USDC liquidity to Market #${sm.id}`);
+    showSuccess(`Added ${amountStr} tokens liquidity to Market #${sm.id}`);
 
     try {
       const lp = await program.account.lpPosition.fetch(lpPosition);
@@ -154,7 +154,7 @@ async function removeLiquidity(state) {
 
     showSuccess(`Removed liquidity from Market #${sm.id}`);
     console.log(
-      `  Collateral returned: ${formatTokenAmount(balanceAfter - balanceBefore)} USDC`
+      `  Collateral returned: ${formatTokenAmount(balanceAfter - balanceBefore)} tokens`
     );
   } catch (e) {
     showError(e);
