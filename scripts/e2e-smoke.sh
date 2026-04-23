@@ -644,7 +644,7 @@ CONT_RANGE_MAX=$(rand 300 600)
 CONT_LIQUIDITY=$(rand 50 200)
 CONT_DEADLINE_SEC=$(rand 45 120)
 CONT_DEADLINE=$(($(date +%s) + CONT_DEADLINE_SEC))
-CONT_FUND_EACH=$(rand 100 300)
+CONT_FUND_EACH=$(rand 200 400)
 CONT_BINS=64
 
 step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, liquidity=$CONT_LIQUIDITY)"
@@ -712,11 +712,16 @@ CONT_BUY3=$(rand 10 25)
 step "6.6 Trader 3: buy-dist N($T3_MU, $T3_SIGMA) with $CONT_BUY3 tokens"
 run_trade "Trader 3 bought distribution" devkit_as "$T3_KEY" trade.ts buy-dist "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3"
 
-step "6.7 Querying Trader 1 position"
+# --- BUG-001 regression: large distribution buy ---
+CONT_LARGE_AMT=$(rand 80 150)
+step "6.7 BUG-001 regression: Trader 2 large buy-dist ($CONT_LARGE_AMT tokens)"
+run_trade "Trader 2 large dist buy (BUG-001)" devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_LARGE_AMT"
+
+step "6.8 Querying Trader 1 position"
 devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1 || true
 echo ""
 
-step "6.8 Market state after distribution buys"
+step "6.9 Market state after distribution buys"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
@@ -724,10 +729,10 @@ echo ""
 CONT_SELL1_MAX=$((CONT_BUY1 / 3))
 if [ "$CONT_SELL1_MAX" -lt 2 ]; then CONT_SELL1_MAX=2; fi
 CONT_SELL1=$(rand 2 "$CONT_SELL1_MAX")
-step "6.9 Trader 1: sell-dist N($T1_MU, $T1_SIGMA) $CONT_SELL1 tokens"
+step "6.10 Trader 1: sell-dist N($T1_MU, $T1_SIGMA) $CONT_SELL1 tokens"
 run_trade "Trader 1 sold distribution tokens" devkit_as "$T1_KEY" trade.ts sell-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1"
 
-step "6.10 Market after partial sell"
+step "6.11 Market after partial sell"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
@@ -747,7 +752,7 @@ CONT_RESOLVE_VALUE=$((T1_MU + CONT_RESOLVE_OFFSET))
 if [ "$CONT_RESOLVE_VALUE" -lt "$CONT_RANGE_MIN" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MIN; fi
 if [ "$CONT_RESOLVE_VALUE" -gt "$CONT_RANGE_MAX" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MAX; fi
 
-step "6.11 Resolving continuous market with value=$CONT_RESOLVE_VALUE"
+step "6.12 Resolving continuous market with value=$CONT_RESOLVE_VALUE"
 if _out=$(devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1); then
   echo "$_out" | tail -2
   success "Continuous market resolved"
@@ -756,17 +761,17 @@ else
   count_error
 fi
 
-step "6.12 Checking resolved state"
+step "6.13 Checking resolved state"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
 # --- Claims ---
-step "6.13 All traders claim payouts"
+step "6.14 All traders claim payouts"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
   run_claim "$((i + 1))" "$CONT_ID" "${TRADER_KEYS[$i]}"
 done
 
-step "6.14 Final vault check"
+step "6.15 Final vault check"
 devkit query.ts vault "$CONT_ID" 2>&1 || true
 echo ""
 
