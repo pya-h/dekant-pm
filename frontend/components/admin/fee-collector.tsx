@@ -48,7 +48,14 @@ export function FeeCollector() {
     setCollectingAll(true);
     let succeeded = 0;
     let failed = 0;
-    for (const market of data.data) {
+    const marketsWithFees = data.data.filter(
+      (m) => Number(m.protocolFeeAccumulated ?? 0) > 0,
+    );
+    if (marketsWithFees.length === 0) {
+      setCollectingAll(false);
+      return;
+    }
+    for (const market of marketsWithFees) {
       setActionId(market.id);
       try {
         await executeCollectFees(
@@ -64,8 +71,8 @@ export function FeeCollector() {
     setActionId(null);
     setCollectingAll(false);
     if (succeeded > 0) {
-      showTradeSuccess(
-        "",
+      const { toast } = await import("sonner");
+      toast.success(
         `Collected fees from ${succeeded} market${succeeded > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
       );
       setTimeout(

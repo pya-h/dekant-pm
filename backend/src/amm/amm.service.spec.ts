@@ -4,6 +4,8 @@ import { MarketEntity } from '../market/entity/market.entity';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 function mockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
+  const totalMinted = overrides.totalMinted ?? '1000';
+  const tm = Number(totalMinted);
   return {
     id: '1',
     pubkey: 'Pk',
@@ -23,8 +25,8 @@ function mockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
     imageUrl: null,
     outcomeLabels: null,
     reserves: ['500', '500'],
-    kSquared: '250000',
-    totalMinted: '1000',
+    kSquared: String(tm * tm),
+    totalMinted,
     resolvedOutcome: null,
     resolvedValue: null,
     rangeMin: null,

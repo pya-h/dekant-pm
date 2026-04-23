@@ -65,7 +65,7 @@ export class MarketController {
 
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles('admin', 'creator')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create market metadata (Admin+)' })
   @ApiResponse({ status: 201, description: 'Market metadata created' })

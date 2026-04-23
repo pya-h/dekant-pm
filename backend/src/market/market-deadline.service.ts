@@ -40,10 +40,10 @@ export class MarketDeadlineService {
     this.running = true;
     try {
       await this.closeExpiredMarkets();
-      this.lastCheckTime = Date.now();
     } catch (err) {
       this.logger.error(`Deadline sweep failed: ${err}`);
     } finally {
+      this.lastCheckTime = Date.now();
       this.running = false;
     }
   }

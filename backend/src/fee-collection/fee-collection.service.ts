@@ -97,10 +97,10 @@ export class FeeCollectionService implements OnModuleInit {
     this.running = true;
     try {
       await this.collectAll();
-      this.lastCollectionTime = Date.now();
     } catch (err) {
       this.logger.error(`Fee collection sweep failed: ${err}`);
     } finally {
+      this.lastCollectionTime = Date.now();
       this.running = false;
     }
   }
@@ -159,6 +159,7 @@ export class FeeCollectionService implements OnModuleInit {
           })
           .rpc();
 
+        await this.marketRepo.update(market.id, { protocolFeeAccumulated: '0' });
         this.logger.log(
           `Collected fees for market ${market.id} (${market.protocolFeeAccumulated} base units) — tx: ${sig}`,
         );

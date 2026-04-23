@@ -129,9 +129,12 @@ function computeValue(
         const rMin = Number(market.rangeMin) / SCALE;
         const rMax = Number(market.rangeMax) / SCALE;
         const binWidth = (rMax - rMin) / market.numOutcomes;
-        const winBin = Math.min(
-          Math.floor((resolved - rMin) / binWidth),
-          market.numOutcomes - 1,
+        const winBin = Math.max(
+          0,
+          Math.min(
+            Math.floor((resolved - rMin) / binWidth),
+            market.numOutcomes - 1,
+          ),
         );
         return holdings[winBin] ?? 0;
       }

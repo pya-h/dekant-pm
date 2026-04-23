@@ -27,6 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 export default function MarketDetailPage({
   params,
@@ -332,8 +333,7 @@ function DetailRow({
 function TruncatedAddress({ address }: { address: string }) {
   const handleCopy = () => {
     navigator.clipboard.writeText(address).then(() => {
-      const toast = (window as { __sonnerToast?: (msg: string) => void }).__sonnerToast;
-      if (toast) toast("Address copied");
+      toast("Address copied");
     }).catch(() => {});
   };
 
