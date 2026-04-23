@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"goperator-cli/internal/constants"
 	"goperator-cli/internal/state"
 	"goperator-cli/internal/tui/styles"
 	"goperator-cli/internal/util"
@@ -375,8 +376,28 @@ func (m *fundUserScreen) execFund() tea.Cmd {
 			}
 		}
 
-		// SPL token mint
+		// SPL token
 		amount := util.ParseTokenAmount(m.amount)
+
+		if m.mint == constants.NativeMint {
+			// Wrapped SOL: can't mint the native mint — wrap SOL instead
+			lamports := amount * 1000 // convert 6-decimal token amount to 9-decimal lamports
+			ata, err := m.state.Client.WrapSOL(ctx, m.state.Superuser.Keypair, user.Pubkey, lamports)
+			if err != nil {
+				return errMsg{err: fmt.Errorf("wrap SOL: %w", err)}
+			}
+
+			balance, err := m.state.Client.GetTokenBalance(ctx, ata)
+			if err != nil {
+				return doneMsg{result: fmt.Sprintf("Wrapped %s SOL to %s", m.amount, m.userChoice), sig: solana.Signature{}}
+			}
+
+			return doneMsg{
+				result: fmt.Sprintf("Wrapped %s SOL to %s (WSOL balance: %s)",
+					m.amount, m.userChoice, util.FormatTokenAmount(balance)),
+				sig: solana.Signature{},
+			}
+		}
 
 		ata, err := m.state.Client.GetOrCreateATA(ctx, m.state.Superuser.Keypair, user.Pubkey, m.mint)
 		if err != nil {
@@ -412,6 +433,9 @@ func (m *fundUserScreen) View() string {
 	case phaseFundExec:
 		if m.isSolTransfer {
 			return title + styles.StyleDim.Render("  Transferring SOL...")
+		}
+		if m.mint == constants.NativeMint {
+			return title + styles.StyleDim.Render("  Wrapping SOL...")
 		}
 		return title + styles.StyleDim.Render("  Minting tokens...")
 	case phaseFundDone:
