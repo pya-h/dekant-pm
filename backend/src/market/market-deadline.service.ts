@@ -69,10 +69,16 @@ export class MarketDeadlineService {
 
     if (expired.length === 0) return;
 
+    // Batch update all expired markets in one query
+    const ids = expired.map((m) => m.id);
+    await this.marketRepo
+      .createQueryBuilder()
+      .update(MarketEntity)
+      .set({ state: STATE_PENDING_RESOLUTION })
+      .whereInIds(ids)
+      .execute();
+
     for (const market of expired) {
-      await this.marketRepo.update(market.id, {
-        state: STATE_PENDING_RESOLUTION,
-      });
       this.logger.log(
         `Market ${market.id} ("${market.title}") closed — deadline ${market.deadline.toISOString()} has passed`,
       );

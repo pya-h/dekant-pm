@@ -1,7 +1,7 @@
 import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 import * as fs from 'fs';
@@ -106,10 +106,11 @@ export class FeeCollectionService implements OnModuleInit {
   }
 
   async collectAll(): Promise<{ collected: number; failed: number }> {
-    const markets = await this.marketRepo.find({
-      where: { protocolFeeAccumulated: MoreThan('0') as any },
-      select: ['id', 'pubkey', 'collateralMint', 'protocolFeeAccumulated'],
-    });
+    const markets = await this.marketRepo
+      .createQueryBuilder('market')
+      .select(['market.id', 'market.pubkey', 'market.collateralMint', 'market.protocolFeeAccumulated'])
+      .where('market.protocol_fee_accumulated > :zero', { zero: '0' })
+      .getMany();
 
     if (markets.length === 0) {
       this.logger.log('No markets with pending protocol fees');

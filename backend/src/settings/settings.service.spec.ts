@@ -180,6 +180,13 @@ describe('SettingsService', () => {
       await service.remove(3);
       expect(repo.delete).toHaveBeenCalledWith({ id: 3, isActive: false });
     });
+
+    it('should throw when row is active or not found', async () => {
+      repo.delete.mockResolvedValueOnce({ affected: 0 });
+      await expect(service.remove(1)).rejects.toThrow(
+        'Cannot delete active settings row or row not found',
+      );
+    });
   });
 
   describe('getFeeCollectionInterval', () => {

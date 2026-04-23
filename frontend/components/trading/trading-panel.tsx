@@ -100,15 +100,19 @@ export function TradingPanel({ market }: TradingPanelProps) {
     connected &&
     side === "sell" &&
     hasValidParams &&
-    !isTargetPrice &&
     position != null &&
     "outcome" in params! &&
-    (inputUnit === "shares"
-      ? Number(params!.amount) * 10 ** USDC_DECIMALS >
-        Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0")
-      : computedAmount != null &&
-        computedAmount >
-        Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0"));
+    (() => {
+      const holdings = Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0");
+      if (isTargetPrice) {
+        // For sell-to-price, we can't know exact tokens needed upfront,
+        // but we can reject if user holds 0 for the target outcome
+        return holdings === 0;
+      }
+      return inputUnit === "shares"
+        ? Number(params!.amount) * 10 ** USDC_DECIMALS > holdings
+        : computedAmount != null && computedAmount > holdings;
+    })();
 
   const validationError = exceedsBalance
     ? "Insufficient USDC balance"

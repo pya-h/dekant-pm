@@ -17,6 +17,12 @@ describe('MarketDeadlineService', () => {
     marketRepo = {
       find: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        whereInIds: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -86,7 +92,7 @@ describe('MarketDeadlineService', () => {
     it('should do nothing when no expired markets found', async () => {
       marketRepo.find.mockResolvedValue([]);
       await service.closeExpiredMarkets();
-      expect(marketRepo.update).not.toHaveBeenCalled();
+      expect(marketRepo.createQueryBuilder).not.toHaveBeenCalled();
     });
 
     it('should transition expired active markets to PendingResolution (state=2)', async () => {
@@ -98,9 +104,10 @@ describe('MarketDeadlineService', () => {
 
       await service.closeExpiredMarkets();
 
-      expect(marketRepo.update).toHaveBeenCalledTimes(2);
-      expect(marketRepo.update).toHaveBeenCalledWith('1', { state: 2 });
-      expect(marketRepo.update).toHaveBeenCalledWith('2', { state: 2 });
+      const qb = marketRepo.createQueryBuilder();
+      expect(qb.whereInIds).toHaveBeenCalledWith(['1', '2']);
+      expect(qb.set).toHaveBeenCalledWith({ state: 2 });
+      expect(qb.execute).toHaveBeenCalled();
     });
 
     it('should query for state=0 (Active) markets with deadline <= now', async () => {
@@ -124,8 +131,9 @@ describe('MarketDeadlineService', () => {
 
       await service.closeExpiredMarkets();
 
-      expect(marketRepo.update).toHaveBeenCalledTimes(1);
-      expect(marketRepo.update).toHaveBeenCalledWith('10', { state: 2 });
+      const qb = marketRepo.createQueryBuilder();
+      expect(qb.whereInIds).toHaveBeenCalledWith(['10']);
+      expect(qb.execute).toHaveBeenCalled();
     });
   });
 
