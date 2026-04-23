@@ -26,6 +26,7 @@ ethnum = { version = "1", default-features = false }
 
 [dev-dependencies]
 anchor-lang = "0.32.1"
+ethnum = "1"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = [

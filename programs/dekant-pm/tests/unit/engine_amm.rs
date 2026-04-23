@@ -1322,3 +1322,126 @@ fn test_bug001_regression_below_threshold() {
     let diff = tokens[0].abs_diff(tokens[1]);
     assert!(diff <= 1, "uniform weights → equal tokens: {:?}", tokens);
 }
+
+/// BUG-001: buy→sell roundtrip at overflow-relevant pool size.
+///
+/// Buys a distribution on a large pool, then sells the tokens back.
+/// Verifies: sell succeeds (U256 k_new_sq path exercised),
+/// collateral returned ≤ collateral spent (price impact + rounding),
+/// and reserves return close to initial state.
+#[test]
+fn test_bug001_buy_then_sell_roundtrip() {
+    let n: usize = 2;
+    let total_minted: u128 = 50_000_000_000; // $50K — well above overflow threshold
+    let mut reserves = init_reserves(n, total_minted);
+    let reserves_before = reserves.clone();
+    let weights = uniform_weights(n);
+    let trade = 5_000_000u64; // $5 USDC
+
+    // Buy
+    let tokens = compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let k_after_buy = total_minted + trade as u128;
+
+    // Sell back the same tokens
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, k_after_buy, &weights, total_tokens).unwrap();
+
+    // Should get back approximately what we put in.
+    // isqrt floor rounding in sell can return up to +n units more than exact.
+    assert!(
+        collateral_out.abs_diff(trade) <= n as u64,
+        "roundtrip drift: collateral_out={collateral_out}, trade={trade}, max drift={n}"
+    );
+    assert!(
+        collateral_out >= trade * 95 / 100,
+        "sell should return ≥95% of trade: got {collateral_out}, expected ≥{}",
+        trade * 95 / 100
+    );
+
+    // Reserves should be close to initial state
+    for i in 0..n {
+        let drift = reserves[i].abs_diff(reserves_before[i]);
+        assert!(
+            drift <= 2,
+            "reserve[{i}] drifted by {drift}: before={}, after={}",
+            reserves_before[i], reserves[i]
+        );
+    }
+}
+
+/// BUG-001: sell at large pool — exercises U256 k_new_sq in compute_distribution_sell.
+///
+/// At $1M/64-bin, positions x_new are large. While u128 overflow in sell
+/// requires ~$18B per bin (not practical), this verifies the U256 path works.
+#[test]
+fn test_bug001_sell_large_pool_64_bins() {
+    let n: usize = 64;
+    let total_minted: u128 = 1_000_000_000_000; // $1M
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let buy_amount = 50_000_000u64; // $50
+
+    // Buy first to establish a position
+    let tokens = compute_distribution_buy(&mut reserves, total_minted, &weights, buy_amount).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let k_after_buy = total_minted + buy_amount as u128;
+
+    // Sell all tokens back
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, k_after_buy, &weights, total_tokens).unwrap();
+
+    assert!(collateral_out > 0, "should receive collateral");
+    // isqrt floor rounding can give back up to +n units more than exact
+    assert!(
+        collateral_out.abs_diff(buy_amount) <= n as u64,
+        "roundtrip drift: collateral_out={collateral_out}, buy_amount={buy_amount}, max drift={n}"
+    );
+
+    // Invariant check on final state
+    let k_final = k_after_buy - collateral_out as u128;
+    let actual_sq = sum_of_position_squares(&reserves, k_final);
+    let expected_sq = k_final * k_final;
+    assert!(
+        actual_sq.abs_diff(expected_sq) <= expected_sq / 1_000_000,
+        "invariant error {} exceeds 1e-6 relative tolerance after sell",
+        actual_sq.abs_diff(expected_sq)
+    );
+}
+
+/// BUG-001: doubling buy then sell roundtrip at overflow pool size.
+///
+/// The most extreme case: double a $30K pool then sell everything back.
+#[test]
+fn test_bug001_doubling_buy_then_sell_roundtrip() {
+    let n: usize = 2;
+    let total_minted: u128 = 30_000_000_000; // $30K
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 30_000_000_000u64; // $30K — doubles the pool
+
+    // Buy (doubling trade — was the BUG-001 w2*excess overflow trigger)
+    let tokens = compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let k_after_buy = total_minted + trade as u128;
+
+    // Total tokens > trade for a doubling buy (pool expansion effect)
+    assert!(total_tokens > trade, "doubling buy: total > trade");
+
+    // Sell all tokens back
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, k_after_buy, &weights, total_tokens).unwrap();
+
+    // Should get back approximately what we put in.
+    // isqrt floor rounding can return ±n units from exact.
+    assert!(collateral_out > 0, "should receive collateral from sell");
+    assert!(
+        collateral_out.abs_diff(trade) <= n as u64,
+        "roundtrip drift: collateral_out={collateral_out}, trade={trade}, max drift={n}"
+    );
+    assert!(
+        collateral_out >= trade * 90 / 100,
+        "sell should return ≥90% of trade: got {collateral_out}, expected ≥{}",
+        trade * 90 / 100
+    );
+}

@@ -1,4 +1,5 @@
-use dekant_pm::engine::sqrt::isqrt;
+use dekant_pm::engine::sqrt::{isqrt, isqrt_u256};
+use ethnum::U256;
 
 #[test]
 fn test_isqrt_small() {
@@ -96,4 +97,95 @@ fn test_isqrt_intermediate_ranges() {
     assert_eq!(isqrt(1_000_000_000_000), 1_000_000);
     // 10^18
     assert_eq!(isqrt(1_000_000_000_000_000_000), 1_000_000_000);
+}
+
+// ── isqrt_u256 tests ─────────────────────────────────────────────
+
+#[test]
+fn test_isqrt_u256_small() {
+    assert_eq!(isqrt_u256(U256::ZERO), 0);
+    assert_eq!(isqrt_u256(U256::from(1u128)), 1);
+    assert_eq!(isqrt_u256(U256::from(2u128)), 1);
+    assert_eq!(isqrt_u256(U256::from(3u128)), 1);
+    assert_eq!(isqrt_u256(U256::from(4u128)), 2);
+    assert_eq!(isqrt_u256(U256::from(9u128)), 3);
+    assert_eq!(isqrt_u256(U256::from(100u128)), 10);
+    assert_eq!(isqrt_u256(U256::from(99u128)), 9);
+    assert_eq!(isqrt_u256(U256::from(101u128)), 10);
+}
+
+#[test]
+fn test_isqrt_u256_agrees_with_isqrt_u128() {
+    // For values that fit in u128, isqrt_u256 must return the same result as isqrt.
+    let values: Vec<u128> = vec![
+        0, 1, 2, 3, 4, 7, 9, 15, 16, 17, 100, 101,
+        1_000_000, 1_000_000_000, 1_000_000_000_000,
+        1_000_000_000_000_000_000,
+        1_000_000_000_000_000_000_000_000, // 10^24
+        u128::MAX / 2, u128::MAX,
+    ];
+    for &n in &values {
+        assert_eq!(
+            isqrt_u256(U256::from(n)),
+            isqrt(n),
+            "isqrt_u256 disagrees with isqrt for n={n}"
+        );
+    }
+}
+
+#[test]
+fn test_isqrt_u256_large_beyond_u128() {
+    // Values above u128::MAX that represent realistic discriminant values.
+    // xw = 2.12e19 (SCALE-weighted position), xw² ≈ 4.5e38 > u128::MAX (3.4e38).
+    // This is exactly the BUG-001 overflow case.
+    let xw = U256::from(21_213_203_435_000_000_000u128); // ~2.12e19
+    let xw_sq = xw * xw; // ~4.5e38, overflows u128
+    let r = isqrt_u256(xw_sq);
+    // isqrt(xw²) should == xw (perfect square)
+    assert_eq!(r, 21_213_203_435_000_000_000u128);
+}
+
+#[test]
+fn test_isqrt_u256_precision_invariant() {
+    // r² ≤ n < (r+1)² for various U256 values including ones beyond u128.
+    let xw = U256::from(21_213_203_435_000_000_000u128);
+    let w2_excess = U256::from(30_000_000_000_000_000_000_000_000_000_000_000u128); // 3e34
+    let test_values: Vec<U256> = vec![
+        U256::ZERO,
+        U256::from(1u128),
+        U256::from(u128::MAX),
+        xw * xw,                   // ~4.5e38 (BUG-001 case)
+        xw * xw + w2_excess,       // discriminant = xw² + w2·excess
+        xw * xw + U256::from(1u128), // off-by-one from perfect square
+        xw * xw - U256::from(1u128), // off-by-one below perfect square
+    ];
+    for n in &test_values {
+        let r = isqrt_u256(*n);
+        let r256 = U256::from(r);
+        assert!(
+            r256 * r256 <= *n,
+            "isqrt_u256({n}): r²={} > n", r256 * r256
+        );
+        let next = r256 + U256::from(1u128);
+        assert!(
+            next * next > *n,
+            "isqrt_u256({n}): (r+1)²={} ≤ n", next * next
+        );
+    }
+}
+
+#[test]
+fn test_isqrt_u256_perfect_squares() {
+    let bases: Vec<u128> = vec![
+        1, 2, 3, 10, 100, 1_000_000, 1_000_000_000,
+        1_000_000_000_000, // 10^12
+        21_213_203_435_000_000_000, // xw from BUG-001
+    ];
+    for &b in &bases {
+        let n = U256::from(b) * U256::from(b);
+        assert_eq!(
+            isqrt_u256(n), b,
+            "isqrt_u256({b}²) should equal {b}"
+        );
+    }
 }
