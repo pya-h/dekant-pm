@@ -357,7 +357,7 @@ The frontend starts on port 3000 by default.
 |----------|-------------|---------|
 | `NEXT_PUBLIC_RPC_URL` | Solana RPC endpoint | `http://localhost:8899` or devnet URL |
 | `NEXT_PUBLIC_BACKEND_URL` | Backend API URL | `http://localhost:4000` |
-| `NEXT_PUBLIC_PROGRAM_ID` | DekantPM program ID | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` |
+| `NEXT_PUBLIC_PROGRAM_ID` | DekantPM program ID | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` |
 | `NEXT_PUBLIC_NETWORK` | Network label | `localnet`, `devnet`, or `mainnet` |
 
 ## Docker
@@ -366,7 +366,7 @@ The frontend starts on port 3000 by default.
 docker build -t dekant-frontend \
   --build-arg NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com \
   --build-arg NEXT_PUBLIC_BACKEND_URL=https://dekant-api.pyron.fi \
-  --build-arg NEXT_PUBLIC_PROGRAM_ID=F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL \
+  --build-arg NEXT_PUBLIC_PROGRAM_ID=4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P \
   --build-arg NEXT_PUBLIC_NETWORK=devnet \
   .
 

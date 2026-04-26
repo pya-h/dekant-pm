@@ -10,7 +10,7 @@ Unlike binary-only platforms (Polymarket, Kalshi), DekantPM lets traders express
 |-----------|-----|
 | Frontend | https://dekant.pyron.fi/ |
 | Backend API | https://dekant-api.pyron.fi |
-| Program | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` on Solana **devnet** |
+| Program | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` on Solana **devnet** |
 
 ## What Makes DekantPM Different
 
