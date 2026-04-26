@@ -327,7 +327,7 @@ The backend starts on port 4000 by default. Swagger API docs are available at `/
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/dekant_pm` |
 | `SOLANA_RPC_URL` | Solana RPC endpoint | `http://localhost:8899` or `https://api.devnet.solana.com` |
-| `PROGRAM_ID` | DekantPM program ID | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` |
+| `PROGRAM_ID` | DekantPM program ID | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` |
 | `JWT_SECRET` | Secret for JWT signing | (random string, keep secret) |
 | `PORT` | Server port | `4000` |
 | `CORS_ORIGIN` | Allowed origins (comma-separated) | `https://dekant.pyron.fi,http://localhost:3000` |
@@ -359,7 +359,7 @@ docker build -t dekant-backend .
 docker run -p 4000:4000 \
   -e DATABASE_URL=postgresql://... \
   -e SOLANA_RPC_URL=https://api.devnet.solana.com \
-  -e PROGRAM_ID=F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL \
+  -e PROGRAM_ID=4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P \
   -e JWT_SECRET=your-secret \
   -e DB_SYNCHRONIZE=true \
   dekant-backend

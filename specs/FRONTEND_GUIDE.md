@@ -134,7 +134,7 @@ The on-chain transaction creates the market with its AMM state. The backend POST
 ### Program ID
 
 ```
-F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL
+4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P
 ```
 
 ### IDL Location
@@ -687,7 +687,7 @@ import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import idl from "../target/idl/dekant_pm.json";
 import { DekantPm } from "../target/types/dekant_pm";
 
-const PROGRAM_ID = new PublicKey("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
+const PROGRAM_ID = new PublicKey("4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P");
 
 // In a React component/hook:
 const wallet = useAnchorWallet();
@@ -872,7 +872,7 @@ All PDA derivation uses `PublicKey.findProgramAddressSync()`:
 ```typescript
 import { PublicKey } from "@solana/web3.js";
 
-const PROGRAM_ID = new PublicKey("F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL");
+const PROGRAM_ID = new PublicKey("4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P");
 
 // Protocol Config (singleton)
 const [protocolConfig] = PublicKey.findProgramAddressSync(

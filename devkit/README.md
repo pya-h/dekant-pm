@@ -33,7 +33,7 @@ npm install
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RPC_URL` | `http://localhost:8899` | Solana RPC endpoint |
-| `PROGRAM_ID` | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` | Deployed program ID |
+| `PROGRAM_ID` | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` | Deployed program ID |
 | `KEYPAIR_PATH` | `~/.config/solana/id.json` | Signer keypair file |
 
 ---
@@ -516,7 +516,7 @@ DekantPM uses an **L2-norm (sum-of-squares) AMM** invariant:
 
 ```bash
 # 1. Start validator (separate terminal)
-solana-test-validator --bpf-program F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL \
+solana-test-validator --bpf-program 4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P \
   ../target/deploy/dekant_pm.so --reset
 
 # 2. Initialize protocol
