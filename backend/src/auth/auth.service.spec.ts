@@ -29,6 +29,10 @@ describe('AuthService', () => {
     jwtService = module.get<JwtService>(JwtService);
   });
 
+  afterEach(() => {
+    service.onModuleDestroy();
+  });
+
   describe('createChallenge', () => {
     it('should return a nonce and message', () => {
       const result = service.createChallenge(walletAddress);

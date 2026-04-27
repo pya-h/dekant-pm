@@ -91,8 +91,15 @@ export class SettingsController {
   @Post()
   @ApiOperation({ summary: 'Create a new settings preset (inactive)' })
   async createSettings(@Body() dto: CreateSettingsDto) {
-    const s = await this.settingsService.create(dto);
-    return toResponse(s);
+    try {
+      const s = await this.settingsService.create(dto);
+      return toResponse(s);
+    } catch (err: any) {
+      if (err?.code === '23505' || err?.message?.includes('duplicate key')) {
+        throw new BadRequestException(`Settings name "${dto.name}" already exists`);
+      }
+      throw err;
+    }
   }
 
   @Patch()

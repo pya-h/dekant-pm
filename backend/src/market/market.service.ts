@@ -110,16 +110,18 @@ export class MarketService {
   async getPrices(id: number): Promise<{ probabilities: number[] }> {
     const market = await this.findById(id);
     const reserves = market.reserves.map(Number);
-    const kSquared = Number(market.kSquared);
+    const totalMinted = Number(market.totalMinted);
 
-    if (kSquared === 0) {
+    if (totalMinted === 0) {
       const uniform = 1 / reserves.length;
       return { probabilities: reserves.map(() => uniform) };
     }
 
+    // p̂_i = x_i² / k² where k = totalMinted (per L2-norm AMM math)
+    const kSq = totalMinted * totalMinted;
     const probabilities = reserves.map((r) => {
-      const x = Number(market.totalMinted) - r;
-      return (x * x) / kSquared;
+      const x = totalMinted - r;
+      return (x * x) / kSq;
     });
 
     return { probabilities };
@@ -157,19 +159,4 @@ export class MarketService {
     await this.marketRepo.update(String(id), onChainData);
   }
 
-  async incrementVolume(
-    id: number,
-    amount: string,
-  ): Promise<void> {
-    await this.marketRepo
-      .createQueryBuilder()
-      .update(MarketEntity)
-      .set({
-        totalVolume: () => 'total_volume + :amount',
-        lastTradeAt: new Date(),
-      })
-      .setParameters({ amount })
-      .where('id = :id', { id: String(id) })
-      .execute();
-  }
 }

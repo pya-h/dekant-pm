@@ -31,11 +31,12 @@ describe('Users & Admin (e2e)', () => {
     });
 
     it('should return positions when present', () => {
+      const wallet = randomWallet();
       testApp.positionRepo.find.mockResolvedValueOnce([
         {
           id: '1',
           marketId: '1',
-          userAddress: 'Wallet1',
+          userAddress: wallet,
           holdings: ['100', '50'],
           totalDeposited: '200',
           totalWithdrawn: '0',
@@ -45,7 +46,7 @@ describe('Users & Admin (e2e)', () => {
         {
           id: '2',
           marketId: '2',
-          userAddress: 'Wallet1',
+          userAddress: wallet,
           holdings: ['300'],
           totalDeposited: '400',
           totalWithdrawn: '100',
@@ -54,7 +55,7 @@ describe('Users & Admin (e2e)', () => {
         },
       ]);
       return request(app.getHttpServer())
-        .get('/users/Wallet1/positions')
+        .get(`/users/${wallet}/positions`)
         .expect(200)
         .expect((res: any) => {
           expect(res.body).toHaveLength(2);
@@ -124,10 +125,11 @@ describe('Users & Admin (e2e)', () => {
     });
 
     it('should return position when it exists', () => {
+      const wallet = randomWallet();
       (testApp.positionRepo as any).findOne = jest.fn().mockResolvedValueOnce({
         id: '1',
         marketId: '1',
-        userAddress: 'Wallet1',
+        userAddress: wallet,
         holdings: ['300', '200'],
         totalDeposited: '600',
         totalWithdrawn: '100',
@@ -135,7 +137,7 @@ describe('Users & Admin (e2e)', () => {
         updatedAt: new Date(),
       });
       return request(app.getHttpServer())
-        .get('/users/Wallet1/market-position/1')
+        .get(`/users/${wallet}/market-position/1`)
         .expect(200)
         .expect((res: any) => {
           expect(res.body).toHaveProperty('holdings');
@@ -157,18 +159,19 @@ describe('Users & Admin (e2e)', () => {
     });
 
     it('should return LP positions when present', () => {
+      const wallet = randomWallet();
       testApp.lpPositionRepo.find.mockResolvedValueOnce([
         {
           id: '1',
           marketId: '1',
-          userAddress: 'LPWallet1',
+          userAddress: wallet,
           shares: '500000',
           depositedCollateral: '1000000',
           updatedAt: new Date(),
         },
       ]);
       return request(app.getHttpServer())
-        .get('/users/LPWallet1/lp-positions')
+        .get(`/users/${wallet}/lp-positions`)
         .expect(200)
         .expect((res: any) => {
           expect(res.body).toHaveLength(1);
