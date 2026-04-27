@@ -136,11 +136,15 @@ export function ResolveForm({ market }: ResolveFormProps) {
       // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["markets"] });
       queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+      queryClient.invalidateQueries({ queryKey: ["userPositions"] });
+      queryClient.invalidateQueries({ queryKey: ["userPosition"] });
 
       // Delayed re-invalidation for indexer lag
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["markets"] });
         queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+        queryClient.invalidateQueries({ queryKey: ["userPositions"] });
+        queryClient.invalidateQueries({ queryKey: ["userPosition"] });
       }, 3000);
     } catch (error) {
       showTradeError(error);
