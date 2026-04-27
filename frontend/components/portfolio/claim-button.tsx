@@ -56,8 +56,11 @@ export function ClaimButton({
       }
 
       showTradeSuccess(signature, "Claim");
+      const address = publicKey.toBase58();
       queryClient.invalidateQueries({ queryKey: ["userPositions"] });
+      queryClient.invalidateQueries({ queryKey: ["userPosition", address, marketId] });
       queryClient.invalidateQueries({ queryKey: ["market", marketId] });
+      queryClient.invalidateQueries({ queryKey: ["tokenBalance"] });
     } catch (error) {
       showTradeError(error);
     } finally {
