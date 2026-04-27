@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, Component, type ReactNode, type ErrorInfo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { Loader2, TrendingUp, TrendingDown, Wallet } from "lucide-react";
@@ -40,7 +41,56 @@ interface TradingPanelProps {
   market: MarketDetail;
 }
 
+// ---------------------------------------------------------------------------
+// Error boundary to prevent trading panel crashes from taking down the page
+// ---------------------------------------------------------------------------
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class TradingPanelErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("TradingPanel error:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card className="border-destructive/30">
+          <CardContent className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Trading panel encountered an error.
+            </p>
+            <button
+              className="mt-2 text-xs text-primary hover:underline"
+              onClick={() => this.setState({ hasError: false })}
+            >
+              Try again
+            </button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function TradingPanel({ market }: TradingPanelProps) {
+  return (
+    <TradingPanelErrorBoundary>
+      <TradingPanelInner market={market} />
+    </TradingPanelErrorBoundary>
+  );
+}
+
+function TradingPanelInner({ market }: TradingPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [params, setParams] = useState<TradeParams | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +99,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
 
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
+  const { connection } = useConnection();
   const program = useProgram();
   const queryClient = useQueryClient();
 
@@ -133,7 +184,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
     setLoading(true);
     try {
       const marketPubkey = new PublicKey(market.pubkey);
-      let signature: string;
+      let signature: string | undefined;
 
       const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
 
@@ -196,8 +247,6 @@ export function TradingPanel({ market }: TradingPanelProps) {
               params.outcome,
               effectiveAmount,
             );
-          } else {
-            return;
           }
         } else {
           if (isContinuous && "mu" in params) {
@@ -217,27 +266,43 @@ export function TradingPanel({ market }: TradingPanelProps) {
               params.outcome,
               effectiveAmount,
             );
-          } else {
-            return;
           }
         }
       }
 
+      if (!signature) return;
+
+      // Wait for confirmation to prevent wallet hanging on next operation
+      try {
+        const latestBlockhash = await connection.getLatestBlockhash();
+        await connection.confirmTransaction(
+          { signature, ...latestBlockhash },
+          "confirmed",
+        );
+      } catch {
+        // Confirmation timeout is non-fatal — tx may still succeed
+      }
+
       showTradeSuccess(signature, side === "buy" ? "Buy" : "Sell");
-      // Immediate refresh attempt
-      queryClient.invalidateQueries({ queryKey: ["market", market.id] });
-      queryClient.invalidateQueries({ queryKey: ["markets"] });
-      queryClient.invalidateQueries({ queryKey: ["userPosition", address, market.id] });
-      queryClient.invalidateQueries({ queryKey: ["userPositions", address] });
-      queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
+
+      // Refresh data
+      const keys = [
+        ["market", market.id],
+        ["markets"],
+        ["userPosition", address, market.id],
+        ["userPositions", address],
+        ["tokenBalance", market.collateralMint, address],
+      ];
+      for (const queryKey of keys) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       // Delayed refresh to catch indexer processing lag
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["market", market.id] });
-        queryClient.invalidateQueries({ queryKey: ["markets"] });
-        queryClient.invalidateQueries({ queryKey: ["userPosition", address, market.id] });
-        queryClient.invalidateQueries({ queryKey: ["userPositions", address] });
-        queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
+        for (const queryKey of keys) {
+          queryClient.invalidateQueries({ queryKey });
+        }
       }, 3000);
+
       setParams(null);
     } catch (error) {
       showTradeError(error);
@@ -256,6 +321,7 @@ export function TradingPanel({ market }: TradingPanelProps) {
     market.collateralMint,
     isContinuous,
     computedAmount,
+    connection,
     setVisible,
     queryClient,
   ]);
