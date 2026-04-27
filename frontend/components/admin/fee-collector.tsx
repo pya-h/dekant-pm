@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProgram } from "@/lib/solana";
@@ -16,11 +17,21 @@ import { Loader2, Coins } from "lucide-react";
 export function FeeCollector() {
   const program = useProgram();
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useMarkets({ limit: 100 });
 
   const [actionId, setActionId] = useState<string | null>(null);
   const [collectingAll, setCollectingAll] = useState(false);
+
+  const confirmTx = async (sig: string) => {
+    try {
+      const latestBlockhash = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, ...latestBlockhash }, "confirmed");
+    } catch {
+      // Confirmation timeout is non-fatal
+    }
+  };
 
   const handleCollect = async (marketPubkey: string, marketId: string) => {
     if (!program || !publicKey) return;
@@ -31,6 +42,7 @@ export function FeeCollector() {
         publicKey,
         new PublicKey(marketPubkey),
       );
+      await confirmTx(sig);
       showTradeSuccess(sig, "Fees collected");
       setTimeout(
         () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
@@ -58,11 +70,12 @@ export function FeeCollector() {
     for (const market of marketsWithFees) {
       setActionId(market.id);
       try {
-        await executeCollectFees(
+        const sig = await executeCollectFees(
           program,
           publicKey,
           new PublicKey(market.pubkey),
         );
+        await confirmTx(sig);
         succeeded++;
       } catch {
         failed++;

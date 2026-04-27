@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { Loader2, Gift } from "lucide-react";
@@ -28,6 +29,7 @@ export function ClaimButton({
 }: ClaimButtonProps) {
   const [loading, setLoading] = useState(false);
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
   const program = useProgram();
   const queryClient = useQueryClient();
 
@@ -41,6 +43,18 @@ export function ClaimButton({
         new PublicKey(marketPubkey),
         publicKey,
       );
+
+      // Wait for confirmation to prevent wallet hanging on next operation
+      try {
+        const latestBlockhash = await connection.getLatestBlockhash();
+        await connection.confirmTransaction(
+          { signature, ...latestBlockhash },
+          "confirmed",
+        );
+      } catch {
+        // Confirmation timeout is non-fatal
+      }
+
       showTradeSuccess(signature, "Claim");
       queryClient.invalidateQueries({ queryKey: ["userPositions"] });
       queryClient.invalidateQueries({ queryKey: ["market", marketId] });
@@ -49,7 +63,7 @@ export function ClaimButton({
     } finally {
       setLoading(false);
     }
-  }, [program, publicKey, marketPubkey, marketId, queryClient]);
+  }, [program, publicKey, marketPubkey, marketId, connection, queryClient]);
 
   const payoutDisplay =
     estimatedPayout > 0
