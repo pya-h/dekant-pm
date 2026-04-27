@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +33,7 @@ interface ResolveFormProps {
 export function ResolveForm({ market }: ResolveFormProps) {
   const program = useProgram();
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
   const queryClient = useQueryClient();
 
   // Binary: selected outcome (0 or 1)
@@ -116,6 +118,17 @@ export function ResolveForm({ market }: ResolveFormProps) {
         outcome,
         value,
       );
+
+      // Wait for confirmation to prevent wallet hanging on next operation
+      try {
+        const latestBlockhash = await connection.getLatestBlockhash();
+        await connection.confirmTransaction(
+          { signature: sig, ...latestBlockhash },
+          "confirmed",
+        );
+      } catch {
+        // Confirmation timeout is non-fatal
+      }
 
       showTradeSuccess(sig, "Market resolved");
       setConfirmOpen(false);
