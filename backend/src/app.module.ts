@@ -42,7 +42,11 @@ import { SettingEntity } from './settings/setting.entity';
           IndexerStateEntity,
           SettingEntity,
         ],
-        synchronize: config.get<string>('DB_SYNCHRONIZE') === 'true',
+        // DB_SYNCHRONIZE=true auto-creates tables — ONLY safe for dev/Docker init.
+        // In production, use migrations instead to avoid accidental schema changes.
+        synchronize:
+          config.get<string>('DB_SYNCHRONIZE') === 'true' &&
+          config.get<string>('NODE_ENV') !== 'production',
         logging: config.get<string>('NODE_ENV') !== 'production',
       }),
     }),

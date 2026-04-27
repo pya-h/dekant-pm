@@ -43,5 +43,17 @@ export function computeBinWeights(
     return result;
   }
 
-  return rawWeights.map((w) => Math.round((w / totalWeight) * SCALE));
+  // Round each weight, then adjust the largest to ensure sum === SCALE exactly.
+  // The on-chain program requires ∑ W_j = SCALE; rounding individually can drift ±N.
+  const scaled = rawWeights.map((w) => Math.round((w / totalWeight) * SCALE));
+  const sum = scaled.reduce((a, b) => a + b, 0);
+  if (sum !== SCALE) {
+    // Find the bin with the largest raw weight (most "room" for adjustment)
+    let maxIdx = 0;
+    for (let i = 1; i < scaled.length; i++) {
+      if (rawWeights[i] > rawWeights[maxIdx]) maxIdx = i;
+    }
+    scaled[maxIdx] += SCALE - sum;
+  }
+  return scaled;
 }
