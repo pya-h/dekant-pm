@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useProgram } from "@/lib/solana";
 import { executeCreateMarket } from "@/lib/admin-transactions";
 import { api } from "@/lib/api";
@@ -55,6 +56,7 @@ export function CreateMarketForm({
   const router = useRouter();
   const program = useProgram();
   const { publicKey } = useWallet();
+  const { connection } = useConnection();
 
   const methods = useForm<CreateMarketFormData>({
     resolver: zodResolver(createMarketSchema),
@@ -113,6 +115,17 @@ export function CreateMarketForm({
         isSuperadmin,
         isAdmin,
       });
+
+      // Wait for confirmation to prevent wallet hanging on next operation
+      try {
+        const latestBlockhash = await connection.getLatestBlockhash();
+        await connection.confirmTransaction(
+          { signature: result.signature, ...latestBlockhash },
+          "confirmed",
+        );
+      } catch {
+        // Confirmation timeout is non-fatal
+      }
 
       showTradeSuccess(result.signature, "Market created");
 
