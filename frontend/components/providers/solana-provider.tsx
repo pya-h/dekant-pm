@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -10,6 +10,7 @@ import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
+import { type WalletError } from "@solana/wallet-adapter-base";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { env } from "@/lib/env";
 
@@ -33,10 +34,16 @@ export function SolanaProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Catch wallet adapter errors that aren't caught by individual handlers.
+  // Without this, unhandled wallet errors can crash the React tree.
+  const onError = useCallback((error: WalletError) => {
+    console.warn("Wallet error:", error.message);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider endpoint={env.rpcUrl} config={{ commitment: "confirmed" }}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect onError={onError}>
           <WalletModalProvider>{children}</WalletModalProvider>
         </WalletProvider>
       </ConnectionProvider>

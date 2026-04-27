@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
@@ -41,6 +42,7 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
 
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
+  const { connection } = useConnection();
   const program = useProgram();
   const queryClient = useQueryClient();
 
@@ -135,7 +137,7 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
     setLoading(true);
     try {
       const marketPubkey = new PublicKey(market.pubkey);
-      let signature: string;
+      let signature: string | undefined;
 
       if (tab === "add") {
         signature = await executeAddLiquidity(
@@ -158,6 +160,19 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
         );
       }
 
+      if (!signature) return;
+
+      // Wait for confirmation to prevent wallet hanging on next operation
+      try {
+        const latestBlockhash = await connection.getLatestBlockhash();
+        await connection.confirmTransaction(
+          { signature, ...latestBlockhash },
+          "confirmed",
+        );
+      } catch {
+        // Confirmation timeout is non-fatal
+      }
+
       showTradeSuccess(signature, tab === "add" ? "Add Liquidity" : "Remove Liquidity");
       invalidateQueries();
       setTimeout(invalidateQueries, 3000);
@@ -167,7 +182,7 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [connected, publicKey, program, hasValidAmount, tab, amount, numAmount, userShares, market.pubkey, market.id, market.collateralMint, address, setVisible, queryClient]);
+  }, [connected, publicKey, program, hasValidAmount, tab, amount, numAmount, userShares, market.pubkey, market.id, market.collateralMint, address, connection, setVisible, queryClient]);
 
   function invalidateQueries() {
     queryClient.invalidateQueries({ queryKey: ["market", market.id] });
