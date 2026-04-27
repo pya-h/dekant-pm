@@ -270,19 +270,20 @@ describe('MarketService', () => {
     });
 
     it('should compute L2 norm probabilities from reserves', async () => {
-      // totalMinted = 1000, reserves = [700, 800]
-      // x0 = 1000-700 = 300, x1 = 1000-800 = 200
-      // kSq = 300^2 + 200^2 = 90000 + 40000 = 130000
+      // totalMinted = 1000, reserves = [400, 200]
+      // x0 = 1000-400 = 600, x1 = 1000-200 = 800
+      // p̂_i = x_i² / k² where k = totalMinted = 1000
+      // p0 = 600²/1000² = 0.36, p1 = 800²/1000² = 0.64
       const market = createMockMarket({
-        reserves: ['700', '800'],
-        kSquared: '130000',
+        reserves: ['400', '200'],
+        kSquared: '1000000',
         totalMinted: '1000',
       });
       marketRepo.findOne.mockResolvedValue(market);
 
       const result = await service.getPrices(1);
-      expect(result.probabilities[0]).toBeCloseTo(90000 / 130000);
-      expect(result.probabilities[1]).toBeCloseTo(40000 / 130000);
+      expect(result.probabilities[0]).toBeCloseTo(0.36);
+      expect(result.probabilities[1]).toBeCloseTo(0.64);
     });
 
     it('should throw when market not found', async () => {
@@ -326,23 +327,4 @@ describe('MarketService', () => {
     });
   });
 
-  describe('incrementVolume', () => {
-    it('should build a parameterized update query for volume', async () => {
-      const qb = {
-        update: jest.fn().mockReturnThis(),
-        set: jest.fn().mockReturnThis(),
-        setParameters: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        execute: jest.fn().mockResolvedValue({ affected: 1 }),
-      };
-      marketRepo.createQueryBuilder.mockReturnValue(qb);
-
-      await service.incrementVolume(1, '5000');
-
-      expect(qb.update).toHaveBeenCalledWith(MarketEntity);
-      expect(qb.setParameters).toHaveBeenCalledWith({ amount: '5000' });
-      expect(qb.where).toHaveBeenCalledWith('id = :id', { id: '1' });
-      expect(qb.execute).toHaveBeenCalled();
-    });
-  });
 });

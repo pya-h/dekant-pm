@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
 import { PublicKey } from '@solana/web3.js';
@@ -10,11 +10,30 @@ interface PendingChallenge {
   expiresAt: number;
 }
 
-@Injectable()
-export class AuthService {
-  private challenges = new Map<string, PendingChallenge>();
+const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CLEANUP_INTERVAL_MS = 60 * 1000; // sweep expired every 60s
+const MAX_PENDING_CHALLENGES = 10_000; // hard cap to prevent DoS
 
-  constructor(private readonly jwtService: JwtService) {}
+@Injectable()
+export class AuthService implements OnModuleDestroy {
+  private challenges = new Map<string, PendingChallenge>();
+  private cleanupTimer: ReturnType<typeof setInterval>;
+
+  constructor(private readonly jwtService: JwtService) {
+    // Periodically evict expired challenges to prevent memory leaks
+    this.cleanupTimer = setInterval(() => this.evictExpired(), CLEANUP_INTERVAL_MS);
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.cleanupTimer);
+  }
+
+  private evictExpired(): void {
+    const now = Date.now();
+    for (const [key, val] of this.challenges) {
+      if (now > val.expiresAt) this.challenges.delete(key);
+    }
+  }
 
   createChallenge(walletAddress: string): { nonce: string; message: string } {
     try {
@@ -23,13 +42,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid wallet address');
     }
 
+    // Prevent unbounded growth (DoS via mass challenge requests)
+    if (this.challenges.size >= MAX_PENDING_CHALLENGES) {
+      this.evictExpired();
+      if (this.challenges.size >= MAX_PENDING_CHALLENGES) {
+        throw new UnauthorizedException('Too many pending challenges, try again later');
+      }
+    }
+
     const nonce = randomBytes(32).toString('hex');
     const message = `Sign this message to authenticate with DekantPM.\n\nWallet: ${walletAddress}\nNonce: ${nonce}`;
 
     this.challenges.set(walletAddress, {
       nonce,
       message,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expiresAt: Date.now() + CHALLENGE_TTL_MS,
     });
 
     return { nonce, message };

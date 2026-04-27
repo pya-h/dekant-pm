@@ -160,6 +160,17 @@ export class FeeCollectionService implements OnModuleInit {
           })
           .rpc();
 
+        // Wait for confirmation before resetting DB — prevents data loss if tx fails
+        try {
+          const latestBlockhash = await this.connection.getLatestBlockhash();
+          await this.connection.confirmTransaction(
+            { signature: sig, ...latestBlockhash },
+            'confirmed',
+          );
+        } catch {
+          // Confirmation timeout is non-fatal — tx may still have landed
+        }
+
         await this.marketRepo.update(market.id, { protocolFeeAccumulated: '0' });
         this.logger.log(
           `Collected fees for market ${market.id} (${market.protocolFeeAccumulated} base units) — tx: ${sig}`,

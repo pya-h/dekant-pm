@@ -184,8 +184,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       protocolFeeAccumulated: String(d.protocol_fee_accumulated),
       lpFeeAccumulated: String(d.lp_fee_accumulated),
       lpSharesTotal: String(d.lp_shares_total),
-      rangeMin: String(d.range_min),
-      rangeMax: String(d.range_max),
+      // Only store range for continuous markets (type 2); non-continuous have 0 on-chain → null in DB
+      rangeMin: Number(d.market_type) === 2 ? String(d.range_min) : null,
+      rangeMax: Number(d.market_type) === 2 ? String(d.range_max) : null,
       resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
       resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
       resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,
@@ -613,24 +614,32 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     });
     await this.tradeRepo.save(trade);
 
-    // Update volume + totalTraders (count distinct traders)
+    // Update volume (buys only — sells are exits, not new volume) + totalTraders
     const traderCount = await this.tradeRepo
       .createQueryBuilder('t')
       .select('COUNT(DISTINCT t.trader)', 'count')
       .where('t.market_id = :marketId', { marketId })
       .getRawOne();
 
-    await this.marketRepo
-      .createQueryBuilder()
-      .update(MarketEntity)
-      .set({
-        totalVolume: () => 'total_volume + :collateralAmount',
-        totalTraders: Number(traderCount?.count ?? 0),
-        lastTradeAt: new Date(),
-      })
-      .setParameters({ collateralAmount: String(data.collateral_amount) })
-      .where('id = :id', { id: marketId })
-      .execute();
+    const volumeUpdate: Record<string, any> = {
+      totalTraders: Number(traderCount?.count ?? 0),
+      lastTradeAt: new Date(),
+    };
+
+    if (data.is_buy) {
+      await this.marketRepo
+        .createQueryBuilder()
+        .update(MarketEntity)
+        .set({
+          totalVolume: () => 'total_volume + :collateralAmount',
+          ...volumeUpdate,
+        })
+        .setParameters({ collateralAmount: String(data.collateral_amount) })
+        .where('id = :id', { id: marketId })
+        .execute();
+    } else {
+      await this.marketRepo.update(marketId, volumeUpdate);
+    }
 
     // Refresh on-chain state (best-effort — caught up by health check if this fails)
     try {
@@ -807,12 +816,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handlePayoutClaimed(
     data: Record<string, any>,
   ): Promise<void> {
-    await this.userPositionRepo.update(
-      {
-        marketId: String(data.market_id),
-        userAddress: data.trader.toString(),
-      },
-      { claimed: true },
+    // Sync full position from on-chain (updates holdings, totalWithdrawn, claimed)
+    await this.fetchAndSyncUserPosition(
+      Number(data.market_id),
+      new PublicKey(data.trader.toString()),
     );
   }
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -11,10 +12,20 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { PublicKey } from '@solana/web3.js';
 import { UserService } from './user.service';
 import { AuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
+
+/** Validate that address is a valid Solana base58 public key. */
+function validateAddress(address: string): void {
+  try {
+    new PublicKey(address);
+  } catch {
+    throw new BadRequestException(`Invalid wallet address: ${address}`);
+  }
+}
 
 @ApiTags('users')
 @Controller('users')
@@ -28,6 +39,7 @@ export class UserController {
     @Param('address') address: string,
     @Param('marketId') marketId: string,
   ) {
+    validateAddress(address);
     return this.userService.getPositionByMarket(address, marketId);
   }
 
@@ -35,6 +47,7 @@ export class UserController {
   @ApiOperation({ summary: 'Get user positions across all markets' })
   @ApiResponse({ status: 200, description: 'User positions' })
   getPositions(@Param('address') address: string) {
+    validateAddress(address);
     return this.userService.getPositions(address);
   }
 
@@ -46,6 +59,7 @@ export class UserController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
+    validateAddress(address);
     return this.userService.getTradeHistory(
       address,
       Math.max(1, Number(page) || 1),
@@ -57,6 +71,7 @@ export class UserController {
   @ApiOperation({ summary: 'Get user LP positions' })
   @ApiResponse({ status: 200, description: 'LP positions' })
   getLpPositions(@Param('address') address: string) {
+    validateAddress(address);
     return this.userService.getLpPositions(address);
   }
 }
