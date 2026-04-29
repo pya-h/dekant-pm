@@ -70,6 +70,10 @@ export function UserPositionDisplay({ market }: UserPositionDisplayProps) {
     market.collateralMint,
     address,
   );
+  const probabilities = useMemo(
+    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
+    [market.reserves, market.totalMinted, market.kSquared],
+  );
 
   if (!address || !position) return null;
 
@@ -80,10 +84,6 @@ export function UserPositionDisplay({ market }: UserPositionDisplayProps) {
   const deposited = Number(position.totalDeposited);
   const withdrawn = Number(position.totalWithdrawn);
   const netInvested = deposited - withdrawn;
-  const probabilities = useMemo(
-    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
-    [market.reserves, market.totalMinted, market.kSquared],
-  );
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
