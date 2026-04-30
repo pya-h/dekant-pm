@@ -75,7 +75,7 @@ export class MarketService {
 
   async findAll(
     filters: MarketFilterDto,
-  ): Promise<{ data: MarketEntity[]; total: number }> {
+  ): Promise<{ data: MarketEntity[]; total: number; stats?: { totalVolume: string; totalTraders: number } }> {
     const page = filters.page ?? 1;
     const limit = filters.limit ?? 20;
     const offset = (page - 1) * limit;
@@ -125,7 +125,23 @@ export class MarketService {
     qb.skip(offset).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
-    return { data, total };
+
+    let stats: { totalVolume: string; totalTraders: number } | undefined;
+    if (filters.includeStats) {
+      const statsQb = this.marketRepo.createQueryBuilder('m')
+        .select('COALESCE(SUM(m.total_volume), 0)', 'totalVolume')
+        .addSelect('COALESCE(SUM(m.total_traders), 0)', 'totalTraders');
+      if (filters.creator) {
+        statsQb.andWhere('m.creator = :creator', { creator: filters.creator });
+      }
+      const raw = await statsQb.getRawOne();
+      stats = {
+        totalVolume: String(raw.totalVolume),
+        totalTraders: Number(raw.totalTraders),
+      };
+    }
+
+    return { data, total, ...(stats && { stats }) };
   }
 
   async findById(id: number): Promise<MarketEntity> {

@@ -7,10 +7,12 @@ import type { MarketSummary, PaginatedResponse, MarketFilters } from "@/lib/type
 interface UseMarketsParams extends MarketFilters {
   page?: number;
   limit?: number;
+  enabled?: boolean;
+  includeStats?: boolean;
 }
 
 export function useMarkets(params: UseMarketsParams = {}) {
-  const { page = 1, limit = 20, ...filters } = params;
+  const { page = 1, limit = 20, enabled = true, ...filters } = params;
 
   return useQuery({
     queryKey: ["markets", { page, limit, ...filters }],
@@ -22,5 +24,6 @@ export function useMarkets(params: UseMarketsParams = {}) {
       }),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+    enabled,
   });
 }
