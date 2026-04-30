@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { UserPositionEntity } from './entity/user-position.entity';
 import { LpPositionEntity } from './entity/lp-position.entity';
 import { UserRoleEntity } from './entity/user-role.entity';
