@@ -21,6 +21,7 @@ const FEE_INTERVAL_OPTIONS = [
   { value: "12h", label: "Every 12 hours" },
   { value: "24h", label: "Every 24 hours" },
   { value: "48h", label: "Every 48 hours" },
+  { value: "72h", label: "Every 72 hours" },
 ] as const;
 
 const DEADLINE_INTERVAL_OPTIONS = [

@@ -944,10 +944,11 @@ export type DekantPm = {
       ],
       "accounts": [
         {
-          "name": "authority",
+          "name": "payer",
           "docs": [
-            "Must be the superadmin."
+            "Anyone can call — pays the transaction fee."
           ],
+          "writable": true,
           "signer": true
         },
         {
@@ -3337,6 +3338,19 @@ export type DekantPm = {
             "docs": [
               "AMM reserves per outcome/bin.",
               "Length = num_outcomes. Serialized as Borsh Vec (4-byte length prefix + data)."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "traderTokenTotals",
+            "docs": [
+              "Total trader-held tokens per outcome/bin (sum of all UserPosition holdings).",
+              "Maintained by buy/sell instructions. Used at resolution to compute the",
+              "true LP residual: `total_minted - trader_token_totals[win]`.",
+              "Without this, `reserves[win]` diverges from the LP residual after LP",
+              "operations scale positions without changing trader holdings."
             ],
             "type": {
               "vec": "u64"

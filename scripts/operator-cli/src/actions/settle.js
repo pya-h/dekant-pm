@@ -265,7 +265,7 @@ async function collectFees(state) {
     await state.superProgram.methods
       .collectFees()
       .accountsPartial({
-        authority: state.superuser.pubkey,
+        payer: state.superuser.pubkey,
         protocolConfig,
         market: marketPda,
         vaultAuthority,

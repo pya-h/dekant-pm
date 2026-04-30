@@ -164,7 +164,7 @@ describe("Admin Operations", () => {
     expect(feesAfter).to.be.greaterThan(feesBefore);
   });
 
-  it("superadmin collects protocol fees", async () => {
+  it("anyone can collect protocol fees (permissionless)", async () => {
     const market = await ctx.program.account.market.fetch(marketPda);
     expect(market.protocolFeeAccumulated.toNumber()).to.be.greaterThan(0);
 
@@ -183,10 +183,11 @@ describe("Admin Operations", () => {
       );
     }
 
+    // Use traderA (non-admin) as payer to prove permissionless
     await ctx.program.methods
       .collectFees()
       .accountsPartial({
-        authority: ctx.superadmin.publicKey,
+        payer: ctx.traderA.publicKey,
         protocolConfig: ctx.protocolConfig,
         market: marketPda,
         vaultAuthority,
@@ -194,6 +195,7 @@ describe("Admin Operations", () => {
         treasuryAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .signers([ctx.traderA])
       .rpc();
 
     const marketAfter = await ctx.program.account.market.fetch(marketPda);

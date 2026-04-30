@@ -9,14 +9,13 @@ use crate::events::FeesCollected;
 
 #[derive(Accounts)]
 pub struct CollectFees<'info> {
-    /// Must be the superadmin.
-    pub authority: Signer<'info>,
+    /// Anyone can call — pays the transaction fee.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     #[account(
         seeds = [PROTOCOL_CONFIG_SEED],
         bump = protocol_config.bump,
-        constraint = protocol_config.superadmin == authority.key()
-            @ DekantPmError::Unauthorized,
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
@@ -84,7 +83,7 @@ pub fn handle_collect_fees(ctx: Context<CollectFees>) -> Result<()> {
 
     emit!(FeesCollected {
         market_id: ctx.accounts.market.market_id,
-        collector: ctx.accounts.authority.key(),
+        collector: ctx.accounts.payer.key(),
         amount,
     });
 

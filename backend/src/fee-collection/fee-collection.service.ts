@@ -26,6 +26,7 @@ const INTERVAL_MS: Record<FeeCollectionInterval, number> = {
   '12h': 12 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '48h': 48 * 60 * 60 * 1000,
+  '72h': 72 * 60 * 60 * 1000,
 };
 
 function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
@@ -143,14 +144,22 @@ export class FeeCollectionService implements OnModuleInit {
         const [vaultAuthority] = deriveVaultAuthority(PROGRAM_ID, marketPubkey);
         const treasuryAta = getAta(collateralMint, treasury);
 
-        // Fetch on-chain market to get vault address
+        // Fetch on-chain market to get vault address and verify fees exist
         const onChainMarket =
           await (this.program!.account as any).market.fetch(marketPubkey);
+
+        // Skip if on-chain fees are actually zero (DB may be stale)
+        const onChainFees = (onChainMarket.protocolFeeAccumulated as any).toNumber?.()
+          ?? Number(onChainMarket.protocolFeeAccumulated);
+        if (onChainFees === 0) {
+          await this.marketRepo.update(market.id, { protocolFeeAccumulated: '0' });
+          continue;
+        }
 
         const sig = await (this.program!.methods as any)
           .collectFees()
           .accountsPartial({
-            authority: this.authority!.publicKey,
+            payer: this.authority!.publicKey,
             protocolConfig: protocolConfigPda,
             market: marketPubkey,
             vaultAuthority,
