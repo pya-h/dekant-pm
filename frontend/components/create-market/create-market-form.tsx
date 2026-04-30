@@ -22,6 +22,8 @@ import {
   type CreateMarketFormData,
 } from "@/lib/schemas/create-market-schema";
 import { MarketType, SCALE, USDC_DECIMALS } from "@/lib/types";
+import { useOracleValidation } from "@/hooks/use-oracle-validation";
+import { useMintValidation } from "@/hooks/use-mint-validation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Loader2, ArrowRight, ArrowLeft, Rocket } from "lucide-react";
@@ -64,13 +66,35 @@ export function CreateMarketForm({
     mode: "onTouched",
   });
 
-  const { trigger, handleSubmit, watch } = methods;
+  const { trigger, handleSubmit, watch, setError } = methods;
   const marketType = watch("marketType");
+
+  // Async address validation (oracle role + mint account)
+  const oracleValue = watch("oracle");
+  const mintValue = watch("collateralMint");
+  const oracleValidation = useOracleValidation(oracleValue);
+  const mintValidation = useMintValidation(mintValue);
 
   const handleNext = async () => {
     const fields = STEP_FIELDS[step];
     const valid = fields.length === 0 || (await trigger(fields));
-    if (valid) setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    if (!valid) return;
+
+    // On step 3 (Parameters), block progression if async validation fails
+    if (step === 3) {
+      if (oracleValidation.isLoading || mintValidation.isLoading) return;
+
+      if (oracleValidation.data && !oracleValidation.data.valid) {
+        setError("oracle", { message: oracleValidation.data.error! });
+        return;
+      }
+      if (mintValidation.data && !mintValidation.data.valid) {
+        setError("collateralMint", { message: mintValidation.data.error! });
+        return;
+      }
+    }
+
+    setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
 
   const handleBack = () => setStep((s) => Math.max(s - 1, 0));
@@ -177,7 +201,12 @@ export function CreateMarketForm({
           {step === 0 && <StepTypeSelection />}
           {step === 1 && <StepQuestionDetails />}
           {step === 2 && <StepOutcomes marketType={marketType} />}
-          {step === 3 && <StepParameters />}
+          {step === 3 && (
+            <StepParameters
+              oracleValidation={oracleValidation}
+              mintValidation={mintValidation}
+            />
+          )}
           {step === 4 && <StepReview />}
         </div>
 

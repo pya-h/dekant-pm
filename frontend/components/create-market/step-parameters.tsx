@@ -3,24 +3,36 @@
 import { useMemo } from "react";
 import { useFormContext } from "react-hook-form";
 import { useWallet } from "@solana/wallet-adapter-react";
+import type { UseQueryResult } from "@tanstack/react-query";
 import type { CreateMarketFormData } from "@/lib/schemas/create-market-schema";
 import { useTokenBalance } from "@/hooks/use-token-balance";
 import { useWalletTokens } from "@/hooks/use-wallet-tokens";
 import { useAdminRoles } from "@/hooks/use-admin-roles";
+import type { OracleValidation } from "@/hooks/use-oracle-validation";
+import type { MintValidation } from "@/hooks/use-mint-validation";
 import { useAuth } from "@/hooks/use-auth";
-import { formatUsdc, Role } from "@/lib/types";
+import { formatUsdc, USDC_DECIMALS, Role } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import {
   AddressCombobox,
   type ComboboxOption,
 } from "@/components/ui/address-combobox";
+import { Loader2 } from "lucide-react";
 
 function truncateAddress(addr: string): string {
   if (addr.length <= 12) return addr;
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
 }
 
-export function StepParameters() {
+interface StepParametersProps {
+  oracleValidation: UseQueryResult<OracleValidation>;
+  mintValidation: UseQueryResult<MintValidation>;
+}
+
+export function StepParameters({
+  oracleValidation,
+  mintValidation,
+}: StepParametersProps) {
   const {
     register,
     watch,
@@ -32,6 +44,7 @@ export function StepParameters() {
 
   const oracleValue = watch("oracle");
   const collateralMint = watch("collateralMint");
+  const initialLiquidity = watch("initialLiquidity");
   const address = publicKey?.toBase58();
 
   // Show balance if valid mint is entered
@@ -114,9 +127,28 @@ export function StepParameters() {
           isLoading={rolesLoading && !!token}
           placeholder="Oracle wallet address (must have Oracle role)"
         />
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          The oracle must already have the Oracle role assigned on-chain
-        </p>
+        {/* Async oracle role validation */}
+        {oracleValue && oracleValidation.isLoading && (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Verifying oracle role...
+          </p>
+        )}
+        {oracleValidation.data?.valid === true && (
+          <p className="mt-1 text-[11px] text-green-500">
+            ✓ Oracle role verified on-chain
+          </p>
+        )}
+        {oracleValidation.data?.valid === false && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {oracleValidation.data.error}
+          </p>
+        )}
+        {!oracleValue && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            The oracle must already have the Oracle role assigned on-chain
+          </p>
+        )}
         {errors.oracle && (
           <p className="mt-1 text-xs text-destructive">
             {errors.oracle.message}
@@ -138,11 +170,42 @@ export function StepParameters() {
           isLoading={tokensLoading}
           placeholder="SPL token mint address (e.g. USDC)"
         />
-        {balance != null && balance > 0 && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Your balance: {formatUsdc(balance)}
+        {/* Async mint validation */}
+        {collateralMint && mintValidation.isLoading && (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Verifying token mint...
           </p>
         )}
+        {mintValidation.data?.valid === true && (
+          <p className="mt-1 text-[11px] text-green-500">
+            ✓ Valid SPL token mint
+          </p>
+        )}
+        {mintValidation.data?.valid === false && (
+          <p className="mt-1 text-[11px] text-destructive">
+            {mintValidation.data.error}
+          </p>
+        )}
+        {/* Balance display with insufficient funds warning */}
+        {balance != null && balance > 0 && (() => {
+          const liquidityNum = parseFloat(initialLiquidity || "0");
+          const balanceHuman = balance / 10 ** USDC_DECIMALS;
+          const insufficient = liquidityNum > 0 && liquidityNum > balanceHuman;
+          return (
+            <>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Your balance: {formatUsdc(balance)}
+              </p>
+              {insufficient && (
+                <p className="mt-1 text-[11px] text-amber-500">
+                  Insufficient balance — you need {liquidityNum.toFixed(2)} but
+                  have {balanceHuman.toFixed(2)}
+                </p>
+              )}
+            </>
+          );
+        })()}
         {errors.collateralMint && (
           <p className="mt-1 text-xs text-destructive">
             {errors.collateralMint.message}

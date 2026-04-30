@@ -25,11 +25,14 @@ export const createMarketSchema = z
 
     // Step 3: Parameters
     deadline: z.string().min(1, "Deadline is required"),
-    oracle: z.string().min(32, "Invalid wallet address").max(50, "Invalid wallet address"),
+    oracle: z
+      .string()
+      .min(1, "Oracle address is required")
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "Invalid base58 wallet address"),
     collateralMint: z
       .string()
-      .min(32, "Invalid mint address")
-      .max(50, "Invalid mint address"),
+      .min(1, "Mint address is required")
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "Invalid base58 mint address"),
     initialLiquidity: z.string().min(1, "Liquidity amount is required"),
   })
   .superRefine((data, ctx) => {
