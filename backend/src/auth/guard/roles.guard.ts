@@ -28,7 +28,7 @@ export class RolesGuard implements CanActivate {
     private readonly userRoleRepo: Repository<UserRoleEntity>,
     configService: ConfigService,
   ) {
-    this.superadminAddress = configService.get<string>('SUPERADMIN_ADDRESS');
+    this.superadminAddress = configService.get<string>('SUPERADMIN_ADDRESS')?.trim();
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
