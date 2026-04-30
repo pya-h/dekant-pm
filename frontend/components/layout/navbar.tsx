@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { cn } from "@/lib/utils";
 import { WalletButton } from "@/components/common/wallet-button";
 import { Badge } from "@/components/ui/badge";
@@ -10,16 +12,43 @@ import { Button } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { Menu, X } from "lucide-react";
 
-const navLinks: { href: string; label: string; soon?: boolean }[] = [
+interface NavLink {
+  href: string;
+  label: string;
+  soon?: boolean;
+}
+
+const publicLinks: NavLink[] = [
   { href: "/markets", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
-  { href: "/admin", label: "Admin" },
-  { href: "/oracle", label: "Oracle" },
 ];
 
 export function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { connected } = useWallet();
+  const { isSuperadmin, isAdmin, isCreator, isOracle } = useAdminRole();
+
+  const navLinks = useMemo(() => {
+    const links: NavLink[] = [...publicLinks];
+
+    // Creator-only users (not admin/superadmin) see the Creator Dashboard link
+    if (connected && isCreator && !isAdmin && !isSuperadmin) {
+      links.push({ href: "/creator", label: "Creator" });
+    }
+
+    // Admin/Superadmin see the Admin link (which includes Creator tab)
+    if (connected && (isAdmin || isSuperadmin)) {
+      links.push({ href: "/admin", label: "Admin" });
+    }
+
+    // Oracle role sees the Oracle link
+    if (connected && isOracle) {
+      links.push({ href: "/oracle", label: "Oracle" });
+    }
+
+    return links;
+  }, [connected, isSuperadmin, isAdmin, isCreator, isOracle]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-lg">

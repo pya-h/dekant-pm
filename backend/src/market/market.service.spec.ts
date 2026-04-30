@@ -222,6 +222,21 @@ describe('MarketService', () => {
       });
     });
 
+    it('should filter by creator', async () => {
+      await service.findAll({ creator: 'Creator11111111111111111111111111111111111111' });
+      expect(qb.andWhere).toHaveBeenCalledWith('m.creator = :creator', {
+        creator: 'Creator11111111111111111111111111111111111111',
+      });
+    });
+
+    it('should not filter by creator when not provided', async () => {
+      await service.findAll({});
+      const creatorCalls = (qb.andWhere as jest.Mock).mock.calls.filter(
+        ([sql]: [string]) => sql.includes('creator'),
+      );
+      expect(creatorCalls).toHaveLength(0);
+    });
+
     it('should apply ILIKE search filter with ESCAPE clause', async () => {
       await service.findAll({ search: 'ETH' });
       expect(qb.andWhere).toHaveBeenCalledWith(

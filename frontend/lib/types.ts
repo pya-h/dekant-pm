@@ -106,6 +106,7 @@ export interface MarketFilters {
   state?: MarketState;
   category?: string;
   oracle?: string;
+  creator?: string;
   search?: string;
   sortBy?: "newest" | "deadline" | "volume";
 }

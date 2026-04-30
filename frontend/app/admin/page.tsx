@@ -12,8 +12,8 @@ import { PauseControls } from "@/components/admin/pause-controls";
 import { ProtocolSettings } from "@/components/admin/protocol-settings";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Wallet, ShieldAlert, Loader2, Shield, PlusCircle } from "lucide-react";
-import Link from "next/link";
+import { CreatorDashboard } from "@/components/creator/creator-dashboard";
+import { Wallet, ShieldAlert, Loader2, Shield } from "lucide-react";
 
 export default function AdminPage() {
   const { connected } = useWallet();
@@ -99,25 +99,17 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Shield className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Admin Dashboard
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {isSuperadmin ? "Superadmin" : "Admin"} &mdash; Manage roles,
-              fees, and market controls
-            </p>
-          </div>
+      <div className="flex items-center gap-3">
+        <Shield className="h-6 w-6 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Admin Dashboard
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {isSuperadmin ? "Superadmin" : "Admin"} &mdash; Manage roles,
+            fees, and market controls
+          </p>
         </div>
-        <Link href="/admin/create-market">
-          <Button className="gap-2">
-            <PlusCircle className="h-4 w-4" />
-            Create Market
-          </Button>
-        </Link>
       </div>
 
       {/* Auth error */}
@@ -152,6 +144,7 @@ export default function AdminPage() {
             {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
             {isSuperadmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
             <TabsTrigger value="controls">Market Controls</TabsTrigger>
+            <TabsTrigger value="creator">Creator</TabsTrigger>
           </TabsList>
         </div>
 
@@ -179,6 +172,10 @@ export default function AdminPage() {
 
         <TabsContent value="controls" className="mt-4">
           <PauseControls isSuperadmin={isSuperadmin} />
+        </TabsContent>
+
+        <TabsContent value="creator" className="mt-4">
+          <CreatorDashboard embedded />
         </TabsContent>
       </Tabs>
     </div>
