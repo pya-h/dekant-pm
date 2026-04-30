@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useMarkets } from "@/hooks/use-markets";
-import { MarketState, MarketType, SCALE } from "@/lib/types";
+import { MarketState, MarketType, SCALE, formatUsdc, timeUntil } from "@/lib/types";
 import { ResolveForm } from "@/components/oracle/resolve-form";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import {
   Eye,
   CheckCircle2,
   Clock,
+  Activity,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<MarketType, string> = {
@@ -30,6 +32,21 @@ export default function OraclePage() {
 
   const oracleAddress = publicKey?.toBase58();
 
+  const queryEnabled = !!oracleAddress;
+
+  // Fetch active markets assigned to this oracle (ongoing, before deadline)
+  const {
+    data: activeData,
+    isLoading: activeLoading,
+    error: activeError,
+  } = useMarkets({
+    oracle: oracleAddress,
+    state: MarketState.Active,
+    limit: 100,
+    sortBy: "deadline",
+    enabled: queryEnabled,
+  });
+
   // Fetch markets assigned to this oracle in PendingResolution state
   const {
     data: pendingData,
@@ -39,6 +56,7 @@ export default function OraclePage() {
     oracle: oracleAddress,
     state: MarketState.PendingResolution,
     limit: 100,
+    enabled: queryEnabled,
   });
 
   // Also fetch recently resolved markets by this oracle for reference
@@ -47,6 +65,7 @@ export default function OraclePage() {
     state: MarketState.Resolved,
     limit: 10,
     sortBy: "newest",
+    enabled: queryEnabled,
   });
 
   // Not connected
@@ -111,9 +130,10 @@ export default function OraclePage() {
     );
   }
 
+  const activeMarkets = activeData?.data ?? [];
   const pendingMarkets = pendingData?.data ?? [];
   const resolvedMarkets = resolvedData?.data ?? [];
-  const isLoadingMarkets = pendingLoading || resolvedLoading;
+  const isLoadingMarkets = activeLoading || pendingLoading || resolvedLoading;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -125,15 +145,15 @@ export default function OraclePage() {
             Oracle Dashboard
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Resolve markets that have passed their deadline
+            Monitor assigned markets and resolve after deadline
           </p>
         </div>
       </div>
 
       {/* Error state */}
-      {pendingError && (
+      {(activeError || pendingError) && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Failed to load markets: {pendingError.message}
+          Failed to load markets: {(activeError ?? pendingError)?.message}
         </div>
       )}
 
@@ -144,6 +164,64 @@ export default function OraclePage() {
           Loading markets...
         </div>
       )}
+
+      {/* Active Markets section — ongoing, before deadline */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-blue-500" />
+          <h2 className="text-lg font-semibold">Active Markets</h2>
+          {!isLoadingMarkets && (
+            <Badge variant="secondary" className="ml-1">
+              {activeMarkets.length}
+            </Badge>
+          )}
+        </div>
+
+        {!isLoadingMarkets && activeMarkets.length === 0 && (
+          <div className="rounded-lg border border-border/50 bg-muted/30 px-6 py-10 text-center">
+            <Activity className="mx-auto h-10 w-10 text-muted-foreground/40" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              No active markets assigned to you. Markets will appear here when
+              they are created with your wallet as the oracle.
+            </p>
+          </div>
+        )}
+
+        {activeMarkets.length > 0 && (
+          <div className="space-y-2">
+            {activeMarkets.map((market) => (
+              <Link
+                key={market.id}
+                href={`/markets/${market.id}`}
+                className="flex items-center justify-between rounded-lg border border-border/30 bg-card/50 px-5 py-3 transition-colors hover:bg-card/80"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">
+                      {market.title}
+                    </span>
+                    <Badge variant="outline" className="shrink-0 text-xs">
+                      {TYPE_LABELS[market.marketType]}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>
+                      Deadline:{" "}
+                      {new Date(market.deadline).toLocaleDateString()}
+                    </span>
+                    <span>{timeUntil(market.deadline)}</span>
+                    <span>Volume: {formatUsdc(market.totalVolume)}</span>
+                    <span>Outcomes: {market.numOutcomes}</span>
+                  </div>
+                </div>
+                <Badge className="shrink-0 bg-blue-500/10 text-blue-400 border-blue-500/30">
+                  Active
+                </Badge>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Pending Resolution section */}
       <section className="space-y-4">
