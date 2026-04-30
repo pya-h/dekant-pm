@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { SettingEntity } from './setting.entity';
 
-export const VALID_FEE_INTERVALS = ['none', '6h', '12h', '24h', '48h'] as const;
+export const VALID_FEE_INTERVALS = ['none', '6h', '12h', '24h', '48h', '72h'] as const;
 export type FeeCollectionInterval = (typeof VALID_FEE_INTERVALS)[number];
 
 export const VALID_DEADLINE_INTERVALS = ['30s', '1m', '2m', '5m', '10m'] as const;

@@ -240,6 +240,7 @@ export function SettingsPresetsModal({
                   <option value="12h">Every 12h</option>
                   <option value="24h">Every 24h</option>
                   <option value="48h">Every 48h</option>
+                  <option value="72h">Every 72h</option>
                 </select>
               </div>
               <div>

@@ -204,7 +204,7 @@ program_
     const tx = await program.methods
       .collectFees()
       .accountsPartial({
-        authority: keypair.publicKey,
+        payer: keypair.publicKey,
         protocolConfig,
         market: marketPda,
         vaultAuthority,
