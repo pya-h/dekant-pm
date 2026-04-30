@@ -12,11 +12,15 @@ interface PendingChallenge {
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLEANUP_INTERVAL_MS = 60 * 1000; // sweep expired every 60s
-const MAX_PENDING_CHALLENGES = 10_000; // hard cap to prevent DoS
+const MAX_PENDING_CHALLENGES = 1_000; // hard cap to prevent DoS
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const RATE_LIMIT_MAX_PER_WINDOW = 5; // max challenges per wallet per window
 
 @Injectable()
 export class AuthService implements OnModuleDestroy {
   private challenges = new Map<string, PendingChallenge>();
+  /** Tracks challenge request timestamps per wallet for rate limiting. */
+  private rateLimits = new Map<string, number[]>();
   private cleanupTimer: ReturnType<typeof setInterval>;
 
   constructor(private readonly jwtService: JwtService) {
@@ -33,6 +37,16 @@ export class AuthService implements OnModuleDestroy {
     for (const [key, val] of this.challenges) {
       if (now > val.expiresAt) this.challenges.delete(key);
     }
+    // Clean up stale rate-limit entries
+    const cutoff = now - RATE_LIMIT_WINDOW_MS;
+    for (const [key, timestamps] of this.rateLimits) {
+      const recent = timestamps.filter((t) => t > cutoff);
+      if (recent.length === 0) {
+        this.rateLimits.delete(key);
+      } else {
+        this.rateLimits.set(key, recent);
+      }
+    }
   }
 
   createChallenge(walletAddress: string): { nonce: string; message: string } {
@@ -41,6 +55,16 @@ export class AuthService implements OnModuleDestroy {
     } catch {
       throw new UnauthorizedException('Invalid wallet address');
     }
+
+    // Per-wallet rate limiting
+    const now = Date.now();
+    const cutoff = now - RATE_LIMIT_WINDOW_MS;
+    const timestamps = (this.rateLimits.get(walletAddress) ?? []).filter((t) => t > cutoff);
+    if (timestamps.length >= RATE_LIMIT_MAX_PER_WINDOW) {
+      throw new UnauthorizedException('Too many challenge requests, try again later');
+    }
+    timestamps.push(now);
+    this.rateLimits.set(walletAddress, timestamps);
 
     // Prevent unbounded growth (DoS via mass challenge requests)
     if (this.challenges.size >= MAX_PENDING_CHALLENGES) {

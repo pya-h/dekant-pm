@@ -104,6 +104,7 @@ export function PositionCard({ position }: PositionCardProps) {
           <ClaimButton
             marketPubkey={market.pubkey}
             marketId={market.id}
+            collateralMint={market.collateralMint}
             estimatedPayout={currentValue}
           />
         )}
