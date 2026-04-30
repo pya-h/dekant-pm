@@ -1,6 +1,6 @@
-import { IsOptional, IsString, IsNumber, IsIn, MaxLength, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsIn, IsBoolean, MaxLength, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class MarketFilterDto {
   @ApiPropertyOptional({ description: 'Filter by category' })
@@ -55,4 +55,10 @@ export class MarketFilterDto {
   @Max(100)
   @IsOptional()
   limit?: number;
+
+  @ApiPropertyOptional({ description: 'Include aggregate stats (totalVolume, totalTraders)' })
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  includeStats?: boolean;
 }

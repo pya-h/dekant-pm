@@ -13,11 +13,9 @@ const CREATOR_PUBKEY = new PublicKey(
   "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
 );
 
+const mockUseWallet = vi.fn();
 vi.mock("@solana/wallet-adapter-react", () => ({
-  useWallet: vi.fn(() => ({
-    connected: true,
-    publicKey: CREATOR_PUBKEY,
-  })),
+  useWallet: (...args: unknown[]) => mockUseWallet(...args),
 }));
 
 const mockUseMarkets = vi.fn();
@@ -48,9 +46,10 @@ vi.mock("next/link", () => ({
 describe("CreatorDashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseWallet.mockReturnValue({ connected: true, publicKey: CREATOR_PUBKEY });
   });
 
-  it("passes creator address to useMarkets", () => {
+  it("passes creator address and includeStats to useMarkets", () => {
     mockUseMarkets.mockReturnValue({
       data: { data: [], total: 0 },
       isLoading: false,
@@ -62,6 +61,8 @@ describe("CreatorDashboard", () => {
     expect(mockUseMarkets).toHaveBeenCalledWith(
       expect.objectContaining({
         creator: CREATOR_PUBKEY.toBase58(),
+        enabled: true,
+        includeStats: true,
       }),
     );
   });
@@ -132,12 +133,16 @@ describe("CreatorDashboard", () => {
     expect(screen.getByText("Who wins the election?")).toBeInTheDocument();
   });
 
-  it("shows summary stats when markets exist", () => {
+  it("shows summary stats from server-side stats", () => {
     const markets = [
       { ...mockBinaryMarket, creator: CREATOR_PUBKEY.toBase58() },
     ];
     mockUseMarkets.mockReturnValue({
-      data: { data: markets, total: 1 },
+      data: {
+        data: markets,
+        total: 1,
+        stats: { totalVolume: "5000000000", totalTraders: 42 },
+      },
       isLoading: false,
       isError: false,
     });
@@ -149,8 +154,23 @@ describe("CreatorDashboard", () => {
     expect(screen.getByText("Total Traders")).toBeInTheDocument();
     // total count
     expect(screen.getByText("1")).toBeInTheDocument();
-    // 42 traders from mockBinaryMarket
+    // 42 traders from server stats
     expect(screen.getByText("42")).toBeInTheDocument();
+  });
+
+  it("hides stats when server stats are not present", () => {
+    const markets = [
+      { ...mockBinaryMarket, creator: CREATOR_PUBKEY.toBase58() },
+    ];
+    mockUseMarkets.mockReturnValue({
+      data: { data: markets, total: 1 },
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<CreatorDashboard />);
+
+    expect(screen.queryByText("Markets Created")).not.toBeInTheDocument();
   });
 
   it("shows full header when not embedded", () => {
@@ -229,5 +249,22 @@ describe("CreatorDashboard", () => {
     render(<CreatorDashboard />);
 
     expect(screen.queryByText(/Page \d+ of \d+/)).not.toBeInTheDocument();
+  });
+
+  // ── Wallet disconnect edge case ─────────────────────────────────
+
+  it("disables query when wallet has no publicKey", () => {
+    mockUseWallet.mockReturnValue({ connected: false, publicKey: null });
+    mockUseMarkets.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<CreatorDashboard />);
+
+    expect(mockUseMarkets).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
   });
 });

@@ -267,6 +267,44 @@ describe('MarketService', () => {
       const result = await service.findAll({});
       expect(result).toEqual({ data: markets, total: 1 });
     });
+
+    it('should return stats when includeStats is true', async () => {
+      const statsQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ totalVolume: '5000', totalTraders: '10' }),
+      };
+      marketRepo.createQueryBuilder
+        .mockReturnValueOnce(qb)
+        .mockReturnValueOnce(statsQb);
+
+      const result = await service.findAll({ includeStats: true, creator: 'C' });
+      expect(result.stats).toEqual({ totalVolume: '5000', totalTraders: 10 });
+      expect(statsQb.andWhere).toHaveBeenCalledWith('m.creator = :creator', { creator: 'C' });
+    });
+
+    it('should not return stats when includeStats is not set', async () => {
+      const result = await service.findAll({});
+      expect(result.stats).toBeUndefined();
+      expect(marketRepo.createQueryBuilder).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return stats without creator filter when creator not provided', async () => {
+      const statsQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ totalVolume: '9999', totalTraders: '50' }),
+      };
+      marketRepo.createQueryBuilder
+        .mockReturnValueOnce(qb)
+        .mockReturnValueOnce(statsQb);
+
+      const result = await service.findAll({ includeStats: true });
+      expect(result.stats).toEqual({ totalVolume: '9999', totalTraders: 50 });
+      expect(statsQb.andWhere).not.toHaveBeenCalled();
+    });
   });
 
   describe('getPrices', () => {

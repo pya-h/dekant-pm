@@ -123,6 +123,26 @@ describe('Markets (e2e)', () => {
         });
     });
 
+    it('should return stats when includeStats=true', () => {
+      return request(app.getHttpServer())
+        .get(`/markets?creator=${randomWallet()}&includeStats=true`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('stats');
+          expect(res.body.stats).toHaveProperty('totalVolume');
+          expect(res.body.stats).toHaveProperty('totalTraders');
+        });
+    });
+
+    it('should not return stats when includeStats is not set', () => {
+      return request(app.getHttpServer())
+        .get('/markets')
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).not.toHaveProperty('stats');
+        });
+    });
+
     it('should accept combined filters', () => {
       return request(app.getHttpServer())
         .get(
