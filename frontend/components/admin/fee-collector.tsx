@@ -58,42 +58,73 @@ export function FeeCollector() {
   const handleCollectAll = async () => {
     if (!program || !publicKey || !data?.data.length) return;
     setCollectingAll(true);
-    let succeeded = 0;
-    let failed = 0;
-    const marketsWithFees = data.data.filter(
-      (m) => Number(m.protocolFeeAccumulated ?? 0) > 0,
-    );
-    if (marketsWithFees.length === 0) {
-      setCollectingAll(false);
-      return;
-    }
-    for (const market of marketsWithFees) {
-      setActionId(market.id);
-      try {
-        const sig = await executeCollectFees(
-          program,
-          publicKey,
-          new PublicKey(market.pubkey),
-        );
-        await confirmTx(sig);
-        succeeded++;
-      } catch {
-        failed++;
+
+    try {
+      // Pre-filter by backend data (quick local filter)
+      const candidates = data.data.filter(
+        (m) => Number(m.protocolFeeAccumulated ?? 0) > 0,
+      );
+      if (candidates.length === 0) {
+        setCollectingAll(false);
+        return;
       }
-    }
-    setActionId(null);
-    setCollectingAll(false);
-    if (succeeded > 0) {
-      const { toast } = await import("sonner");
-      toast.success(
-        `Collected fees from ${succeeded} market${succeeded > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
-      );
-      setTimeout(
-        () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
-        3000,
-      );
-    } else if (failed > 0) {
-      showTradeError(new Error(`All ${failed} fee collections failed`));
+
+      // Batch-fetch on-chain accounts to verify actual fees (single RPC call)
+      const pubkeys = candidates.map((m) => new PublicKey(m.pubkey));
+      const onChainAccounts = await program.account.market.fetchMultiple(pubkeys);
+
+      // Only collect from markets with actual on-chain fees > 0
+      const marketsWithFees = candidates.filter((_, i) => {
+        const account = onChainAccounts[i];
+        if (!account) return false;
+        const fees = (account.protocolFeeAccumulated as any).toNumber?.()
+          ?? Number(account.protocolFeeAccumulated);
+        return fees > 0;
+      });
+
+      if (marketsWithFees.length === 0) {
+        const { toast } = await import("sonner");
+        toast.info("No markets have on-chain fees to collect");
+        setCollectingAll(false);
+        return;
+      }
+
+      let succeeded = 0;
+      let failed = 0;
+
+      for (const market of marketsWithFees) {
+        setActionId(market.id);
+        try {
+          const sig = await executeCollectFees(
+            program,
+            publicKey,
+            new PublicKey(market.pubkey),
+          );
+          await confirmTx(sig);
+          succeeded++;
+        } catch {
+          failed++;
+        }
+      }
+
+      setActionId(null);
+      if (succeeded > 0) {
+        const { toast } = await import("sonner");
+        toast.success(
+          `Collected fees from ${succeeded} market${succeeded > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
+        );
+        setTimeout(
+          () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
+          3000,
+        );
+      } else if (failed > 0) {
+        showTradeError(new Error(`All ${failed} fee collections failed`));
+      }
+    } catch (err) {
+      showTradeError(err);
+    } finally {
+      setActionId(null);
+      setCollectingAll(false);
     }
   };
 
@@ -132,7 +163,7 @@ export function FeeCollector() {
             Collect Protocol Fees
           </h3>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Sweep accumulated fees from market vaults to the treasury. Superadmin only.
+            Sweep accumulated fees from market vaults to the treasury.
           </p>
         </div>
         <Button
@@ -166,6 +197,7 @@ export function FeeCollector() {
                 <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                   <span>ID: {market.id}</span>
                   <span>Volume: {formatUsdc(market.totalVolume)}</span>
+                  <span>Fees: {formatUsdc(market.protocolFeeAccumulated ?? "0")}</span>
                 </div>
               </div>
               <MarketStatus state={market.state} />

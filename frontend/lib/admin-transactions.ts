@@ -164,12 +164,12 @@ export async function executeUnpauseMarket(
 }
 
 // ---------------------------------------------------------------------------
-// Fee collection (superadmin only)
+// Fee collection (permissionless — anyone can call, fees go to treasury)
 // ---------------------------------------------------------------------------
 
 export async function executeCollectFees(
   program: Program<DekantPm>,
-  authority: PublicKey,
+  payer: PublicKey,
   marketPubkey: PublicKey,
 ): Promise<string> {
   const [protocolConfig] = deriveProtocolConfig();
@@ -188,7 +188,7 @@ export async function executeCollectFees(
   return program.methods
     .collectFees()
     .accountsPartial({
-      authority,
+      payer,
       protocolConfig,
       market: marketPubkey,
       vaultAuthority,
