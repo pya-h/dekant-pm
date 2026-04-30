@@ -100,6 +100,10 @@ export class MarketService {
       qb.andWhere('m.oracle = :oracle', { oracle: filters.oracle });
     }
 
+    if (filters.creator) {
+      qb.andWhere('m.creator = :creator', { creator: filters.creator });
+    }
+
     if (filters.search) {
       const escaped = filters.search.replace(/[\\%_]/g, '\\$&');
       qb.andWhere("m.title ILIKE :search ESCAPE '\\'", {

@@ -113,6 +113,16 @@ describe('Markets (e2e)', () => {
         .expect(200);
     });
 
+    it('should accept creator filter param', () => {
+      return request(app.getHttpServer())
+        .get(`/markets?creator=${randomWallet()}`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('data');
+          expect(res.body).toHaveProperty('total');
+        });
+    });
+
     it('should accept combined filters', () => {
       return request(app.getHttpServer())
         .get(
