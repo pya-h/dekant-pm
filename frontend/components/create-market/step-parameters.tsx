@@ -1,27 +1,79 @@
 "use client";
 
+import { useMemo } from "react";
 import { useFormContext } from "react-hook-form";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { CreateMarketFormData } from "@/lib/schemas/create-market-schema";
 import { useTokenBalance } from "@/hooks/use-token-balance";
-import { formatUsdc } from "@/lib/types";
+import { useWalletTokens } from "@/hooks/use-wallet-tokens";
+import { useAdminRoles } from "@/hooks/use-admin-roles";
+import { useAuth } from "@/hooks/use-auth";
+import { formatUsdc, Role } from "@/lib/types";
 import { Input } from "@/components/ui/input";
+import {
+  AddressCombobox,
+  type ComboboxOption,
+} from "@/components/ui/address-combobox";
+
+function truncateAddress(addr: string): string {
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+}
 
 export function StepParameters() {
   const {
     register,
     watch,
+    setValue,
     formState: { errors },
   } = useFormContext<CreateMarketFormData>();
   const { publicKey } = useWallet();
+  const { token } = useAuth();
+
+  const oracleValue = watch("oracle");
   const collateralMint = watch("collateralMint");
   const address = publicKey?.toBase58();
 
   // Show balance if valid mint is entered
   const { data: balance } = useTokenBalance(collateralMint, address);
 
+  // Fetch oracle addresses from protocol roles (admin/superadmin only)
+  const { data: roles, isLoading: rolesLoading } = useAdminRoles(token);
+
+  const oracleOptions = useMemo<ComboboxOption[]>(() => {
+    if (!roles) return [];
+    const seen = new Set<string>();
+    return roles
+      .filter((r) => r.role === Role.Oracle)
+      .filter((r) => {
+        if (seen.has(r.userAddress)) return false;
+        seen.add(r.userAddress);
+        return true;
+      })
+      .map((r) => ({
+        value: r.userAddress,
+        label: `Oracle — ${truncateAddress(r.userAddress)}`,
+        description: r.userAddress,
+      }));
+  }, [roles]);
+
+  // Fetch user's SPL token accounts for collateral mint selection
+  const { data: walletTokens, isLoading: tokensLoading } =
+    useWalletTokens(address);
+
+  const mintOptions = useMemo<ComboboxOption[]>(() => {
+    if (!walletTokens) return [];
+    return walletTokens.map((t) => ({
+      value: t.mint,
+      label: `${truncateAddress(t.mint)} — Balance: ${t.uiAmount.toLocaleString()}`,
+      description: t.mint,
+    }));
+  }, [walletTokens]);
+
   // Minimum datetime: now + 1 hour
-  const minDatetime = new Date(Date.now() + 3600_000).toISOString().slice(0, 16);
+  const minDatetime = new Date(Date.now() + 3600_000)
+    .toISOString()
+    .slice(0, 16);
 
   return (
     <div className="space-y-6">
@@ -55,10 +107,12 @@ export function StepParameters() {
         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
           Oracle Wallet *
         </label>
-        <Input
-          {...register("oracle")}
+        <AddressCombobox
+          value={oracleValue}
+          onChange={(v) => setValue("oracle", v, { shouldValidate: true })}
+          options={oracleOptions}
+          isLoading={rolesLoading && !!token}
           placeholder="Oracle wallet address (must have Oracle role)"
-          className="font-mono text-sm"
         />
         <p className="mt-1 text-[11px] text-muted-foreground">
           The oracle must already have the Oracle role assigned on-chain
@@ -75,10 +129,14 @@ export function StepParameters() {
         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
           Collateral Mint *
         </label>
-        <Input
-          {...register("collateralMint")}
+        <AddressCombobox
+          value={collateralMint}
+          onChange={(v) =>
+            setValue("collateralMint", v, { shouldValidate: true })
+          }
+          options={mintOptions}
+          isLoading={tokensLoading}
           placeholder="SPL token mint address (e.g. USDC)"
-          className="font-mono text-sm"
         />
         {balance != null && balance > 0 && (
           <p className="mt-1 text-[11px] text-muted-foreground">
@@ -110,9 +168,7 @@ export function StepParameters() {
             USDC
           </span>
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Minimum: 1 USDC
-        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Minimum: 1 USDC</p>
         {errors.initialLiquidity && (
           <p className="mt-1 text-xs text-destructive">
             {errors.initialLiquidity.message}
