@@ -536,13 +536,8 @@ describe('AMM (e2e)', () => {
     });
 
     it('should reject target probability >= 100%', () => {
-      testApp.marketRepo.findOne.mockResolvedValueOnce(
-        mockMarket({
-          reserves: ['292893', '292893'],
-          totalMinted: '1000000',
-          kSquared: '1000000000000',
-        }),
-      );
+      // targetProbability: 1_000_000_000 is rejected by @Max(999_999_999) at DTO level
+      // so no mock is needed (findOne is never called)
       return request(app.getHttpServer())
         .post('/amm/estimate-buy-to-price')
         .send({ marketId: 1, outcome: 0, targetProbability: 1_000_000_000 })
