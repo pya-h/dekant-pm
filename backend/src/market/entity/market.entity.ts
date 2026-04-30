@@ -4,7 +4,6 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  Index,
 } from 'typeorm';
 
 @Entity('markets')
@@ -12,7 +11,6 @@ export class MarketEntity {
   @PrimaryColumn({ type: 'bigint' })
   id!: string;
 
-  @Index()
   @Column({ type: 'varchar', length: 44, unique: true })
   pubkey!: string;
 

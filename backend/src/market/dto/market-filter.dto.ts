@@ -25,6 +25,11 @@ export class MarketFilterDto {
   @IsOptional()
   oracle?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by creator wallet address' })
+  @IsString()
+  @IsOptional()
+  creator?: string;
+
   @ApiPropertyOptional({ description: 'Text search on title' })
   @IsString()
   @MaxLength(200)
