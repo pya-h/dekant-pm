@@ -1,5 +1,11 @@
-import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
-import { Program, BN } from "@coral-xyz/anchor";
+import {
+  PublicKey,
+  SystemProgram,
+  Keypair,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import { AnchorProvider, Program, BN } from "@coral-xyz/anchor";
 import type { DekantPm } from "./program/dekant_pm";
 import {
   deriveProtocolConfig,
@@ -167,6 +173,30 @@ export async function executeUnpauseMarket(
 // Fee collection (permissionless — anyone can call, fees go to treasury)
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a CreateAssociatedTokenAccountIdempotent instruction.
+ * Uses instruction index 1 (idempotent variant — no-op if ATA already exists).
+ */
+function createAtaIdempotentIx(
+  payer: PublicKey,
+  ata: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey,
+): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
+}
+
 export async function executeCollectFees(
   program: Program<DekantPm>,
   payer: PublicKey,
@@ -185,7 +215,8 @@ export async function executeCollectFees(
   const treasury = config.treasury as PublicKey;
   const treasuryAta = getAta(collateralMint, treasury);
 
-  return program.methods
+  // Build the collect_fees instruction
+  const collectIx = await program.methods
     .collectFees()
     .accountsPartial({
       payer,
@@ -196,7 +227,22 @@ export async function executeCollectFees(
       treasuryAta,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
-    .rpc();
+    .instruction();
+
+  const tx = new Transaction();
+
+  // If the treasury ATA doesn't exist yet, create it in the same transaction.
+  // This is the most common cause of collect_fees failure on first use.
+  const connection = program.provider.connection;
+  const ataInfo = await connection.getAccountInfo(treasuryAta);
+  if (!ataInfo) {
+    tx.add(createAtaIdempotentIx(payer, treasuryAta, treasury, collateralMint));
+  }
+
+  tx.add(collectIx);
+
+  const provider = program.provider as AnchorProvider;
+  return provider.sendAndConfirm(tx, []);
 }
 
 // ---------------------------------------------------------------------------
