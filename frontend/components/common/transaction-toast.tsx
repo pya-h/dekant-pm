@@ -26,6 +26,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Settlement
   AlreadyClaimed: "Payout has already been claimed",
   NothingToClaim: "No winning tokens to claim",
+  // Fee collection
+  NoFeesToCollect: "No protocol fees to collect on this market",
   // Math
   MathOverflow: "Calculation overflow — try a smaller amount",
   InvariantViolation: "AMM invariant violated — try a different amount",
@@ -152,10 +154,12 @@ function isInsufficientSolError(error: unknown): boolean {
     msg.includes("insufficient funds") ||
     msg.includes("insufficient lamports") ||
     msg.includes("not enough sol") ||
-    msg.includes("0x1") && msg.includes("insufficient") ||
+    (msg.includes("0x1") && msg.includes("insufficient")) ||
     // Simulation failure with insufficient balance for rent
     msg.includes("insufficient balance for rent") ||
-    msg.includes("account balance below rent-exempt minimum")
+    msg.includes("account balance below rent-exempt minimum") ||
+    // Wallet has never been funded (0 SOL)
+    msg.includes("attempt to debit an account but found no record of a prior credit")
   );
 }
 
