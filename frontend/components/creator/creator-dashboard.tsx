@@ -50,22 +50,12 @@ export function CreatorDashboard({ embedded = false }: CreatorDashboardProps) {
     creator: address,
     ...(stateFilter !== "all" && { state: Number(stateFilter) }),
     sortBy,
+    enabled: !!address,
+    includeStats: true,
   });
 
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
   const hasMore = page < totalPages;
-
-  // Aggregate stats from current page (simple summary)
-  const stats = data
-    ? {
-        total: data.total,
-        totalVolume: data.data.reduce(
-          (sum, m) => sum + Number(m.totalVolume),
-          0,
-        ),
-        totalTraders: data.data.reduce((sum, m) => sum + m.totalTraders, 0),
-      }
-    : null;
 
   return (
     <div className="space-y-6">
@@ -105,14 +95,17 @@ export function CreatorDashboard({ embedded = false }: CreatorDashboardProps) {
       )}
 
       {/* Summary stats */}
-      {stats && stats.total > 0 && (
+      {data && data.total > 0 && data.stats && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCard label="Markets Created" value={String(stats.total)} />
+          <StatCard label="Markets Created" value={String(data.total)} />
           <StatCard
             label="Total Volume"
-            value={formatUsdc(stats.totalVolume)}
+            value={formatUsdc(data.stats.totalVolume)}
           />
-          <StatCard label="Total Traders" value={String(stats.totalTraders)} />
+          <StatCard
+            label="Total Traders"
+            value={String(data.stats.totalTraders)}
+          />
         </div>
       )}
 

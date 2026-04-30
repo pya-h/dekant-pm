@@ -87,9 +87,14 @@ export interface LpPosition {
 }
 
 // Backend findAll returns { data, total } -- no page/limit/hasMore
+// Optional `stats` included when `includeStats=true` query param is set.
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
+  stats?: {
+    totalVolume: string;
+    totalTraders: number;
+  };
 }
 
 // Matches UserRoleEntity as serialized by NestJS.
