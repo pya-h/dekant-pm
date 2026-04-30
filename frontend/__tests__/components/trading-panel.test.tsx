@@ -19,6 +19,12 @@ const mockSetVisible = vi.fn();
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useWallet: vi.fn(() => ({ connected: false, publicKey: null })),
+  useConnection: vi.fn(() => ({
+    connection: {
+      getLatestBlockhash: vi.fn().mockResolvedValue({ blockhash: "mock", lastValidBlockHeight: 0 }),
+      confirmTransaction: vi.fn().mockResolvedValue({ value: { err: null } }),
+    },
+  })),
 }));
 
 vi.mock("@solana/wallet-adapter-react-ui", () => ({
