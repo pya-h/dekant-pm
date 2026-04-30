@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, Max, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class EstimateBuyDto {
@@ -124,6 +124,7 @@ export class EstimateBuyToPriceDto {
   @IsNumber()
   @IsNotEmpty()
   @Min(1)
+  @Max(999_999_999)
   targetProbability!: number;
 }
 
@@ -146,5 +147,6 @@ export class EstimateSellToPriceDto {
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
+  @Max(999_999_999)
   targetProbability!: number;
 }

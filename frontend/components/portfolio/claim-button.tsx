@@ -18,6 +18,7 @@ import { formatUsdc, USDC_DECIMALS } from "@/lib/types";
 interface ClaimButtonProps {
   marketPubkey: string;
   marketId: string;
+  collateralMint: string;
   /** Estimated payout in USDC base units (raw) */
   estimatedPayout: number;
 }
@@ -25,6 +26,7 @@ interface ClaimButtonProps {
 export function ClaimButton({
   marketPubkey,
   marketId,
+  collateralMint,
   estimatedPayout,
 }: ClaimButtonProps) {
   const [loading, setLoading] = useState(false);
@@ -60,13 +62,13 @@ export function ClaimButton({
       queryClient.invalidateQueries({ queryKey: ["userPositions"] });
       queryClient.invalidateQueries({ queryKey: ["userPosition", address, marketId] });
       queryClient.invalidateQueries({ queryKey: ["market", marketId] });
-      queryClient.invalidateQueries({ queryKey: ["tokenBalance"] });
+      queryClient.invalidateQueries({ queryKey: ["tokenBalance", collateralMint, address] });
     } catch (error) {
       showTradeError(error);
     } finally {
       setLoading(false);
     }
-  }, [program, publicKey, marketPubkey, marketId, connection, queryClient]);
+  }, [program, publicKey, marketPubkey, marketId, collateralMint, connection, queryClient]);
 
   const payoutDisplay =
     estimatedPayout > 0
