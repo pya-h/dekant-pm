@@ -16,7 +16,6 @@ export const MARKET_TYPE_MULTI = 1;
 export const MARKET_TYPE_CONTINUOUS = 2;
 
 export const SCALE = new BN("1000000000");
-export const MIN_LIQUIDITY = new BN(1_000_000);
 export const MIN_TRADE = new BN(1_000);
 
 export function randomAmount(min: number, max: number): number {

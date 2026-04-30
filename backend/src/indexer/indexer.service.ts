@@ -132,11 +132,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Fetch a market account from chain, decode it, and upsert into the DB.
-   * This is the "plan B" — whenever we're unsure about DB state, we can
-   * just re-sync from the source of truth.
-   */
-  /**
-   * Fetch a market account from chain, decode it, and upsert into the DB.
    *
    * **Throws on RPC / decode / DB errors** so callers can decide whether
    * to retry (backfill) or log-and-continue (bulk sync).
