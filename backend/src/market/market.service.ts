@@ -18,10 +18,37 @@ export class MarketService {
   ) {}
 
   async create(dto: CreateMarketDto): Promise<MarketEntity> {
+    const id = String(dto.marketId);
+    const existing = await this.marketRepo.findOne({ where: { id } });
+
+    if (existing) {
+      // Indexer may have already inserted this row with a generic title.
+      // Only update off-chain metadata — on-chain fields (creator, oracle,
+      // collateralMint, deadline, reserves, etc.) come from the indexer
+      // which uses program data as the source of truth.
+      // Fall back to DTO values for on-chain fields only if the indexer
+      // hasn't populated them yet.
+      existing.title = dto.title;
+      existing.description = dto.description ?? null;
+      existing.category = dto.category ?? null;
+      existing.tags = dto.tags ?? null;
+      existing.imageUrl = dto.imageUrl ?? null;
+      existing.outcomeLabels = dto.outcomeLabels ?? null;
+      if (!existing.creator) existing.creator = dto.creator;
+      if (!existing.oracle) existing.oracle = dto.oracle;
+      if (!existing.collateralMint) existing.collateralMint = dto.collateralMint;
+      if (!existing.deadline) existing.deadline = new Date(dto.deadline);
+      if (existing.rangeMin == null && dto.rangeMin != null)
+        existing.rangeMin = String(dto.rangeMin);
+      if (existing.rangeMax == null && dto.rangeMax != null)
+        existing.rangeMax = String(dto.rangeMax);
+      return this.marketRepo.save(existing);
+    }
+
     const initialReserves = Array(dto.numOutcomes).fill('0');
 
     const market = this.marketRepo.create({
-      id: String(dto.marketId),
+      id,
       pubkey: dto.pubkey,
       marketType: dto.marketType,
       state: 0,
