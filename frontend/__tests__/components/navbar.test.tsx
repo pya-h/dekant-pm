@@ -17,7 +17,8 @@ vi.mock("@/hooks/use-admin-role", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/markets",
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock("next/link", () => ({
@@ -71,14 +72,14 @@ describe("Navbar", () => {
     vi.clearAllMocks();
   });
 
-  it("always shows Markets and Portfolio links", () => {
+  it("always shows Portfolio link and search bar", () => {
     setupMocks(false);
     render(<Navbar />);
 
-    expect(screen.getByRole("link", { name: "Markets" })).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Portfolio" }),
     ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
   });
 
   // ── Not connected ───────────────────────────────────────────────
