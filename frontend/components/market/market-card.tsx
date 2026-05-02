@@ -1,204 +1,108 @@
 import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { MiniChart } from "./mini-chart";
 import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { MarketStatus } from "./market-status";
-import { MarketTypeBadge } from "./market-type-badge";
-import {
-  MarketType,
-  SCALE,
-  USDC_DECIMALS,
   type MarketSummary,
-  type UserPosition,
-  computeProbabilities,
   formatUsdc,
-  formatProbability,
-  timeUntil,
 } from "@/lib/types";
+import { BarChart3 } from "lucide-react";
 
 interface MarketCardProps {
   market: MarketSummary;
-  userPosition?: UserPosition;
 }
 
-export function MarketCard({ market, userPosition }: MarketCardProps) {
+export function MarketCard({ market }: MarketCardProps) {
+  const deadline = new Date(market.deadline);
+  const label = deadlineLabel(deadline);
+  const countdown = deadlineCountdown(deadline);
+
+  // Liquidity: sum of all reserves (collateral locked in the AMM)
+  const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
+
   return (
     <Link href={`/markets/${market.id}`} className="group block">
       <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5">
-        {/* Subtle gradient glow on hover */}
         <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-primary/[0.03] to-transparent" />
 
-        <CardHeader className="relative flex flex-row items-start justify-between gap-2 space-y-0 pb-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <MarketTypeBadge type={market.marketType} />
-            <MarketStatus state={market.state} />
-            {market.category && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                {market.category}
-              </span>
-            )}
-            {userPosition && (
-              <Badge variant="outline" className="border-primary/40 text-primary text-[10px] px-1.5 py-0">
-                Held
-              </Badge>
+        <div className="relative flex flex-col gap-2 p-4">
+          {/* Deadline label + countdown */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-foreground">{label}</span>
+            {countdown ? (
+              <div className="flex items-center gap-1.5 tabular-nums text-xs text-muted-foreground">
+                {countdown.days > 0 && <TimeUnit value={countdown.days} label="days" />}
+                <TimeUnit value={countdown.hours} label="hrs" />
+                <TimeUnit value={countdown.minutes} label="mins" />
+              </div>
+            ) : (
+              <span className="text-xs text-rose-400">Expired</span>
             )}
           </div>
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {timeUntil(market.deadline)}
+
+          {/* Liquidity */}
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatUsdc(liquidity)} Liquidity
           </span>
-        </CardHeader>
 
-        <CardContent className="relative space-y-3 pb-3">
-          <h3 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
-            {market.title}
-          </h3>
-          <ProbabilityDisplay market={market} />
-        </CardContent>
+          {/* Icon + Title */}
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 rounded-lg bg-muted p-2">
+              <BarChart3 className="h-4 w-4 text-cyan-400" />
+            </div>
+            <h3 className="line-clamp-2 text-sm font-medium leading-snug pt-0.5 transition-colors group-hover:text-primary">
+              {market.title}
+            </h3>
+          </div>
 
-        <CardFooter className="relative justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
-          <span className="tabular-nums">Vol {formatUsdc(market.totalVolume)}</span>
-          {userPosition ? (
-            <PositionPnL position={userPosition} market={market} />
-          ) : (
-            <span className="tabular-nums">
-              {market.totalTraders} trader{market.totalTraders !== 1 ? "s" : ""}
-            </span>
-          )}
-        </CardFooter>
+          {/* Mini distribution chart */}
+          <div className="mt-1">
+            <MiniChart market={market} height={56} />
+          </div>
+        </div>
       </Card>
     </Link>
   );
 }
 
-function ProbabilityDisplay({ market }: { market: MarketSummary }) {
-  const { marketType, reserves, outcomeLabels } = market;
-  const probabilities = computeProbabilities(reserves, market.totalMinted, market.kSquared);
-
-  if (probabilities.length === 0) return null;
-
-  if (marketType === MarketType.Binary && probabilities.length >= 2) {
-    const yesLabel = outcomeLabels?.[0] ?? "Yes";
-    const noLabel = outcomeLabels?.[1] ?? "No";
-    const yesP = probabilities[0];
-    return (
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs">
-          <span className="font-medium text-emerald-400">
-            {yesLabel} {formatProbability(yesP)}
-          </span>
-          <span className="text-muted-foreground">
-            {noLabel} {formatProbability(1 - yesP)}
-          </span>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700 ease-out"
-            style={{ width: `${yesP * 100}%` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (marketType === MarketType.MultiOutcome && probabilities.length > 0) {
-    const topIdx = probabilities.indexOf(Math.max(...probabilities));
-    const topLabel = outcomeLabels?.[topIdx] ?? `Outcome ${topIdx + 1}`;
-    const topP = probabilities[topIdx];
-    return (
-      <div className="space-y-1.5">
-        <div className="text-xs">
-          <span className="font-medium text-foreground">{topLabel}</span>
-          <span className="ml-1 text-primary tabular-nums">
-            {formatProbability(topP)}
-          </span>
-        </div>
-        <div className="flex gap-0.5">
-          {probabilities.map((p, i) => (
-            <div
-              key={i}
-              className="h-1.5 rounded-full bg-primary/60 transition-all duration-700 ease-out"
-              style={{ width: `${Math.max(p * 100, 2)}%` }}
-              title={`${outcomeLabels?.[i] ?? `#${i + 1}`}: ${formatProbability(p)}`}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Continuous
-  if (marketType === MarketType.Continuous && probabilities.length > 0) {
-    const maxP = Math.max(...probabilities);
-    if (maxP === 0) return null;
-    const peakIdx = probabilities.indexOf(maxP);
-    const rMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : null;
-    const rMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : null;
-    const binWidth =
-      rMin != null && rMax != null ? (rMax - rMin) / market.numOutcomes : null;
-    const peakValue =
-      binWidth != null && rMin != null
-        ? rMin + binWidth * (peakIdx + 0.5)
-        : null;
-    return (
-      <div className="space-y-1.5">
-        {peakValue != null && (
-          <div className="text-xs text-muted-foreground">
-            Peak:{" "}
-            <span className="font-medium tabular-nums text-foreground">
-              {peakValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-          </div>
-        )}
-        <div className="flex h-8 items-end gap-px">
-          {probabilities.map((p, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-t-sm bg-cyan-500/60 transition-all duration-700 ease-out"
-              style={{ height: `${Math.max((p / maxP) * 100, 4)}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function PositionPnL({
-  position,
-  market,
-}: {
-  position: UserPosition;
-  market: MarketSummary;
-}) {
-  const probabilities = computeProbabilities(
-    market.reserves,
-    market.totalMinted,
-    market.kSquared,
-  );
-  // Mark-to-market value: sum(holdings[i] * probability[i])
-  let value = 0;
-  const len = Math.min(position.holdings.length, probabilities.length);
-  for (let i = 0; i < len; i++) {
-    value += Number(position.holdings[i]) * probabilities[i];
-  }
-  const deposited = Number(position.totalDeposited);
-  const withdrawn = Number(position.totalWithdrawn);
-  const pnl = value - deposited + withdrawn;
-  const pnlUsdc = pnl / 10 ** USDC_DECIMALS;
-
+function TimeUnit({ value, label }: { value: number; label: string }) {
   return (
-    <span
-      className={`tabular-nums font-medium ${
-        pnl >= 0 ? "text-emerald-400" : "text-rose-400"
-      }`}
-    >
-      {pnl >= 0 ? "+" : "-"}${Math.abs(pnlUsdc).toFixed(2)}
+    <span className="flex items-baseline gap-0.5">
+      <span className="text-sm font-semibold text-foreground tabular-nums">{String(value).padStart(2, "0")}</span>
+      <span className="text-[10px]">{label}</span>
     </span>
   );
+}
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function deadlineLabel(deadline: Date): string {
+  const now = new Date();
+  const diff = deadline.getTime() - now.getTime();
+  if (diff <= 0) return "Expired";
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const daysDiff = Math.floor((deadlineDay.getTime() - today.getTime()) / 86_400_000);
+
+  if (daysDiff === 0) return "Today";
+  if (daysDiff === 1) return "Tomorrow";
+  // "Next Monday", "Next Friday", etc. (2-6 days away)
+  if (daysDiff <= 6) return `Next ${DAY_NAMES[deadline.getDay()]}`;
+  // Within same year: "Jan 06"
+  const month = MONTH_NAMES[deadline.getMonth()];
+  const day = String(deadline.getDate()).padStart(2, "0");
+  if (deadline.getFullYear() === now.getFullYear()) return `${month} ${day}`;
+  // Different year: "Jan 06, 2027"
+  return `${month} ${day}, ${deadline.getFullYear()}`;
+}
+
+function deadlineCountdown(deadline: Date): { days: number; hours: number; minutes: number } | null {
+  const diff = deadline.getTime() - Date.now();
+  if (diff <= 0) return null;
+  const totalMinutes = Math.floor(diff / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  return { days, hours, minutes };
 }
