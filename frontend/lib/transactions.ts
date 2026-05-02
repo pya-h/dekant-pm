@@ -9,20 +9,12 @@ import {
 } from "./solana";
 import { USDC_DECIMALS, SCALE } from "./types";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 );
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
 );
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** Derive Associated Token Address (mirrors @solana/spl-token). */
 function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
@@ -71,10 +63,6 @@ async function resolveAccounts(
     tokenProgram: TOKEN_PROGRAM_ID,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Transaction builders — each returns the tx signature string
-// ---------------------------------------------------------------------------
 
 /** Buy discrete outcome tokens (Binary / MultiOutcome markets). */
 export async function executeBuy(
@@ -196,10 +184,6 @@ export async function executeSellToPrice(
     .accountsPartial(accounts)
     .rpc();
 }
-
-// ---------------------------------------------------------------------------
-// Liquidity provision
-// ---------------------------------------------------------------------------
 
 /** Resolve accounts for LP instructions (different from trading accounts). */
 async function resolveLpAccounts(

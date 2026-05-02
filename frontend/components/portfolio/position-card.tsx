@@ -125,10 +125,6 @@ export function PositionCard({ position }: PositionCardProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Value computation
-// ---------------------------------------------------------------------------
-
 function computeCurrentValue(
   holdings: number[],
   probabilities: number[],
@@ -170,10 +166,6 @@ function computeCurrentValue(
   }
   return value;
 }
-
-// ---------------------------------------------------------------------------
-// Holdings display sub-component
-// ---------------------------------------------------------------------------
 
 const OUTCOME_COLORS = [
   "bg-violet-500",

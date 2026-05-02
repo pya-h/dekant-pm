@@ -16,10 +16,6 @@ import {
 } from "./solana";
 import { Role } from "./types";
 
-// ---------------------------------------------------------------------------
-// Token program constants (duplicated from transactions.ts — private there)
-// ---------------------------------------------------------------------------
-
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 );
@@ -35,10 +31,6 @@ function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
   return address;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /** Returns the authority's Admin role PDA if not superadmin, or null if superadmin. */
 function resolveAuthorityRole(
   authority: PublicKey,
@@ -48,10 +40,6 @@ function resolveAuthorityRole(
   const [pda] = deriveUserRole(authority, Role.Admin);
   return pda;
 }
-
-// ---------------------------------------------------------------------------
-// Role management
-// ---------------------------------------------------------------------------
 
 export async function executeAssignRole(
   program: Program<DekantPm>,
@@ -100,10 +88,6 @@ export async function executeRevokeRole(
     .rpc();
 }
 
-// ---------------------------------------------------------------------------
-// Fee management (superadmin only)
-// ---------------------------------------------------------------------------
-
 export async function executeUpdateFees(
   program: Program<DekantPm>,
   authority: PublicKey,
@@ -124,10 +108,6 @@ export async function executeUpdateFees(
     })
     .rpc();
 }
-
-// ---------------------------------------------------------------------------
-// Market controls
-// ---------------------------------------------------------------------------
 
 export async function executePauseMarket(
   program: Program<DekantPm>,
@@ -169,10 +149,6 @@ export async function executeUnpauseMarket(
     .rpc();
 }
 
-// ---------------------------------------------------------------------------
-// Fee collection (permissionless — anyone can call, fees go to treasury)
-// ---------------------------------------------------------------------------
-
 /**
  * Build a CreateAssociatedTokenAccountIdempotent instruction.
  * Uses instruction index 1 (idempotent variant — no-op if ATA already exists).
@@ -205,17 +181,14 @@ export async function executeCollectFees(
   const [protocolConfig] = deriveProtocolConfig();
   const [vaultAuthority] = deriveVaultAuthority(marketPubkey);
 
-  // Fetch on-chain market to get vault and collateralMint
   const marketAccount = await program.account.market.fetch(marketPubkey);
   const vault = marketAccount.vault as PublicKey;
   const collateralMint = marketAccount.collateralMint as PublicKey;
 
-  // Fetch protocol config to get treasury wallet
   const config = await program.account.protocolConfig.fetch(protocolConfig);
   const treasury = config.treasury as PublicKey;
   const treasuryAta = getAta(collateralMint, treasury);
 
-  // Build the collect_fees instruction
   const collectIx = await program.methods
     .collectFees()
     .accountsPartial({
@@ -244,10 +217,6 @@ export async function executeCollectFees(
   const provider = program.provider as AnchorProvider;
   return provider.sendAndConfirm(tx, []);
 }
-
-// ---------------------------------------------------------------------------
-// Market creation
-// ---------------------------------------------------------------------------
 
 /**
  * Resolve the creator's role PDA for createMarket.
@@ -293,7 +262,6 @@ export async function executeCreateMarket(
 ): Promise<CreateMarketResult> {
   const [protocolConfig] = deriveProtocolConfig();
 
-  // Fetch current market count to derive the new market PDA
   const config = await program.account.protocolConfig.fetch(protocolConfig);
   const marketId = (config.marketCount as BN).toNumber();
   const [marketPda] = deriveMarket(marketId);
@@ -302,7 +270,6 @@ export async function executeCreateMarket(
   // Vault must be a new keypair (signer for token account init)
   const vaultKp = Keypair.generate();
 
-  // Derive remaining PDAs
   const creatorRole = resolveCreatorRole(
     creator,
     params.isSuperadmin,

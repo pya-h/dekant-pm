@@ -225,10 +225,6 @@ export default function PortfolioPage() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
 function PositionGrid({ positions }: { positions: UserPosition[] }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -319,10 +315,6 @@ function PortfolioSkeleton() {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Value helpers
-// ---------------------------------------------------------------------------
 
 function computePositionValue(pos: UserPosition): number {
   const { market } = pos;

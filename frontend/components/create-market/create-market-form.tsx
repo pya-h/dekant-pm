@@ -252,10 +252,6 @@ export function CreateMarketForm({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /** Human-readable amount -> token base units (6 decimals for USDC). */
 function toBaseUnits(amount: string): BN {
   const trimmed = amount.trim();

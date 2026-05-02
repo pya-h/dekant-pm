@@ -2,10 +2,6 @@ import { toast } from "sonner";
 import { AnchorError } from "@coral-xyz/anchor";
 import { env } from "@/lib/env";
 
-// ---------------------------------------------------------------------------
-// Anchor error code → user-friendly message
-// ---------------------------------------------------------------------------
-
 const ERROR_MESSAGES: Record<string, string> = {
   // Trading
   InsufficientBalance: "Insufficient USDC balance",
@@ -33,10 +29,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   InvariantViolation: "AMM invariant violated — try a different amount",
 };
 
-// ---------------------------------------------------------------------------
-// Solscan URL
-// ---------------------------------------------------------------------------
-
 function getSolscanUrl(signature: string): string {
   const base = `https://solscan.io/tx/${signature}`;
   if (env.network === "localnet") {
@@ -47,10 +39,6 @@ function getSolscanUrl(signature: string): string {
   }
   return base;
 }
-
-// ---------------------------------------------------------------------------
-// Toast helpers
-// ---------------------------------------------------------------------------
 
 export function showTradeSuccess(signature: string, action: string) {
   // Guard: ensure signature is a displayable string
@@ -123,10 +111,6 @@ export function showTradeError(error: unknown) {
   toast.error("Transaction failed — please try again");
 }
 
-// ---------------------------------------------------------------------------
-// Error detection helpers
-// ---------------------------------------------------------------------------
-
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -187,7 +171,6 @@ function isNetworkError(error: unknown): boolean {
 
 /** Try to extract an Anchor error code from SendTransactionError logs. */
 function extractAnchorCodeFromLogs(error: unknown): string | null {
-  // Check for logs in SendTransactionError or similar
   const logs = getLogs(error);
   if (!logs || logs.length === 0) return null;
 
