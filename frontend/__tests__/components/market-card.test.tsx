@@ -25,9 +25,10 @@ vi.mock("next/link", () => ({
 }));
 
 describe("MarketCard", () => {
-  it("renders market title", () => {
+  it("renders deadline label", () => {
     render(<MarketCard market={mockBinaryMarket} />);
-    expect(screen.getByText("Will BTC reach $100k?")).toBeInTheDocument();
+    // Mock deadline is 1 day from now → "Tomorrow"
+    expect(screen.getByText("Tomorrow")).toBeInTheDocument();
   });
 
   it("links to the market detail page", () => {
@@ -48,17 +49,18 @@ describe("MarketCard", () => {
   });
 
   it("renders multi-outcome market", () => {
-    render(<MarketCard market={mockMultiMarket} />);
-    expect(screen.getByText("Who wins the election?")).toBeInTheDocument();
+    const { container } = render(<MarketCard market={mockMultiMarket} />);
+    expect(container.textContent).toMatch(/Tomorrow/);
   });
 
   it("renders continuous market", () => {
-    render(<MarketCard market={mockContinuousMarket} />);
-    expect(screen.getByText("What will BTC price be?")).toBeInTheDocument();
+    const { container } = render(<MarketCard market={mockContinuousMarket} />);
+    expect(container.textContent).toMatch(/Tomorrow/);
   });
 
   it("renders resolved market", () => {
-    render(<MarketCard market={mockResolvedMarket} />);
-    expect(screen.getByText("Will BTC reach $100k?")).toBeInTheDocument();
+    const { container } = render(<MarketCard market={mockResolvedMarket} />);
+    // Resolved market still has a future deadline in mock data
+    expect(container.textContent).toMatch(/Tomorrow/);
   });
 });

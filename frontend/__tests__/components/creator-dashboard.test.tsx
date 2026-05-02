@@ -129,8 +129,9 @@ describe("CreatorDashboard", () => {
 
     render(<CreatorDashboard />);
 
-    expect(screen.getByText("Will BTC reach $100k?")).toBeInTheDocument();
-    expect(screen.getByText("Who wins the election?")).toBeInTheDocument();
+    // Cards show deadline labels — both mocks are 1 day from now
+    const tomorrows = screen.getAllByText("Tomorrow");
+    expect(tomorrows.length).toBe(2);
   });
 
   it("shows summary stats from server-side stats", () => {

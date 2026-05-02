@@ -107,8 +107,10 @@ function HomeContent() {
           </DropdownMenu>
 
           {/* Assets filter placeholder */}
-          <Badge variant="outline" className="gap-1 text-xs cursor-default">
-            Assets
+          <Badge variant="outline" className="gap-1.5 text-xs cursor-default px-2.5 py-1">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-white">B</span>
+            Bitcoin
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </Badge>
         </div>
       </div>
