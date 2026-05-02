@@ -48,6 +48,13 @@ export class MarketController {
     return this.marketService.getPrices(id);
   }
 
+  @Get(':id/oracle-data')
+  @ApiOperation({ summary: 'Get oracle-derived data (sample values for now)' })
+  @ApiResponse({ status: 200, description: 'Distribution peak, ranges' })
+  getOracleData(@Param('id', ParseIntPipe) id: number) {
+    return this.marketService.getOracleData(id);
+  }
+
   @Get(':id/history')
   @ApiOperation({ summary: 'Get trade history for a market' })
   @ApiResponse({ status: 200, description: 'Paginated trade list' })
