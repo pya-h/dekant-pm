@@ -1,94 +1,178 @@
-import Link from "next/link";
+"use client";
+
+import { Suspense, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import { useMarkets } from "@/hooks/use-markets";
+import { MarketCard } from "@/components/market/market-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { WalletButton } from "@/components/common/wallet-button";
-import { env } from "@/lib/env";
-import { ArrowRight, BarChart3, TrendingUp, Shield } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { MarketFilters } from "@/lib/types";
+import { ChevronDown } from "lucide-react";
+
+const timeRangeOptions = [
+  { value: "all", label: "All Time" },
+  { value: "24h", label: "24h" },
+  { value: "7d", label: "7d" },
+  { value: "30d", label: "30d" },
+] as const;
+
+const LIMIT = 20;
 
 export default function Home() {
   return (
-    <div className="flex flex-1 flex-col">
-      {/* Hero section */}
-      <section className="relative flex flex-1 flex-col items-center justify-center gap-8 px-4 py-20 overflow-hidden">
-        {/* Background gradient orbs */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 left-1/4 h-80 w-80 rounded-full bg-primary/5 blur-3xl" />
-          <div className="absolute -bottom-40 right-1/4 h-80 w-80 rounded-full bg-cyan-500/5 blur-3xl" />
-        </div>
+    <Suspense fallback={<HomePageSkeleton />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
 
-        <div className="relative flex flex-col items-center gap-6 text-center">
-          <Badge
-            variant="outline"
-            className="text-xs uppercase tracking-widest"
-          >
-            {env.network}
-          </Badge>
-
-          <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-            Predict the future with{" "}
-            <span className="bg-gradient-to-r from-cyan-400 to-violet-400 bg-clip-text text-transparent">
-              probability distributions
-            </span>
-          </h1>
-
-          <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
-            DekantPM is a continuous decentralized prediction market on Solana.
-            Express full probability distributions over any outcome — not just
-            binary bets.
-          </p>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <Button asChild size="lg" className="gap-2">
-              <Link href="/markets">
-                Explore Markets
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            <WalletButton />
-          </div>
-        </div>
-      </section>
-
-      {/* Feature cards */}
-      <section className="border-t border-border/40 bg-muted/20">
-        <div className="mx-auto grid max-w-5xl gap-6 px-4 py-16 sm:grid-cols-3 sm:px-6 lg:px-8">
-          <FeatureCard
-            icon={<BarChart3 className="h-5 w-5 text-cyan-400" />}
-            title="Distribution Markets"
-            description="Express beliefs as full probability curves over continuous ranges — not just yes or no."
-          />
-          <FeatureCard
-            icon={<TrendingUp className="h-5 w-5 text-violet-400" />}
-            title="L2-Norm AMM"
-            description="Paradigm's constant-function AMM ensures fair pricing and deep automated liquidity."
-          />
-          <FeatureCard
-            icon={<Shield className="h-5 w-5 text-emerald-400" />}
-            title="On-Chain Settlement"
-            description="All positions and payouts are settled transparently on Solana. No custodial risk."
-          />
-        </div>
-      </section>
+function HomePageSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="h-64 animate-pulse rounded-xl border bg-card/50" />
+      <div className="h-8 w-32 animate-pulse rounded bg-card/50" />
+      <MarketGridSkeleton />
     </div>
   );
 }
 
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const searchFromUrl = searchParams.get("search") ?? "";
+
+  const [timeRange, setTimeRange] = useState("all");
+  const [page, setPage] = useState(1);
+
+  const filters: MarketFilters & { page: number; limit: number } = {
+    page: 1,
+    limit: page * LIMIT,
+    ...(searchFromUrl && { search: searchFromUrl }),
+    sortBy: "newest",
+  };
+
+  const { data, isLoading, isError, error, refetch } = useMarkets(filters);
+
+  const totalLoaded = data?.data.length ?? 0;
+  const total = data?.total ?? 0;
+  const hasMore = totalLoaded < total;
+
+  const loadMore = useCallback(() => {
+    setPage((p) => p + 1);
+  }, []);
+
+  const timeLabel = timeRangeOptions.find((o) => o.value === timeRange)?.label ?? "All Time";
+
   return (
-    <div className="group rounded-xl border border-border/40 bg-card/50 p-6 transition-all duration-300 hover:border-border hover:shadow-lg hover:shadow-primary/5">
-      <div className="mb-3 inline-flex rounded-lg bg-muted p-2.5">{icon}</div>
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-        {description}
-      </p>
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      {/* Featured section placeholder */}
+      <section className="rounded-xl border border-border/40 bg-muted/10 p-8">
+        <div className="flex items-center justify-center text-sm text-muted-foreground h-48">
+          Featured section — coming soon
+        </div>
+      </section>
+
+      {/* Markets header + filters */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold tracking-tight">Markets</h2>
+
+        <div className="flex items-center gap-2">
+          {/* Time range filter */}
+          <span className="hidden text-sm text-muted-foreground sm:inline">Time range</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                {timeLabel}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={timeRange}
+                onValueChange={(v) => {
+                  setTimeRange(v);
+                  setPage(1);
+                }}
+              >
+                {timeRangeOptions.map((opt) => (
+                  <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Assets filter placeholder */}
+          <Badge variant="outline" className="gap-1 text-xs cursor-default">
+            Assets
+          </Badge>
+        </div>
+      </div>
+
+      {/* Market grid */}
+      {isLoading ? (
+        <MarketGridSkeleton />
+      ) : isError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
+          <p className="text-sm text-destructive">
+            Failed to load markets{error instanceof Error ? `: ${error.message}` : ""}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : !data || data.data.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            {searchFromUrl
+              ? "No markets match your search"
+              : "No markets found"}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {data.data.map((market) => (
+              <MarketCard key={market.id} market={market} />
+            ))}
+          </div>
+
+          {/* Load More */}
+          {hasMore && (
+            <div className="flex justify-center pt-4">
+              <Button variant="outline" onClick={loadMore}>
+                Load More
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MarketGridSkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-44 animate-pulse rounded-xl border bg-card/50"
+          style={{ animationDelay: `${i * 80}ms`, animationFillMode: "backwards" }}
+        />
+      ))}
     </div>
   );
 }
