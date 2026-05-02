@@ -306,10 +306,6 @@ function fmtTokens(raw: number): string {
   return n.toFixed(2);
 }
 
-// ---------------------------------------------------------------------------
-// Trade History Dialog
-// ---------------------------------------------------------------------------
-
 function TradeHistoryDialog({
   open,
   onOpenChange,

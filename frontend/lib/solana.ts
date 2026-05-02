@@ -8,7 +8,7 @@ import { env } from "./env";
 import idl from "./program/dekant_pm.json";
 import type { DekantPm } from "./program/dekant_pm";
 
-export const PROGRAM_ID = new PublicKey(env.programId);
+const PROGRAM_ID = new PublicKey(env.programId);
 
 /** Returns an Anchor Program instance connected to the user's wallet, or null if disconnected. */
 export function useProgram(): Program<DekantPm> | null {
@@ -24,10 +24,6 @@ export function useProgram(): Program<DekantPm> | null {
     return new Program<DekantPm>(idl as DekantPm, provider);
   }, [connection, wallet]);
 }
-
-// ---------------------------------------------------------------------------
-// PDA derivation — pure functions (deterministic, no hooks needed)
-// ---------------------------------------------------------------------------
 
 export function deriveProtocolConfig(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(

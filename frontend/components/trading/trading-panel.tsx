@@ -41,10 +41,6 @@ interface TradingPanelProps {
   market: MarketDetail;
 }
 
-// ---------------------------------------------------------------------------
-// Error boundary to prevent trading panel crashes from taking down the page
-// ---------------------------------------------------------------------------
-
 interface ErrorBoundaryState {
   hasError: boolean;
 }

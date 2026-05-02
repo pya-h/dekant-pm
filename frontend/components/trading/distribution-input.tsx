@@ -218,10 +218,6 @@ export function DistributionInput({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Preview chart: overlays trader distribution on market distribution
-// ---------------------------------------------------------------------------
-
 const PREVIEW_H = 120;
 const PAD = { top: 8, right: 12, bottom: 20, left: 12 };
 const VIEW_W = 300;
