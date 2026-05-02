@@ -188,6 +188,64 @@ export class MarketService {
     return { data, total };
   }
 
+  async getOracleData(
+    id: number,
+  ): Promise<{
+    distributionPeak: number | null;
+    mostLikelyRange: [number, number] | null;
+    confidence95: [number, number] | null;
+  }> {
+    const market = await this.findById(id);
+
+    // Oracle data only applies to continuous markets
+    if (market.marketType !== 2 || market.rangeMin == null || market.rangeMax == null) {
+      return { distributionPeak: null, mostLikelyRange: null, confidence95: null };
+    }
+
+    const rMin = Number(market.rangeMin) / SCALE;
+    const rMax = Number(market.rangeMax) / SCALE;
+    const range = rMax - rMin;
+
+    // Compute probabilities to find the peak bin
+    const reserves = market.reserves.map(Number);
+    const totalMinted = Number(market.totalMinted);
+    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
+
+    let peakBin = 0;
+    if (totalMinted > 0 && kSq > 0) {
+      let maxProb = 0;
+      for (let i = 0; i < reserves.length; i++) {
+        const x = totalMinted - reserves[i];
+        const prob = (x * x) / kSq;
+        if (prob > maxProb) {
+          maxProb = prob;
+          peakBin = i;
+        }
+      }
+    } else {
+      // Uniform — pick center bin
+      peakBin = Math.floor(reserves.length / 2);
+    }
+
+    const binWidth = range / market.numOutcomes;
+    const peak = rMin + binWidth * (peakBin + 0.5);
+
+    // Most likely range: peak bin +/- 1 bin
+    const mlrLow = Math.max(rMin, rMin + binWidth * (peakBin - 1));
+    const mlrHigh = Math.min(rMax, rMin + binWidth * (peakBin + 2));
+
+    // 95% confidence: peak bin +/- ~3 bins (wider spread)
+    const spread = Math.max(3, Math.floor(market.numOutcomes * 0.2));
+    const c95Low = Math.max(rMin, rMin + binWidth * (peakBin - spread));
+    const c95High = Math.min(rMax, rMin + binWidth * (peakBin + spread + 1));
+
+    return {
+      distributionPeak: Math.round(peak * 100) / 100,
+      mostLikelyRange: [Math.round(mlrLow * 100) / 100, Math.round(mlrHigh * 100) / 100],
+      confidence95: [Math.round(c95Low * 100) / 100, Math.round(c95High * 100) / 100],
+    };
+  }
+
   async updateCachedState(
     id: number,
     onChainData: Partial<

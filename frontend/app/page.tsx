@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { MarketFilters } from "@/lib/types";
 import { ChevronDown } from "lucide-react";
+import { FeaturedSection } from "@/components/home/featured-section";
 
 const timeRangeOptions = [
   { value: "all", label: "All Time" },
@@ -71,12 +72,8 @@ function HomeContent() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      {/* Featured section placeholder */}
-      <section className="rounded-xl border border-border/40 bg-muted/10 p-8">
-        <div className="flex items-center justify-center text-sm text-muted-foreground h-48">
-          Featured section — coming soon
-        </div>
-      </section>
+      {/* Featured section: slideshow + sidebar */}
+      <FeaturedSection />
 
       {/* Markets header + filters */}
       <div className="flex items-center justify-between">

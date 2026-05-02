@@ -370,6 +370,94 @@ describe('MarketService', () => {
     });
   });
 
+  describe('getOracleData', () => {
+    it('should return nulls for binary market (non-continuous)', async () => {
+      const market = createMockMarket({ marketType: 0 });
+      marketRepo.findOne.mockResolvedValue(market);
+
+      const result = await service.getOracleData(1);
+      expect(result).toEqual({
+        distributionPeak: null,
+        mostLikelyRange: null,
+        confidence95: null,
+      });
+    });
+
+    it('should return nulls for continuous market without range', async () => {
+      const market = createMockMarket({
+        marketType: 2,
+        rangeMin: null,
+        rangeMax: null,
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+
+      const result = await service.getOracleData(1);
+      expect(result).toEqual({
+        distributionPeak: null,
+        mostLikelyRange: null,
+        confidence95: null,
+      });
+    });
+
+    it('should return values within market range for continuous market', async () => {
+      const SCALE = 1_000_000_000;
+      const market = createMockMarket({
+        marketType: 2,
+        numOutcomes: 10,
+        rangeMin: String(60_000 * SCALE),
+        rangeMax: String(160_000 * SCALE),
+        // Reserves shaped so bin 4 (center-left) has highest probability
+        reserves: ['90', '85', '80', '70', '60', '65', '75', '80', '85', '90'],
+        totalMinted: '1000',
+        kSquared: '1000000',
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+
+      const result = await service.getOracleData(1);
+
+      // Peak should be within range
+      expect(result.distributionPeak).toBeGreaterThanOrEqual(60_000);
+      expect(result.distributionPeak).toBeLessThanOrEqual(160_000);
+
+      // Most likely range should be within market range
+      expect(result.mostLikelyRange![0]).toBeGreaterThanOrEqual(60_000);
+      expect(result.mostLikelyRange![1]).toBeLessThanOrEqual(160_000);
+      expect(result.mostLikelyRange![0]).toBeLessThan(result.mostLikelyRange![1]);
+
+      // 95% confidence should be within range and wider than most likely
+      expect(result.confidence95![0]).toBeGreaterThanOrEqual(60_000);
+      expect(result.confidence95![1]).toBeLessThanOrEqual(160_000);
+      expect(result.confidence95![0]).toBeLessThanOrEqual(result.mostLikelyRange![0]);
+      expect(result.confidence95![1]).toBeGreaterThanOrEqual(result.mostLikelyRange![1]);
+    });
+
+    it('should use center bin when totalMinted is 0 (uniform)', async () => {
+      const SCALE = 1_000_000_000;
+      const market = createMockMarket({
+        marketType: 2,
+        numOutcomes: 10,
+        rangeMin: String(0),
+        rangeMax: String(100 * SCALE),
+        reserves: Array(10).fill('0'),
+        totalMinted: '0',
+        kSquared: '0',
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+
+      const result = await service.getOracleData(1);
+
+      // Center bin = 5, binWidth = 10, peak = 0 + 10 * (5 + 0.5) = 55
+      expect(result.distributionPeak).toBe(55);
+      expect(result.mostLikelyRange).not.toBeNull();
+      expect(result.confidence95).not.toBeNull();
+    });
+
+    it('should throw NotFoundException for missing market', async () => {
+      marketRepo.findOne.mockResolvedValue(null);
+      await expect(service.getOracleData(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('updateCachedState', () => {
     it('should delegate to repo.update with string id', async () => {
       await service.updateCachedState(1, { state: 3, resolvedOutcome: 0 });
