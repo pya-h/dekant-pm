@@ -5,7 +5,7 @@ import {
   type MarketSummary,
   formatUsdc,
 } from "@/lib/types";
-import { BarChart3 } from "lucide-react";
+import { Gem } from "lucide-react";
 
 interface MarketCardProps {
   market: MarketSummary;
@@ -21,21 +21,28 @@ export function MarketCard({ market }: MarketCardProps) {
 
   return (
     <Link href={`/markets/${market.id}`} className="group block">
-      <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5">
+      <Card className="relative h-full overflow-hidden py-0 gap-0 transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5">
         <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-primary/[0.03] to-transparent" />
 
         <div className="relative flex flex-col gap-2 p-4">
-          {/* Deadline label + countdown */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-foreground">{label}</span>
+          {/* Icon + Deadline label + countdown */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="shrink-0 rounded-lg bg-muted p-1.5">
+                <Gem className="h-4 w-4 text-violet-400" />
+              </div>
+              <span className="text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
+                {label}
+              </span>
+            </div>
             {countdown ? (
-              <div className="flex items-center gap-1.5 tabular-nums text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 shrink-0 tabular-nums text-xs text-muted-foreground">
                 {countdown.days > 0 && <TimeUnit value={countdown.days} label="days" />}
                 <TimeUnit value={countdown.hours} label="hrs" />
                 <TimeUnit value={countdown.minutes} label="mins" />
               </div>
             ) : (
-              <span className="text-xs text-rose-400">Expired</span>
+              <span className="shrink-0 text-xs text-rose-400">Expired</span>
             )}
           </div>
 
@@ -44,19 +51,9 @@ export function MarketCard({ market }: MarketCardProps) {
             {formatUsdc(liquidity)} Liquidity
           </span>
 
-          {/* Icon + Title */}
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 rounded-lg bg-muted p-2">
-              <BarChart3 className="h-4 w-4 text-cyan-400" />
-            </div>
-            <h3 className="line-clamp-2 text-sm font-medium leading-snug pt-0.5 transition-colors group-hover:text-primary">
-              {market.title}
-            </h3>
-          </div>
-
-          {/* Mini distribution chart */}
-          <div className="mt-1">
-            <MiniChart market={market} height={56} />
+          {/* Mini distribution chart — bleed to card edges */}
+          <div className="-mx-4 -mb-4">
+            <MiniChart market={market} height={90} showAxes />
           </div>
         </div>
       </Card>
