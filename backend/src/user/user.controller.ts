@@ -18,7 +18,6 @@ import { AuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
 
-/** Validate that address is a valid Solana base58 public key. */
 function validateAddress(address: string): void {
   try {
     new PublicKey(address);

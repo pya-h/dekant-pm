@@ -269,10 +269,6 @@ export default function MarketDetailPage({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
 function ProbabilitySection({
   market,
   probabilities,
@@ -379,10 +375,6 @@ function QuickStat({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Loading skeleton
-// ---------------------------------------------------------------------------
 
 function MarketDetailSkeleton() {
   return (

@@ -1,9 +1,5 @@
 import { TrendingUp, TrendingDown } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Hardcoded sample data — will be replaced with dynamic data in the future
-// ---------------------------------------------------------------------------
-
 const MARKET_SIGNALS = [
   {
     title: "Whale Entry Detected",
@@ -34,10 +30,6 @@ const TRENDING_TOPICS = [
   { name: "Lightning Network Growth", count: "980", change: 44, up: false },
   { name: "BTC Dominance", count: "740", change: 3, up: true },
 ];
-
-// ---------------------------------------------------------------------------
-// Components
-// ---------------------------------------------------------------------------
 
 export function FeaturedSidebar() {
   return (

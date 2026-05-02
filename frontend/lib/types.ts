@@ -116,10 +116,6 @@ export interface MarketFilters {
   sortBy?: "newest" | "deadline" | "volume";
 }
 
-// ---------------------------------------------------------------------------
-// AMM probability computation (client-side, matches backend getPrices logic)
-// ---------------------------------------------------------------------------
-
 export function computeProbabilities(
   reserves: string[],
   totalMinted: string | number,
@@ -139,9 +135,6 @@ export function computeProbabilities(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
 export const USDC_DECIMALS = 6;
 export const SCALE = 1_000_000_000;
 
