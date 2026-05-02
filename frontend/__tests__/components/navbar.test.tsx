@@ -72,14 +72,23 @@ describe("Navbar", () => {
     vi.clearAllMocks();
   });
 
-  it("always shows Portfolio link and search bar", () => {
+  it("hides Portfolio link when not connected, shows search bar", () => {
     setupMocks(false);
+    render(<Navbar />);
+
+    expect(
+      screen.queryByRole("link", { name: "Portfolio" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
+  });
+
+  it("shows Portfolio link when connected", () => {
+    setupMocks(true);
     render(<Navbar />);
 
     expect(
       screen.getByRole("link", { name: "Portfolio" }),
     ).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
   });
 
   // ── Not connected ───────────────────────────────────────────────

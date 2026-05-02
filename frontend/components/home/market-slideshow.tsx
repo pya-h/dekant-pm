@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTopMarkets } from "@/hooks/use-top-markets";
 import { useOracleData } from "@/hooks/use-oracle-data";
@@ -34,6 +34,17 @@ export function MarketSlideshow() {
     setCurrentIndex((i) => (i === markets.length - 1 ? 0 : i + 1));
   }, [markets.length]);
 
+  // Auto-advance every 8 seconds, reset timer on manual navigation
+  const timerRef = useRef<ReturnType<typeof setInterval>>(null);
+
+  useEffect(() => {
+    if (markets.length <= 1) return;
+    timerRef.current = setInterval(() => {
+      setCurrentIndex((i) => (i >= markets.length - 1 ? 0 : i + 1));
+    }, 8000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [markets.length, currentIndex]);
+
   if (isLoading) {
     return <SlideshowSkeleton />;
   }
@@ -50,7 +61,14 @@ export function MarketSlideshow() {
 
   return (
     <div className="flex flex-col gap-3">
-      <SlideContent market={market} />
+      <div className="overflow-hidden rounded-xl">
+        <div
+          key={safeIndex}
+          className="animate-slide-in"
+        >
+          <SlideContent market={market} />
+        </div>
+      </div>
 
       {/* Navigation */}
       {markets.length > 1 && (
@@ -104,15 +122,15 @@ function SlideContent({ market }: { market: MarketSummary }) {
           <h3 className="text-lg font-semibold leading-snug">{market.title}</h3>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-            <Heart className="h-4 w-4" />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
+            <Heart className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-            <Share2 className="h-4 w-4" />
+          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
+            <Share2 className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-            <Bookmark className="h-4 w-4" />
+          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
+            <Bookmark className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>

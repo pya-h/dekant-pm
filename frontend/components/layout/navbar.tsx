@@ -42,7 +42,7 @@ export function Navbar() {
   }, [connected, isSuperadmin, isAdmin, isCreator, isOracle]);
 
   const allLinks: NavLink[] = [
-    { href: "/portfolio", label: "Portfolio" },
+    ...(connected ? [{ href: "/portfolio", label: "Portfolio" }] : []),
     ...roleLinks,
   ];
 
