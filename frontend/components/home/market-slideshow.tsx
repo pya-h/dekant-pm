@@ -3,15 +3,14 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTopMarkets } from "@/hooks/use-top-markets";
-import { useOracleData } from "@/hooks/use-oracle-data";
 import { DistributionChart } from "@/components/market/distribution-chart";
 import { PriceBar } from "@/components/market/price-bar";
+import { MarketStatsBar } from "@/components/market/market-stats-bar";
 import {
   MarketType,
   MarketState,
   SCALE,
   computeProbabilities,
-  formatUsdc,
   type MarketSummary,
 } from "@/lib/types";
 import { BarChart3, ChevronLeft, ChevronRight, Heart, Share2, Bookmark } from "lucide-react";
@@ -104,12 +103,8 @@ function SlideContent({ market }: { market: MarketSummary }) {
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
-  const isContinuous = market.marketType === MarketType.Continuous;
-  const { data: oracleData } = useOracleData(market.id, isContinuous);
-
   const deadline = new Date(market.deadline);
   const countdown = deadlineCountdown(deadline);
-  const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
 
   return (
     <div className="rounded-xl border border-border/40 bg-card/50 p-5">
@@ -135,32 +130,8 @@ function SlideContent({ market }: { market: MarketSummary }) {
         </div>
       </div>
 
-      {/* Stats row */}
       <div className="flex flex-wrap items-stretch gap-2 mb-4">
-        {/* Oracle data — continuous markets only */}
-        {isContinuous && oracleData?.distributionPeak != null && (
-          <StatCard
-            label="Distribution Peak"
-            value={formatStatValue(oracleData.distributionPeak)}
-          />
-        )}
-        {isContinuous && oracleData?.mostLikelyRange != null && (
-          <StatCard
-            label="Most Likely Range"
-            value={`${formatStatValue(oracleData.mostLikelyRange[0])} – ${formatStatValue(oracleData.mostLikelyRange[1])}`}
-          />
-        )}
-        {isContinuous && oracleData?.confidence95 != null && (
-          <StatCard
-            label="95% Confidence"
-            value={`${formatStatValue(oracleData.confidence95[0])} – ${formatStatValue(oracleData.confidence95[1])}`}
-          />
-        )}
-
-        <StatCard label="Liquidity" value={formatUsdc(liquidity)} />
-        <StatCard label="Volume" value={formatUsdc(market.totalVolume)} />
-
-        {/* Countdown */}
+        <MarketStatsBar market={market} />
         {countdown ? (
           <div className="flex items-center gap-3 rounded-lg border border-border/30 bg-muted/20 px-3 py-2">
             {countdown.days > 0 && (
@@ -232,15 +203,6 @@ function SlideChart({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2">
-      <div className="text-lg font-bold tabular-nums leading-tight">{value}</div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
-  );
-}
-
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
     <div className="text-center">
@@ -267,12 +229,6 @@ function SlideshowSkeleton() {
       <div className="h-48 animate-pulse rounded-lg bg-muted" />
     </div>
   );
-}
-
-function formatStatValue(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toLocaleString()}`;
 }
 
 function deadlineCountdown(deadline: Date): { days: number; hours: number; minutes: number } | null {
