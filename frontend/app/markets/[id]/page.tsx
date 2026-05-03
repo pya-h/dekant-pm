@@ -6,17 +6,16 @@ import { useMarket } from "@/hooks/use-market";
 import { MarketStatus } from "@/components/market/market-status";
 import { MarketTypeBadge } from "@/components/market/market-type-badge";
 import { PriceBar } from "@/components/market/price-bar";
-import { DistributionChart } from "@/components/market/distribution-chart";
 import {
   MarketType,
   MarketState,
   SCALE,
   computeProbabilities,
   formatUsdc,
-  formatProbability,
   timeUntil,
 } from "@/lib/types";
 import { TradingPanel } from "@/components/trading/trading-panel";
+import { ContinuousTradingSection } from "@/components/trading/continuous-trading-section";
 import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 import { UserPositionDisplay } from "@/components/trading/user-position-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -55,6 +54,7 @@ export default function MarketDetailPage({
     );
   }
 
+  const isContinuous = market.marketType === MarketType.Continuous;
   const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
   const labels =
     market.outcomeLabels ??
@@ -74,8 +74,8 @@ export default function MarketDetailPage({
       </nav>
 
       {/* Two-column layout */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        {/* Left column: Info + Chart */}
+      <div className={`grid gap-6 ${isContinuous ? "lg:grid-cols-[1fr_320px]" : "lg:grid-cols-[1fr_380px]"}`}>
+        {/* Left column */}
         <div className="space-y-6">
           {/* Header card */}
           <Card>
@@ -103,23 +103,24 @@ export default function MarketDetailPage({
             </CardHeader>
           </Card>
 
-          {/* Probability / Distribution */}
-          <Card>
-            <CardHeader className="pb-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                {market.marketType === MarketType.Continuous
-                  ? "Market Distribution"
-                  : "Probabilities"}
-              </h2>
-            </CardHeader>
-            <CardContent>
-              <ProbabilitySection
-                market={market}
-                probabilities={probabilities}
-                labels={labels}
-              />
-            </CardContent>
-          </Card>
+          {isContinuous ? (
+            <ContinuousTradingSection market={market} />
+          ) : (
+            <Card>
+              <CardHeader className="pb-2">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Probabilities
+                </h2>
+              </CardHeader>
+              <CardContent>
+                <ProbabilitySection
+                  market={market}
+                  probabilities={probabilities}
+                  labels={labels}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* User position (only shows when wallet connected & has holdings) */}
           <UserPositionDisplay market={market} />
@@ -176,7 +177,7 @@ export default function MarketDetailPage({
                   <TruncatedAddress address={market.pubkey} />
                 </DetailRow>
 
-                {market.marketType === MarketType.Continuous && (
+                {isContinuous && (
                   <>
                     <DetailRow label="Range">
                       {market.rangeMin != null && market.rangeMax != null
@@ -192,7 +193,7 @@ export default function MarketDetailPage({
                 {market.state === MarketState.Resolved && (
                   <DetailRow label="Resolved Outcome">
                     <span className="font-medium text-emerald-400">
-                      {market.marketType === MarketType.Continuous
+                      {isContinuous
                         ? market.resolvedValue != null
                           ? (Number(market.resolvedValue) / SCALE).toLocaleString()
                           : "N/A"
@@ -235,9 +236,9 @@ export default function MarketDetailPage({
           </Card>
         </div>
 
-        {/* Right column: Trading panel + stats */}
+        {/* Right column */}
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          <TradingPanel market={market} />
+          {!isContinuous && <TradingPanel market={market} />}
 
           {/* Liquidity provision */}
           <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/10 px-4 py-3">
@@ -274,32 +275,12 @@ function ProbabilitySection({
   probabilities,
   labels,
 }: {
-  market: { marketType: MarketType; rangeMin: string | null; rangeMax: string | null; numOutcomes: number; resolvedValue: string | null; state: MarketState };
+  market: { marketType: MarketType };
   probabilities: number[];
   labels: string[];
 }) {
   if (probabilities.length === 0) {
     return <p className="text-sm text-muted-foreground">No data available.</p>;
-  }
-
-  if (market.marketType === MarketType.Continuous) {
-    const rMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
-    const rMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
-    const resolved =
-      market.state === MarketState.Resolved && market.resolvedValue != null
-        ? Number(market.resolvedValue) / SCALE
-        : null;
-
-    return (
-      <DistributionChart
-        probabilities={probabilities}
-        rangeMin={rMin}
-        rangeMax={rMax}
-        numBins={market.numOutcomes}
-        resolvedValue={resolved}
-        height={220}
-      />
-    );
   }
 
   return (
