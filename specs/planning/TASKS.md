@@ -1699,28 +1699,42 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ### F-18: Interactive Graph Trading for Continuous Markets
 
-**Goal:** Improve the continuous market trading UX by allowing users to set their trade point by directly interacting with and dragging on the probability distribution graph itself (similar to Metaculus); Notice that the current approach should not be replaced; It should be available for users that want to use the old way and the Interactive approach should be implemented alongside that.
+**Goal:** Upgrade the continuous market trading UX on the market detail page:
+1. Move the current form-based trading panel (mu/sigma sliders + amount) into a modal, accessible via a small "Classic Trade" button — preserves existing functionality
+2. Make the main trading interface an interactive distribution chart where users construct their prediction visually by clicking/dragging on the chart
+3. Add a shared stats bar above the chart (Distribution Peak, Most Likely Range, 95% Confidence, Liquidity, Volume) — same data as the home page slideshow, extracted into a reusable component
 
-**Context:** Currently the trade page shows a distribution graph in the sidebar, and users set their trade point using input sliders and text boxes for mu/sigma. This works but isn't intuitive — users should be able to directly manipulate the distribution curve.
+**Deliverable — `components/market/market-stats-bar.tsx` (new):**
+- Shared stats bar component showing oracle-derived market statistics
+- Used in both home page slideshow and market detail page
+- Shows: Distribution Peak, Most Likely Range, 95% Confidence, Liquidity, Volume
 
-**Deliverable — `components/trading/interactive-distribution-graph.tsx` (new):**
-- Large interactive graph component (modal or inline expandable view)
-- User can click/drag on the graph to set mu (center of their prediction)
-- Draggable handles or scroll to adjust sigma (spread/confidence)
-- Real-time visual feedback: shows the user's proposed distribution overlaid on the current market distribution
-- Shows estimated cost as the user adjusts parameters
-- "Confirm" button that passes the selected mu/sigma back to the trading panel
+**Deliverable — `components/trading/interactive-distribution-chart.tsx` (new):**
+- Large interactive SVG chart showing market distribution (cyan) and user's constructed distribution (blue)
+- Click on chart to set mu (prediction center)
+- Drag sigma boundary handles (at mu ± sigma) to adjust confidence/spread
+- Shows mu value, confidence percentage (68%), and sigma boundary values on the chart
+- "Reset Position" button to clear user's distribution
+- Uses same bin weight computation as existing DistributionInput (computeBinWeights, sliderToSigma)
 
-**Deliverable — `components/trading/trading-panel.tsx` (update):**
-- Add "Set on Graph" button next to mu/sigma inputs for continuous markets
-- Opens the interactive graph component
-- On confirm, populates the mu/sigma fields with the user's selection
+**Deliverable — `components/trading/classic-trade-modal.tsx` (new):**
+- Wraps the existing TradingPanel component in a Dialog
+- Triggered by a small "Classic Trade" button on the market detail page
+- Preserves all current trading functionality for users who prefer form-based input
 
-**Tests (manual):**
-- Click on graph → mu updates to clicked position
-- Drag handles → sigma adjusts, distribution widens/narrows visually
-- Estimated cost updates in real-time as user drags
-- Confirm → values populated in trading panel, trade executes correctly
+**Deliverable — Market detail page update (`app/markets/[id]/page.tsx`):**
+- For continuous markets: restructured layout with interactive chart as primary trading UI
+- Stats bar above chart, trading controls (buy/sell, amount, submit) below chart
+- CostPreview integration for real-time cost estimation
+- Binary/MultiOutcome markets keep the current layout unchanged
+
+**Implementation Steps:**
+- F-18.1: Create MarketStatsBar shared component, update slideshow to use it
+- F-18.2: Create InteractiveDistributionChart with click-to-set-mu and drag-to-set-sigma
+- F-18.3: Create ClassicTradeModal wrapping existing TradingPanel
+- F-18.4: Update market detail page layout for continuous markets
+- F-18.5: Wire up trade submission with interactive chart parameters
+- F-18.6: Build pass + manual testing
 
 **Depends on:** F-7
 
