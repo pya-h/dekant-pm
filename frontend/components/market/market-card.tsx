@@ -13,8 +13,8 @@ interface MarketCardProps {
 
 export function MarketCard({ market }: MarketCardProps) {
   const deadline = new Date(market.deadline);
+  const label = deadlineLabel(deadline);
   const countdown = deadlineCountdown(deadline);
-  const shortTitle = getShortTitle(market);
 
   // Liquidity: sum of all reserves (collateral locked in the AMM)
   const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
@@ -25,7 +25,7 @@ export function MarketCard({ market }: MarketCardProps) {
         <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-primary/[0.03] to-transparent" />
 
         <div className="relative flex flex-col gap-2 p-4">
-          {/* Icon + Short title + countdown */}
+          {/* Icon + Deadline label + countdown */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <MarketAssetIcon
@@ -35,8 +35,8 @@ export function MarketCard({ market }: MarketCardProps) {
                 symbolClassName="text-[13px]"
                 imageClassName="h-4 w-4"
               />
-              <span className="truncate text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
-                {shortTitle}
+              <span className="text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
+                {label}
               </span>
             </div>
             {countdown ? (
@@ -50,11 +50,10 @@ export function MarketCard({ market }: MarketCardProps) {
             )}
           </div>
 
-          {/* Liquidity + deadline label */}
-          <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
-            <span>{formatUsdc(liquidity)} Liquidity</span>
-            <span>{deadlineLabel(deadline)}</span>
-          </div>
+          {/* Liquidity */}
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatUsdc(liquidity)} Liquidity
+          </span>
 
           {/* Mini distribution chart — bleed to card edges */}
           <div className="-mx-4 -mb-4">
@@ -64,16 +63,6 @@ export function MarketCard({ market }: MarketCardProps) {
       </Card>
     </Link>
   );
-}
-
-/** Generate a short title from the subject, e.g. "BTC Price?" or fallback to truncated title */
-function getShortTitle(market: MarketSummary): string {
-  const subject = market.subject?.trim();
-  if (subject) {
-    return `${subject.toUpperCase()} Price?`;
-  }
-  // Fallback: truncate full title
-  return market.title.length > 24 ? `${market.title.slice(0, 22)}…` : market.title;
 }
 
 function TimeUnit({ value, label }: { value: number; label: string }) {

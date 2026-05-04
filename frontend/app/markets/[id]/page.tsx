@@ -19,7 +19,6 @@ import {
 } from "@/lib/types";
 import { TradingPanel } from "@/components/trading/trading-panel";
 import { ContinuousTradingSection } from "@/components/trading/continuous-trading-section";
-import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 import { sliderToSigma } from "@/lib/normal";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,7 +78,7 @@ export default function MarketDetailPage({
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6">
+    <div className="mx-auto max-w-[1800px] px-3 py-4 sm:px-4">
       {/* ── Top section: title + countdown + stats + actions (full width) ── */}
       <MarketHeaderBar
         market={market}
@@ -90,7 +89,7 @@ export default function MarketDetailPage({
       />
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[240px_1fr_280px]">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_260px] xl:grid-cols-[240px_1fr_280px]">
         {/* Left panel — Recent Trades */}
         <div className="hidden lg:block">
           <RecentTrades
@@ -130,20 +129,11 @@ export default function MarketDetailPage({
         </div>
 
         {/* Right — trading panel */}
-        <div className="space-y-4 lg:sticky lg:top-16 lg:self-start">
+        <div className="lg:sticky lg:top-16 lg:self-start">
           <TradingPanel
             market={market}
             distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset } : undefined}
           />
-          <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5">
-            <div>
-              <div className="text-xs font-medium">Liquidity Provision</div>
-              <div className="text-[10px] text-muted-foreground">
-                Earn fees by providing liquidity
-              </div>
-            </div>
-            <LiquidityPanel market={market} />
-          </div>
         </div>
       </div>
 
@@ -188,7 +178,7 @@ function ProbabilitySection({
 
 function MarketDetailSkeleton() {
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-6">
+    <div className="mx-auto max-w-[1800px] px-3 py-4 sm:px-4">
       {/* Top bar skeleton */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -209,7 +199,7 @@ function MarketDetailSkeleton() {
       </div>
 
       {/* 3-column skeleton */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[240px_1fr_280px]">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_260px] xl:grid-cols-[240px_1fr_280px]">
         <div className="hidden lg:block">
           <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
         </div>

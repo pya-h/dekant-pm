@@ -6,7 +6,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw, Droplets } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import {
   showTradeError,
 } from "@/components/common/transaction-toast";
 import { cn } from "@/lib/utils";
+import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 
 type TradeParams =
   | { outcome: number; amount: string; inputUnit: "collateral" | "shares" | "target" }
@@ -362,10 +363,18 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
   return (
     <Card className="relative border-border/40 transition-colors">
-      {/* Classic Trade modal button for continuous markets */}
-      {hasDistParams && !isDisabled && (
-        <div className="absolute right-3 top-3">
-          <ClassicTradeModal market={market} />
+      {/* Action buttons: Add Liquidity + Classic Trade */}
+      {!isDisabled && (
+        <div className="absolute right-3 top-3 flex items-center gap-1">
+          <LiquidityPanel
+            market={market}
+            trigger={
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Add Liquidity">
+                <Droplets className="h-3.5 w-3.5" />
+              </Button>
+            }
+          />
+          {hasDistParams && <ClassicTradeModal market={market} />}
         </div>
       )}
 
@@ -598,8 +607,48 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             </Button>
           </>
         )}
+
+        {/* Always-visible market info */}
+        <MarketInfoFields market={market} />
       </CardContent>
     </Card>
+  );
+}
+
+function MarketInfoFields({ market }: { market: MarketDetail }) {
+  const reserves = market.reserves.map(Number);
+  const totalReserves = reserves.reduce((sum, r) => sum + r, 0);
+  const totalMinted = Number(market.totalMinted);
+
+  // Liquidity Depth: measure of how spread out the reserves are
+  // Uses normalized standard deviation of reserves: lower = deeper (more uniform)
+  // Displayed as a qualitative label
+  const n = reserves.length;
+  let depthLabel = "Deep";
+  if (n > 1 && totalReserves > 0) {
+    const mean = totalReserves / n;
+    const variance = reserves.reduce((s, r) => s + (r - mean) ** 2, 0) / n;
+    const cv = Math.sqrt(variance) / mean; // coefficient of variation
+    if (cv > 0.5) depthLabel = "Shallow";
+    else if (cv > 0.2) depthLabel = "Medium";
+    else depthLabel = "Deep";
+  }
+
+  return (
+    <div className="mt-3 space-y-1 border-t border-border/30 pt-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Liquidity Depth</span>
+        <span className={`text-xs font-medium ${depthLabel === "Deep" ? "text-emerald-400" : depthLabel === "Medium" ? "text-amber-400" : "text-rose-400"}`}>
+          {depthLabel}
+        </span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Market Liquidity</span>
+        <span className="text-xs font-medium tabular-nums">
+          {formatUsdc(totalMinted)}
+        </span>
+      </div>
+    </div>
   );
 }
 
