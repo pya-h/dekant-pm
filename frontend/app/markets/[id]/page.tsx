@@ -1,11 +1,15 @@
 "use client";
 
-import { use, useState, useCallback, useMemo, useRef } from "react";
+import { use, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMarket } from "@/hooks/use-market";
 import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { useFaucetStatus } from "@/hooks/use-faucet";
+import { useAuth } from "@/hooks/use-auth";
+import { useMarketBookmark } from "@/hooks/use-bookmarks";
 import { MarketHeaderBar } from "@/components/market/market-header-bar";
 import { PriceBar } from "@/components/market/price-bar";
 import { RecentTrades } from "@/components/market/recent-trades";
@@ -20,6 +24,7 @@ import {
 import { TradingPanel } from "@/components/trading/trading-panel";
 import { ContinuousTradingSection } from "@/components/trading/continuous-trading-section";
 import { sliderToSigma } from "@/lib/normal";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -32,9 +37,17 @@ export default function MarketDetailPage({
   const { id } = use(params);
   const { data: market, isLoading, error } = useMarket(id);
 
-  const { publicKey } = useWallet();
+  const { publicKey, connected } = useWallet();
+  const { setVisible } = useWalletModal();
+  const queryClient = useQueryClient();
   const walletAddress = publicKey?.toBase58();
+  const { token, authenticate, isAuthenticating, error: authError } = useAuth();
   const { data: position } = useUserMarketPosition(walletAddress, id);
+  const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
+    id,
+    walletAddress,
+    token,
+  );
   const positionHoldings = useMemo(() => {
     if (!position) return null;
     const nums = position.holdings.map(Number);
@@ -48,6 +61,57 @@ export default function MarketDetailPage({
 
   const { data: faucetData } = useFaucetStatus(walletAddress, "TOKEN");
   const faucetAvailable = faucetData?.availableClaims ?? 0;
+  const isBookmarked = bookmarkState?.bookmarked ?? false;
+
+  useEffect(() => {
+    if (!connected || !walletAddress || token || isAuthenticating || authError) return;
+    authenticate().catch(() => {});
+  }, [connected, walletAddress, token, isAuthenticating, authError, authenticate]);
+
+  const toggleBookmarkMutation = useMutation({
+    mutationFn: async (nextBookmarked: boolean) => {
+      if (!connected || !walletAddress) {
+        throw new Error("Wallet is not connected");
+      }
+
+      let authToken = token;
+      if (!authToken) {
+        authToken = await authenticate();
+      }
+
+      if (nextBookmarked) {
+        return api.post<{ bookmarked: boolean }>(
+          `/markets/${id}/bookmark`,
+          {},
+          authToken,
+        );
+      }
+      return api.delete<{ bookmarked: boolean }>(
+        `/markets/${id}/bookmark`,
+        authToken,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketBookmark", id, walletAddress] });
+      queryClient.invalidateQueries({ queryKey: ["bookmarkedMarkets", walletAddress] });
+    },
+  });
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!connected) {
+      setVisible(true);
+      return;
+    }
+
+    const nextBookmarked = !isBookmarked;
+    try {
+      await toggleBookmarkMutation.mutateAsync(nextBookmarked);
+      toast.success(nextBookmarked ? "Market bookmarked" : "Bookmark removed");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Bookmark action failed";
+      toast.error(msg);
+    }
+  }, [connected, isBookmarked, setVisible, toggleBookmarkMutation]);
 
   if (isLoading) return <MarketDetailSkeleton />;
 
@@ -86,6 +150,10 @@ export default function MarketDetailPage({
         faucetAvailable={faucetAvailable}
         onClaimFaucet={() => toast.info("Faucet claim coming soon!")}
         chartRef={chartRef}
+        isBookmarked={isBookmarked}
+        bookmarkLoading={bookmarkStateLoading || toggleBookmarkMutation.isPending || isAuthenticating}
+        onToggleBookmark={handleToggleBookmark}
+        bookmarkDisabled={toggleBookmarkMutation.isPending}
       />
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}

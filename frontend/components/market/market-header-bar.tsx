@@ -15,9 +15,11 @@ import { toast } from "sonner";
 import {
   Download,
   Share2,
-  Bookmark,
+  BookmarkPlus,
+  BookmarkMinus,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react";
 
 interface MarketHeaderBarProps {
@@ -28,6 +30,10 @@ interface MarketHeaderBarProps {
   onClaimFaucet?: () => void;
   /** Ref to the chart container for download functionality */
   chartRef?: React.RefObject<HTMLDivElement | null>;
+  isBookmarked?: boolean;
+  bookmarkLoading?: boolean;
+  onToggleBookmark?: () => void;
+  bookmarkDisabled?: boolean;
 }
 
 export function MarketHeaderBar({
@@ -36,6 +42,10 @@ export function MarketHeaderBar({
   faucetAvailable = 0,
   onClaimFaucet,
   chartRef,
+  isBookmarked = false,
+  bookmarkLoading = false,
+  onToggleBookmark,
+  bookmarkDisabled = false,
 }: MarketHeaderBarProps) {
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -146,10 +156,24 @@ export function MarketHeaderBar({
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8 rounded-full text-muted-foreground border-border/40"
-            title="Bookmark"
+            className="h-8 w-8 rounded-full border-border/40 text-muted-foreground"
+            title={
+              bookmarkLoading
+                ? "Loading bookmark"
+                : isBookmarked
+                  ? "Remove bookmark"
+                  : "Add bookmark"
+            }
+            onClick={onToggleBookmark}
+            disabled={bookmarkDisabled || bookmarkLoading || !onToggleBookmark}
           >
-            <Bookmark className="h-3.5 w-3.5" />
+            {bookmarkLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isBookmarked ? (
+              <BookmarkMinus className="h-3.5 w-3.5 text-amber-400" />
+            ) : (
+              <BookmarkPlus className="h-3.5 w-3.5" />
+            )}
           </Button>
         </div>
       </div>
