@@ -41,8 +41,9 @@ export interface MarketSummary {
   title: string;
   description: string | null;
   category: string | null;
+  subject: string;
   tags: string[] | null;
-  imageUrl: string | null;
+  icon: string | null;
   outcomeLabels: string[] | null;
   reserves: string[];
   kSquared: string;

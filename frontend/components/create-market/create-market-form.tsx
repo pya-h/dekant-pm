@@ -166,6 +166,7 @@ export function CreateMarketForm({
         title: data.title,
         description: data.description || undefined,
         category: data.category || undefined,
+        subject: data.subject || undefined,
         tags: data.tags?.length ? data.tags : undefined,
         outcomeLabels:
           data.marketType === MarketType.Binary
