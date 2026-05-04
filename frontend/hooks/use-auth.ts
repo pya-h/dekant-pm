@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 export function useAuth() {
-  const { publicKey, signMessage, connected } = useWallet();
+  const { publicKey, signMessage } = useWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);

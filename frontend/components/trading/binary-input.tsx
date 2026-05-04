@@ -48,10 +48,12 @@ export function BinaryInput({
   );
   const labels = market.outcomeLabels ?? ["Yes", "No"];
 
-  // Reset inputUnit when side changes
-  useEffect(() => {
+  // Reset inputUnit when side changes (React-recommended pattern)
+  const [prevSide, setPrevSide] = useState(side);
+  if (prevSide !== side) {
+    setPrevSide(side);
     setInputUnit(side === "buy" ? "collateral" : "shares");
-  }, [side]);
+  }
 
   useEffect(() => {
     if (inputUnit === "target") {
