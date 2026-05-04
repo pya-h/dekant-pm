@@ -33,11 +33,15 @@ export function InteractiveDistributionChart({
   const gradientMarketId = useId();
   const gradientUserId = useId();
   const clipId = useId();
-  const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right">("none");
+  const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right" | "y-scale">("none");
   const { prefs, setPref } = useLocalPrefs();
   const smooth = prefs.chartSmooth;
   const yUnit = prefs.chartYUnit;
   const dynamicScale = prefs.chartDynamicScale;
+
+  // Y-axis manual scale override
+  const [yScaleOverride, setYScaleOverride] = useState<number | null>(null);
+  const yDragRef = useRef<{ startClientY: number; startMaxP: number } | null>(null);
 
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -62,7 +66,7 @@ export function InteractiveDistributionChart({
   );
 
   const barW = plotW / numBins;
-  const maxP = useMemo(() => {
+  const computedMaxP = useMemo(() => {
     const marketMax = Math.max(...marketProbabilities, 0.001);
     if (dynamicScale) {
       const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
@@ -72,6 +76,7 @@ export function InteractiveDistributionChart({
     const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
     return Math.max(marketMax * 1.2, Math.min(traderMax * 1.1, marketMax * 3));
   }, [marketProbabilities, traderWeights, dynamicScale]);
+  const maxP = yScaleOverride ?? computedMaxP;
 
   const marketPoints = useMemo(
     () => marketProbabilities.map((p, i) => ({
@@ -144,10 +149,30 @@ export function InteractiveDistributionChart({
   // Sigma handle threshold for hit detection (in range units)
   const handleThreshold = rangeWidth * 0.025;
 
+  // Convert clientX to SVG X coordinate
+  const clientXToSvgX = useCallback(
+    (clientX: number) => {
+      const svg = svgRef.current;
+      if (!svg) return 0;
+      const rect = svg.getBoundingClientRect();
+      return ((clientX - rect.left) / rect.width) * VIEW_W;
+    },
+    [],
+  );
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
-      const value = clientXToValue(e.clientX);
       (e.target as Element).setPointerCapture?.(e.pointerId);
+
+      // Check if click is in Y-axis zone (left padding)
+      const svgX = clientXToSvgX(e.clientX);
+      if (svgX < CHART_PADDING.left) {
+        yDragRef.current = { startClientY: e.clientY, startMaxP: yScaleOverride ?? computedMaxP };
+        setDragMode("y-scale");
+        return;
+      }
+
+      const value = clientXToValue(e.clientX);
 
       if (mu !== null) {
         const leftBound = mu - sigma;
@@ -167,12 +192,24 @@ export function InteractiveDistributionChart({
       onMuChange(clamped);
       setDragMode("mu");
     },
-    [clientXToValue, mu, sigma, handleThreshold, rangeMin, rangeMax, onMuChange],
+    [clientXToSvgX, clientXToValue, mu, sigma, handleThreshold, rangeMin, rangeMax, onMuChange, yScaleOverride, computedMaxP],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       if (dragMode === "none") return;
+
+      if (dragMode === "y-scale") {
+        const ref = yDragRef.current;
+        if (!ref) return;
+        const deltaY = e.clientY - ref.startClientY;
+        // Drag down = zoom in (decrease maxP), drag up = zoom out (increase maxP)
+        const scale = Math.pow(2, -deltaY / 150);
+        const newMaxP = Math.max(0.001, Math.min(10, ref.startMaxP * scale));
+        setYScaleOverride(newMaxP);
+        return;
+      }
+
       const value = clientXToValue(e.clientX);
 
       if (dragMode === "mu") {
@@ -198,6 +235,12 @@ export function InteractiveDistributionChart({
   const handleHoverMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       if (dragMode !== "none") return;
+      // Y-axis zone: show ns-resize cursor
+      const svgX = clientXToSvgX(e.clientX);
+      if (svgX < CHART_PADDING.left) {
+        setHoverCursor("ns-resize");
+        return;
+      }
       if (mu === null) { setHoverCursor("crosshair"); return; }
       const value = clientXToValue(e.clientX);
       const leftBound = mu - sigma;
@@ -208,7 +251,18 @@ export function InteractiveDistributionChart({
         setHoverCursor("crosshair");
       }
     },
-    [dragMode, mu, sigma, handleThreshold, clientXToValue],
+    [dragMode, mu, sigma, handleThreshold, clientXToValue, clientXToSvgX],
+  );
+
+  // Double-click on Y-axis resets manual scale
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      const svgX = clientXToSvgX(e.clientX);
+      if (svgX < CHART_PADDING.left && yScaleOverride !== null) {
+        setYScaleOverride(null);
+      }
+    },
+    [clientXToSvgX, yScaleOverride],
   );
 
   // Mu and sigma positions
@@ -234,7 +288,7 @@ export function InteractiveDistributionChart({
           </button>
           <button
             type="button"
-            onClick={() => setPref("chartDynamicScale", !dynamicScale)}
+            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); }}
             className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
             title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
           >
@@ -266,11 +320,12 @@ export function InteractiveDistributionChart({
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} ${height}`}
         className="w-full h-auto select-none"
-        style={{ cursor: dragMode !== "none" ? "grabbing" : hoverCursor }}
+        style={{ cursor: dragMode === "y-scale" ? "ns-resize" : dragMode !== "none" ? "grabbing" : hoverCursor }}
         onPointerDown={handlePointerDown}
         onPointerMove={(e) => { handlePointerMove(e); handleHoverMove(e); }}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onDoubleClick={handleDoubleClick}
       >
         <defs>
           <linearGradient id={gradientMarketId} x1="0" x2="0" y1="0" y2="1">
@@ -285,6 +340,20 @@ export function InteractiveDistributionChart({
             <rect x={CHART_PADDING.left} y={CHART_PADDING.top} width={plotW} height={plotH} />
           </clipPath>
         </defs>
+
+        {/* Y-axis drag zone indicator (visible when manually scaled) */}
+        {yScaleOverride !== null && (
+          <text
+            x={CHART_PADDING.left - 6}
+            y={CHART_PADDING.top - 2}
+            textAnchor="end"
+            className="fill-blue-400"
+            fontSize={8}
+            opacity={0.7}
+          >
+            ↕ 2×click reset
+          </text>
+        )}
 
         {/* Grid lines + Y-axis labels */}
         {[0.25, 0.5, 0.75].map((frac) => (
