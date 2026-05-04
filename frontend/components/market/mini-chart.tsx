@@ -101,8 +101,8 @@ function ContinuousMiniChart({
     <svg viewBox={`0 0 ${VIEW_W} ${height}`} className="w-full h-auto">
       <defs>
         <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="rgb(6 182 212)" stopOpacity={0.3} />
-          <stop offset="100%" stopColor="rgb(6 182 212)" stopOpacity={0.02} />
+          <stop offset="0%" stopColor="rgb(85 95 110)" stopOpacity={0.35} />
+          <stop offset="100%" stopColor="rgb(85 95 110)" stopOpacity={0.05} />
         </linearGradient>
       </defs>
 
@@ -137,7 +137,7 @@ function ContinuousMiniChart({
       <polyline
         points={linePath}
         fill="none"
-        stroke="rgb(6 182 212)"
+        stroke="rgb(85 95 110)"
         strokeWidth={1.5}
         strokeLinejoin="round"
       />

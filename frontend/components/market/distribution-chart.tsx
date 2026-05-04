@@ -103,7 +103,7 @@ export function DistributionChart({
         <polyline
           points={points.map((pt) => `${pt.x},${pt.y}`).join(" ")}
           fill="none"
-          stroke="rgb(6 182 212)"
+          stroke="rgb(85 95 110)"
           strokeWidth={2}
           strokeLinejoin="round"
         />
@@ -130,7 +130,7 @@ export function DistributionChart({
             x2={points[hoveredBin].x}
             y1={CHART_PADDING.top}
             y2={CHART_PADDING.top + plotH}
-            stroke="rgb(6 182 212)"
+            stroke="rgb(85 95 110)"
             strokeOpacity={0.4}
             strokeWidth={1}
             strokeDasharray="4 4"
@@ -186,10 +186,10 @@ export function DistributionChart({
         {/* Gradient definition */}
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(6 182 212)" stopOpacity={0.35} />
+            <stop offset="0%" stopColor="rgb(85 95 110)" stopOpacity={0.35} />
             <stop
               offset="100%"
-              stopColor="rgb(6 182 212)"
+              stopColor="rgb(85 95 110)"
               stopOpacity={0.05}
             />
           </linearGradient>

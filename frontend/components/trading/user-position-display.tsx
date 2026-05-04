@@ -240,8 +240,9 @@ function Holdings({
         {holdings.map((h, i) => (
           <div
             key={i}
-            className="flex-1 rounded-t-sm bg-cyan-500/50"
+            className="flex-1 rounded-t-sm"
             style={{
+              backgroundColor: "rgba(190, 175, 55, 0.5)",
               height: `${Math.max((h / maxH) * 100, h > 0 ? 4 : 0)}%`,
             }}
           />

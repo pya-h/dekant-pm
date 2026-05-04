@@ -511,8 +511,8 @@ export function InteractiveDistributionChart({
       >
         <defs>
           <linearGradient id={gradientMarketId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(130 140 160)" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="rgb(130 140 160)" stopOpacity={0.1} />
+            <stop offset="0%" stopColor="rgb(85 95 110)" stopOpacity={0.35} />
+            <stop offset="100%" stopColor="rgb(85 95 110)" stopOpacity={0.05} />
           </linearGradient>
           <linearGradient id={gradientUserId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
@@ -592,7 +592,7 @@ export function InteractiveDistributionChart({
                     <path
                       d={marketLinePath}
                       fill="none"
-                      stroke="rgb(130 140 160)"
+                      stroke="rgb(85 95 110)"
                       strokeWidth={isHovered ? 2.5 : 2}
                       strokeLinejoin="round"
                       strokeLinecap="round"
@@ -734,7 +734,7 @@ export function InteractiveDistributionChart({
       {/* Legend */}
       <div className="mt-1 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(130 140 160)" }} />
+          <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(85 95 110)" }} />
           Market
         </span>
         {mu !== null && (
