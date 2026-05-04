@@ -8,29 +8,19 @@ import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { useFaucetStatus } from "@/hooks/use-faucet";
 import { MarketHeaderBar } from "@/components/market/market-header-bar";
 import { PriceBar } from "@/components/market/price-bar";
+import { RecentTrades } from "@/components/market/recent-trades";
+import { MarketInfoSection } from "@/components/market/market-info-section";
 import {
   MarketType,
-  MarketState,
   SCALE,
   computeProbabilities,
-  formatUsdc,
-  timeUntil,
 } from "@/lib/types";
 import { TradingPanel } from "@/components/trading/trading-panel";
 import { ContinuousTradingSection } from "@/components/trading/continuous-trading-section";
 import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 import { sliderToSigma } from "@/lib/normal";
-import { UserPositionDisplay } from "@/components/trading/user-position-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { MarketStatus } from "@/components/market/market-status";
-import { MarketTypeBadge } from "@/components/market/market-type-badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 export default function MarketDetailPage({
@@ -85,9 +75,6 @@ export default function MarketDetailPage({
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
-  const deadlineDate = new Date(market.deadline);
-  // eslint-disable-next-line react-hooks/purity
-  const isExpired = deadlineDate.getTime() < Date.now();
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6">
@@ -102,14 +89,13 @@ export default function MarketDetailPage({
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}
       <div className="mt-4 grid gap-4 lg:grid-cols-[240px_1fr_280px]">
-        {/* Left panel — placeholder for future "Recent Trades" */}
+        {/* Left panel — Recent Trades */}
         <div className="hidden lg:block">
-          <Card className="h-full min-h-[500px]">
-            <CardContent className="flex h-full items-center justify-center pt-6">
-              <span className="text-xs text-muted-foreground/40">
-              </span>
-            </CardContent>
-          </Card>
+          <RecentTrades
+            marketId={market.id}
+            rangeMin={rangeMin}
+            rangeMax={rangeMax}
+          />
         </div>
 
         {/* Center — chart */}
@@ -159,118 +145,9 @@ export default function MarketDetailPage({
         </div>
       </div>
 
-      {/* ── Below fold: position display + market details ── */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <UserPositionDisplay market={market} />
-
-        <Card>
-          <CardHeader className="pb-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Market Details
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-3 sm:grid-cols-2">
-              <DetailRow label="Deadline">
-                <span className={isExpired ? "text-destructive" : ""}>
-                  {deadlineDate.toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <span className="ml-1.5 text-xs text-muted-foreground">
-                  ({timeUntil(market.deadline)})
-                </span>
-              </DetailRow>
-
-              <DetailRow label="Status">
-                <MarketStatus state={market.state} />
-              </DetailRow>
-
-              <DetailRow label="Volume">
-                {formatUsdc(market.totalVolume)}
-              </DetailRow>
-
-              <DetailRow label="Traders">
-                {market.totalTraders}
-              </DetailRow>
-
-              <DetailRow label="Oracle">
-                <TruncatedAddress address={market.oracle} />
-              </DetailRow>
-
-              <DetailRow label="Creator">
-                <TruncatedAddress address={market.creator} />
-              </DetailRow>
-
-              <DetailRow label="Collateral">
-                <TruncatedAddress address={market.collateralMint} />
-              </DetailRow>
-
-              <DetailRow label="Market Address">
-                <TruncatedAddress address={market.pubkey} />
-              </DetailRow>
-
-              {isContinuous && (
-                <>
-                  <DetailRow label="Range">
-                    {market.rangeMin != null && market.rangeMax != null
-                      ? `${(Number(market.rangeMin) / SCALE).toLocaleString()} – ${(Number(market.rangeMax) / SCALE).toLocaleString()}`
-                      : "N/A"}
-                  </DetailRow>
-                  <DetailRow label="Bins">
-                    {market.numOutcomes}
-                  </DetailRow>
-                </>
-              )}
-
-              {market.state === MarketState.Resolved && (
-                <DetailRow label="Resolved Outcome">
-                  <span className="font-medium text-emerald-400">
-                    {isContinuous
-                      ? market.resolvedValue != null
-                        ? (Number(market.resolvedValue) / SCALE).toLocaleString()
-                        : "N/A"
-                      : market.resolvedOutcome != null
-                        ? labels[market.resolvedOutcome]
-                        : "N/A"}
-                  </span>
-                </DetailRow>
-              )}
-
-              {market.lastTradeAt && (
-                <DetailRow label="Last Trade">
-                  {new Date(market.lastTradeAt).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </DetailRow>
-              )}
-
-              {market.tags && market.tags.length > 0 && (
-                <div className="sm:col-span-2">
-                  <dt className="mb-1 text-xs text-muted-foreground">Tags</dt>
-                  <dd className="flex flex-wrap gap-1.5">
-                    {market.tags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant="outline"
-                        className="text-[11px]"
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </dd>
-                </div>
-              )}
-            </dl>
-          </CardContent>
-        </Card>
+      {/* ── Below fold: Market Context / Rules / Timeline & Payout ── */}
+      <div className="mt-6">
+        <MarketInfoSection market={market} />
       </div>
     </div>
   );
@@ -294,43 +171,6 @@ function ProbabilitySection({
       labels={labels}
       variant={market.marketType === MarketType.Binary ? "binary" : "multi"}
     />
-  );
-}
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5">
-      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-sm">{children}</dd>
-    </div>
-  );
-}
-
-function TruncatedAddress({ address }: { address: string }) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(address).then(() => {
-      toast("Address copied");
-    }).catch(() => {});
-  };
-  if (address.length <= 12) {
-    return (
-      <button onClick={handleCopy} className="font-mono text-xs hover:text-primary transition-colors cursor-copy">
-        {address}
-      </button>
-    );
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button onClick={handleCopy} className="font-mono text-xs hover:text-primary transition-colors cursor-copy">
-          {address.slice(0, 4)}...{address.slice(-4)}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        <span className="font-mono text-xs">{address}</span>
-        <span className="ml-2 text-[10px] text-muted-foreground">click to copy</span>
-      </TooltipContent>
-    </Tooltip>
   );
 }
 

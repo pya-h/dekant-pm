@@ -351,8 +351,8 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
       : needsEstimate
         ? "Estimating..."
         : side === "buy"
-          ? "Place Buy Order"
-          : "Place Sell Order";
+          ? "Open Position"
+          : "Place Sell Position";
 
   const buttonIcon = !connected ? (
     <Wallet className="mr-2 h-4 w-4" />
@@ -361,11 +361,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   ) : null;
 
   return (
-    <Card className={cn(
-      "relative border-primary/20 transition-colors",
-      side === "buy" && !isDisabled && "border-emerald-500/20",
-      side === "sell" && !isDisabled && "border-rose-500/20",
-    )}>
+    <Card className="relative border-border/40 transition-colors">
       {/* Classic Trade modal button for continuous markets */}
       {hasDistParams && !isDisabled && (
         <div className="absolute right-3 top-3">
@@ -374,9 +370,10 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
       )}
 
       <CardHeader className="pb-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Trade
-        </h2>
+        <h2 className="text-sm font-semibold">Open Position</h2>
+        {hasDistParams && (
+          <p className="text-[11px] text-muted-foreground">Distribution-based range bet</p>
+        )}
         {!isDisabled && (
           <Tabs
             value={side}
@@ -406,19 +403,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
           <DisabledMessage state={market.state} />
         ) : hasDistParams ? (
           <>
-            {/* Mu/sigma indicator from chart */}
-            {chartMu !== null ? (
-              <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Peak (mu)</span>
-                  <span className="font-medium tabular-nums">{chartMu.toFixed(2)}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="text-muted-foreground">Spread (sigma)</span>
-                  <span className="font-medium tabular-nums">{chartSigma.toFixed(2)}</span>
-                </div>
-              </div>
-            ) : (
+            {chartMu === null && (
               <div className="rounded-lg border border-dashed border-border/60 p-4 text-center">
                 <p className="text-xs text-muted-foreground">
                   Click on the chart to set your prediction
@@ -508,11 +493,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
             {/* Submit button */}
             <Button
-              className={cn(
-                "w-full transition-all",
-                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
-                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
-              )}
+              className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
             >
@@ -564,11 +545,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             )}
 
             <Button
-              className={cn(
-                "w-full transition-all",
-                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
-                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
-              )}
+              className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
             >
@@ -612,11 +589,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             )}
 
             <Button
-              className={cn(
-                "w-full transition-all",
-                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
-                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
-              )}
+              className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
             >

@@ -116,7 +116,7 @@ export function MarketHeaderBar({
       </div>
 
       {/* Row 2: Stats fields on left | Action buttons on right */}
-      <div className="flex items-stretch gap-2">
+      <div className="flex flex-wrap items-stretch gap-2">
         <MarketStatsBar market={market} />
 
         {/* Action buttons — right-aligned */}
