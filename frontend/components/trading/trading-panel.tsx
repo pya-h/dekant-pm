@@ -6,15 +6,17 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { Loader2, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { BinaryInput } from "./binary-input";
 import { MultiOutcomeInput } from "./multi-outcome-input";
 import { DistributionInput } from "./distribution-input";
 import { CostPreview } from "./cost-preview";
-import { MarketType, MarketState, USDC_DECIMALS, SCALE, type MarketDetail } from "@/lib/types";
+import { ClassicTradeModal } from "./classic-trade-modal";
+import { MarketType, MarketState, USDC_DECIMALS, SCALE, formatUsdc, type MarketDetail } from "@/lib/types";
 import { useProgram } from "@/lib/solana";
 import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { useTokenBalance } from "@/hooks/use-token-balance";
@@ -39,6 +41,11 @@ type TradeParams =
 
 interface TradingPanelProps {
   market: MarketDetail;
+  distributionParams?: {
+    mu: number | null;
+    sigma: number;
+    onReset: () => void;
+  };
 }
 
 interface ErrorBoundaryState {
@@ -78,19 +85,20 @@ class TradingPanelErrorBoundary extends Component<{ children: ReactNode }, Error
   }
 }
 
-export function TradingPanel({ market }: TradingPanelProps) {
+export function TradingPanel({ market, distributionParams }: TradingPanelProps) {
   return (
     <TradingPanelErrorBoundary>
-      <TradingPanelInner market={market} />
+      <TradingPanelInner market={market} distributionParams={distributionParams} />
     </TradingPanelErrorBoundary>
   );
 }
 
-function TradingPanelInner({ market }: TradingPanelProps) {
+function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [params, setParams] = useState<TradeParams | null>(null);
+  const [amount, setAmount] = useState("");
+  const [inputUnit, setInputUnit] = useState<"collateral" | "shares">("collateral");
   const [loading, setLoading] = useState(false);
-  // For reverse trades: stores the computed amount from CostPreview's estimate
   const [computedAmount, setComputedAmount] = useState<number | null>(null);
 
   const { publicKey, connected } = useWallet();
@@ -109,54 +117,74 @@ function TradingPanelInner({ market }: TradingPanelProps) {
   const handleParamsChange = useCallback(
     (p: TradeParams | null) => {
       setParams(p);
-      setComputedAmount(null); // Reset when params change; CostPreview will re-estimate
+      setComputedAmount(null);
     },
     [],
   );
 
   const handleEstimate = useCallback(
-    (amount: number | null) => setComputedAmount(amount),
+    (amt: number | null) => setComputedAmount(amt),
     [],
   );
 
   const isDisabled = market.state !== MarketState.Active;
   const isContinuous = market.marketType === MarketType.Continuous;
+
+  // For continuous markets using interactive chart
+  const hasDistParams = isContinuous && distributionParams != null;
+  const chartMu = distributionParams?.mu ?? null;
+  const chartSigma = distributionParams?.sigma ?? 1;
+
+  // Validation for continuous (chart-based) mode
+  const continuousHasValid = hasDistParams && chartMu !== null && Number(amount) > 0;
+  const continuousInputUnit = inputUnit;
+  const continuousIsReverse =
+    (side === "buy" && continuousInputUnit === "shares") ||
+    (side === "sell" && continuousInputUnit === "collateral");
+  const continuousNeedsEstimate = continuousIsReverse && computedAmount == null && continuousHasValid;
+
+  // Validation for discrete (binary/multi) mode
   const isTargetPrice = params?.inputUnit === "target";
-  const hasValidParams = params !== null && (
+  const discreteHasValid = params !== null && (
     isTargetPrice
       ? Number(params.amount) > 0 && Number(params.amount) < 100
       : Number(params.amount) > 0
   );
 
-  const inputUnit = params?.inputUnit ?? (side === "buy" ? "collateral" : "shares");
-  const isReverseUnit =
-    (side === "buy" && inputUnit === "shares") ||
-    (side === "sell" && inputUnit === "collateral");
+  const discreteInputUnit = params?.inputUnit ?? (side === "buy" ? "collateral" : "shares");
+  const discreteIsReverse =
+    (side === "buy" && discreteInputUnit === "shares") ||
+    (side === "sell" && discreteInputUnit === "collateral");
+  const discreteNeedsEstimate = (discreteIsReverse || isTargetPrice) && computedAmount == null && discreteHasValid;
 
-  // Validation: exceeds balance / holdings (but still show CostPreview)
-  // For reverse trades, use computedAmount from the estimate
+  // Combined validation
+  const hasValidParams = hasDistParams ? continuousHasValid : discreteHasValid;
+  const needsEstimate = hasDistParams ? continuousNeedsEstimate : discreteNeedsEstimate;
+
   const exceedsBalance =
-    connected &&
-    side === "buy" &&
-    hasValidParams &&
-    (inputUnit === "collateral"
-      ? Number(params!.amount) * 10 ** USDC_DECIMALS > collateralBalance
-      : computedAmount != null && computedAmount > collateralBalance);
+    connected && side === "buy" && hasValidParams &&
+    (() => {
+      if (hasDistParams) {
+        return continuousInputUnit === "collateral"
+          ? Number(amount) * 10 ** USDC_DECIMALS > collateralBalance
+          : computedAmount != null && computedAmount > collateralBalance;
+      }
+      return discreteInputUnit === "collateral"
+        ? Number(params!.amount) * 10 ** USDC_DECIMALS > collateralBalance
+        : computedAmount != null && computedAmount > collateralBalance;
+    })();
 
   const exceedsHoldings =
     connected &&
     side === "sell" &&
-    hasValidParams &&
+    discreteHasValid &&
+    !hasDistParams &&
     position != null &&
     "outcome" in params! &&
     (() => {
       const holdings = Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0");
-      if (isTargetPrice) {
-        // For sell-to-price, we can't know exact tokens needed upfront,
-        // but we can reject if user holds 0 for the target outcome
-        return holdings === 0;
-      }
-      return inputUnit === "shares"
+      if (isTargetPrice) return holdings === 0;
+      return discreteInputUnit === "shares"
         ? Number(params!.amount) * 10 ** USDC_DECIMALS > holdings
         : computedAmount != null && computedAmount > holdings;
     })();
@@ -167,108 +195,108 @@ function TradingPanelInner({ market }: TradingPanelProps) {
       ? "Insufficient holdings"
       : null;
 
-  // For reverse and target-price trades, button needs estimate before submitting
-  const needsEstimate = (isReverseUnit || isTargetPrice) && computedAmount == null && hasValidParams;
-
   const handleSubmit = useCallback(async () => {
     if (!connected || !publicKey || !program) {
       setVisible(true);
       return;
     }
-    if (!params) return;
 
     setLoading(true);
     try {
       const marketPubkey = new PublicKey(market.pubkey);
       let signature: string | undefined;
 
-      const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
-
-      // Target-price mode: call buyToPrice / sellToPrice directly
-      if (unit === "target" && "outcome" in params && computedAmount != null) {
-        const targetProbScaled = new BN(
-          Math.round((Number(params.amount) / 100) * SCALE),
-        );
-        if (side === "buy") {
-          // computedAmount = collateralNeeded (base units); add 0.5% slippage
-          const maxCollateral = new BN(Math.ceil(computedAmount * 1.005));
-          signature = await executeBuyToPrice(
-            program,
-            marketPubkey,
-            publicKey,
-            params.outcome,
-            targetProbScaled,
-            maxCollateral,
-          );
-        } else {
-          // computedAmount = collateralOut (base units); subtract 0.5% slippage
-          const minCollateralOut = new BN(Math.floor(computedAmount * 0.995));
-          signature = await executeSellToPrice(
-            program,
-            marketPubkey,
-            publicKey,
-            params.outcome,
-            targetProbScaled,
-            minCollateralOut,
-          );
-        }
-      } else {
-        // For reverse trades, derive the actual amount from the estimate with 0.5% slippage buffer
+      if (hasDistParams && chartMu !== null) {
+        // Continuous chart-based trade
         const isReverse =
-          (side === "buy" && unit === "shares") ||
-          (side === "sell" && unit === "collateral");
+          (side === "buy" && inputUnit === "shares") ||
+          (side === "sell" && inputUnit === "collateral");
 
-        let effectiveAmount = params.amount;
+        let effectiveAmount = amount;
         if (isReverse && computedAmount != null) {
-          // Add 0.5% buffer for slippage, convert back to human-readable
           const buffered = Math.ceil(computedAmount * 1.005);
           effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
         }
 
         if (side === "buy") {
-          if (isContinuous && "mu" in params) {
+          signature = await executeBuyDistribution(
+            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
+          );
+        } else {
+          signature = await executeSellDistribution(
+            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
+          );
+        }
+      } else if (params) {
+        const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
+
+        if ("mu" in params) {
+          // Classic continuous trade (from DistributionInput in modal)
+          const isReverse =
+            (side === "buy" && unit === "shares") ||
+            (side === "sell" && unit === "collateral");
+
+          let effectiveAmount = params.amount;
+          if (isReverse && computedAmount != null) {
+            const buffered = Math.ceil(computedAmount * 1.005);
+            effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
+          }
+
+          if (side === "buy") {
             signature = await executeBuyDistribution(
-              program,
-              marketPubkey,
-              publicKey,
-              params.mu,
-              params.sigma,
-              effectiveAmount,
+              program, marketPubkey, publicKey, params.mu, params.sigma, effectiveAmount,
             );
-          } else if ("outcome" in params) {
-            signature = await executeBuy(
-              program,
-              marketPubkey,
-              publicKey,
-              params.outcome,
-              effectiveAmount,
+          } else {
+            signature = await executeSellDistribution(
+              program, marketPubkey, publicKey, params.mu, params.sigma, effectiveAmount,
+            );
+          }
+        } else if (unit === "target" && "outcome" in params && computedAmount != null) {
+          const targetProbScaled = new BN(
+            Math.round((Number(params.amount) / 100) * SCALE),
+          );
+          if (side === "buy") {
+            const maxCollateral = new BN(Math.ceil(computedAmount * 1.005));
+            signature = await executeBuyToPrice(
+              program, marketPubkey, publicKey, params.outcome, targetProbScaled, maxCollateral,
+            );
+          } else {
+            const minCollateralOut = new BN(Math.floor(computedAmount * 0.995));
+            signature = await executeSellToPrice(
+              program, marketPubkey, publicKey, params.outcome, targetProbScaled, minCollateralOut,
             );
           }
         } else {
-          if (isContinuous && "mu" in params) {
-            signature = await executeSellDistribution(
-              program,
-              marketPubkey,
-              publicKey,
-              params.mu,
-              params.sigma,
-              effectiveAmount,
-            );
-          } else if ("outcome" in params) {
-            signature = await executeSell(
-              program,
-              marketPubkey,
-              publicKey,
-              params.outcome,
-              effectiveAmount,
-            );
+          const isReverse =
+            (side === "buy" && unit === "shares") ||
+            (side === "sell" && unit === "collateral");
+
+          let effectiveAmount = params.amount;
+          if (isReverse && computedAmount != null) {
+            const buffered = Math.ceil(computedAmount * 1.005);
+            effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
+          }
+
+          if (side === "buy") {
+            if ("outcome" in params) {
+              signature = await executeBuy(
+                program, marketPubkey, publicKey, params.outcome, effectiveAmount,
+              );
+            }
+          } else {
+            if ("outcome" in params) {
+              signature = await executeSell(
+                program, marketPubkey, publicKey, params.outcome, effectiveAmount,
+              );
+            }
           }
         }
+      } else {
+        return;
       }
 
       if (!signature) return;
 
-      // Wait for confirmation to prevent wallet hanging on next operation
       try {
         const latestBlockhash = await connection.getLatestBlockhash();
         await connection.confirmTransaction(
@@ -276,12 +304,11 @@ function TradingPanelInner({ market }: TradingPanelProps) {
           "confirmed",
         );
       } catch {
-        // Confirmation timeout is non-fatal — tx may still succeed
+        // Confirmation timeout is non-fatal
       }
 
       showTradeSuccess(signature, side === "buy" ? "Buy" : "Sell");
 
-      // Refresh data
       const keys = [
         ["market", market.id],
         ["markets"],
@@ -292,34 +319,29 @@ function TradingPanelInner({ market }: TradingPanelProps) {
       for (const queryKey of keys) {
         queryClient.invalidateQueries({ queryKey });
       }
-      // Delayed refresh to catch indexer processing lag
       setTimeout(() => {
         for (const queryKey of keys) {
           queryClient.invalidateQueries({ queryKey });
         }
       }, 3000);
 
-      setParams(null);
+      if (hasDistParams) {
+        setAmount("");
+        setComputedAmount(null);
+        distributionParams?.onReset();
+      } else {
+        setParams(null);
+      }
     } catch (error) {
       showTradeError(error);
     } finally {
       setLoading(false);
     }
   }, [
-    connected,
-    publicKey,
-    program,
-    params,
-    side,
-    address,
-    market.pubkey,
-    market.id,
-    market.collateralMint,
-    isContinuous,
-    computedAmount,
-    connection,
-    setVisible,
-    queryClient,
+    connected, publicKey, program, params, side, address,
+    market.pubkey, market.id, market.collateralMint,
+    hasDistParams, chartMu, chartSigma, amount, inputUnit,
+    computedAmount, connection, setVisible, queryClient, distributionParams,
   ]);
 
   const buttonLabel = !connected
@@ -340,10 +362,17 @@ function TradingPanelInner({ market }: TradingPanelProps) {
 
   return (
     <Card className={cn(
-      "border-primary/20 transition-colors",
+      "relative border-primary/20 transition-colors",
       side === "buy" && !isDisabled && "border-emerald-500/20",
       side === "sell" && !isDisabled && "border-rose-500/20",
     )}>
+      {/* Classic Trade modal button for continuous markets */}
+      {hasDistParams && !isDisabled && (
+        <div className="absolute right-3 top-3">
+          <ClassicTradeModal market={market} />
+        </div>
+      )}
+
       <CardHeader className="pb-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Trade
@@ -354,7 +383,9 @@ function TradingPanelInner({ market }: TradingPanelProps) {
             onValueChange={(v) => {
               setSide(v as "buy" | "sell");
               setParams(null);
+              setAmount("");
               setComputedAmount(null);
+              setInputUnit(v === "buy" ? "collateral" : "shares");
             }}
           >
             <TabsList className="w-full">
@@ -373,6 +404,139 @@ function TradingPanelInner({ market }: TradingPanelProps) {
       <CardContent className="space-y-4">
         {isDisabled ? (
           <DisabledMessage state={market.state} />
+        ) : hasDistParams ? (
+          <>
+            {/* Mu/sigma indicator from chart */}
+            {chartMu !== null ? (
+              <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Peak (mu)</span>
+                  <span className="font-medium tabular-nums">{chartMu.toFixed(2)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-muted-foreground">Spread (sigma)</span>
+                  <span className="font-medium tabular-nums">{chartSigma.toFixed(2)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border/60 p-4 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Click on the chart to set your prediction
+                </p>
+              </div>
+            )}
+
+            {/* Amount input */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {side === "buy"
+                    ? "Amount (USDC)"
+                    : inputUnit === "shares"
+                      ? "Shares to sell"
+                      : "USDC to receive"}
+                </label>
+                {side === "sell" && (
+                  <div className="flex rounded-md border border-border/60 bg-muted/20 text-[10px]">
+                    {(["shares", "collateral"] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => { setInputUnit(opt); setAmount(""); setComputedAmount(null); }}
+                        className={cn(
+                          "px-2 py-0.5 transition-colors first:rounded-l-md last:rounded-r-md",
+                          inputUnit === opt
+                            ? "bg-primary/20 text-primary font-medium"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {opt === "shares" ? "Shares" : "USDC"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => { setAmount(e.target.value); setComputedAmount(null); }}
+                  className="pr-14"
+                  disabled={chartMu === null}
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  {side === "buy" ? "USDC" : inputUnit === "shares" ? "shares" : "USDC"}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                {side === "buy" && collateralBalance > 0 ? (
+                  <span>Balance: {formatUsdc(collateralBalance)}</span>
+                ) : (
+                  <span />
+                )}
+                {side === "buy" && collateralBalance > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount((collateralBalance / 10 ** USDC_DECIMALS).toString())}
+                    className="text-[11px] font-medium text-primary hover:text-primary/80"
+                  >
+                    Max
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Cost preview */}
+            {continuousHasValid && chartMu !== null && (
+              <CostPreview
+                marketId={market.id}
+                side={side}
+                mu={chartMu}
+                sigma={chartSigma}
+                amount={amount}
+                inputUnit={inputUnit}
+                onEstimate={handleEstimate}
+              />
+            )}
+
+            {validationError && (
+              <p className="text-center text-xs text-rose-400">{validationError}</p>
+            )}
+
+            {/* Submit button */}
+            <Button
+              className={cn(
+                "w-full transition-all",
+                connected && side === "buy" && "bg-emerald-600 hover:bg-emerald-700",
+                connected && side === "sell" && "bg-rose-600 hover:bg-rose-700",
+              )}
+              disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
+              onClick={handleSubmit}
+            >
+              {buttonIcon}
+              {buttonLabel}
+            </Button>
+
+            {/* Reset Position */}
+            {chartMu !== null && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5 text-xs text-muted-foreground"
+                onClick={() => {
+                  distributionParams?.onReset();
+                  setAmount("");
+                  setComputedAmount(null);
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset Position
+              </Button>
+            )}
+          </>
         ) : isContinuous ? (
           <>
             <DistributionInput
@@ -383,7 +547,7 @@ function TradingPanelInner({ market }: TradingPanelProps) {
               position={position ?? null}
             />
 
-            {hasValidParams && params && "mu" in params && (
+            {discreteHasValid && params && "mu" in params && (
               <CostPreview
                 marketId={market.id}
                 side={side}
@@ -432,7 +596,7 @@ function TradingPanelInner({ market }: TradingPanelProps) {
               />
             )}
 
-            {hasValidParams && params && "outcome" in params && (
+            {discreteHasValid && params && "outcome" in params && (
               <CostPreview
                 marketId={market.id}
                 side={side}
