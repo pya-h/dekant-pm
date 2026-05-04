@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { MiniChart } from "./mini-chart";
+import { MarketAssetIcon } from "./market-asset-icon";
 import {
   type MarketSummary,
   formatUsdc,
 } from "@/lib/types";
-import { Gem } from "lucide-react";
 
 interface MarketCardProps {
   market: MarketSummary;
@@ -28,9 +28,13 @@ export function MarketCard({ market }: MarketCardProps) {
           {/* Icon + Deadline label + countdown */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="shrink-0 rounded-lg bg-muted p-1.5">
-                <Gem className="h-4 w-4 text-violet-400" />
-              </div>
+              <MarketAssetIcon
+                subject={market.subject}
+                icon={market.icon}
+                className="shrink-0 p-1.5"
+                symbolClassName="text-[13px]"
+                imageClassName="h-4 w-4"
+              />
               <span className="text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
                 {label}
               </span>

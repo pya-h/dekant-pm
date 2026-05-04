@@ -212,6 +212,13 @@ describe('MarketService', () => {
       });
     });
 
+    it('should filter by subject', async () => {
+      await service.findAll({ subject: 'BTC' });
+      expect(qb.andWhere).toHaveBeenCalledWith('m.subject = :subject', {
+        subject: 'BTC',
+      });
+    });
+
     it('should filter by marketType', async () => {
       await service.findAll({ marketType: 1 });
       expect(qb.andWhere).toHaveBeenCalledWith('m.market_type = :marketType', {

@@ -10,6 +10,8 @@ import { MarketHeaderBar } from "@/components/market/market-header-bar";
 import { PriceBar } from "@/components/market/price-bar";
 import { RecentTrades } from "@/components/market/recent-trades";
 import { MarketInfoSection } from "@/components/market/market-info-section";
+import { CommentsSection } from "@/components/market/comments-section";
+import { RelatedMarketsRow } from "@/components/market/related-markets-row";
 import {
   MarketType,
   SCALE,
@@ -148,6 +150,16 @@ export default function MarketDetailPage({
       {/* ── Below fold: Market Context / Rules / Timeline & Payout ── */}
       <div className="mt-6">
         <MarketInfoSection market={market} />
+      </div>
+
+      {/* ── Comments (dummy for now) ── */}
+      <div className="mt-6">
+        <CommentsSection />
+      </div>
+
+      {/* ── Related markets by same subject/asset ── */}
+      <div className="mt-8">
+        <RelatedMarketsRow market={market} />
       </div>
     </div>
   );

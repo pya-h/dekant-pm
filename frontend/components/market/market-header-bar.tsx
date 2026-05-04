@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { MarketStatsBar } from "./market-stats-bar";
+import { MarketAssetIcon } from "./market-asset-icon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,6 @@ import {
 import { type MarketSummary } from "@/lib/types";
 import { toast } from "sonner";
 import {
-  BarChart3,
   Download,
   Share2,
   Bookmark,
@@ -79,9 +79,13 @@ export function MarketHeaderBar({
       {/* Row 1: Icon + Title on left | Countdown + Claim Tokens on right */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="shrink-0 rounded-lg bg-muted p-2.5">
-            <BarChart3 className="h-5 w-5 text-amber-400" />
-          </div>
+          <MarketAssetIcon
+            subject={market.subject}
+            icon={market.icon}
+            className="shrink-0 p-2.5"
+            symbolClassName="text-lg"
+            imageClassName="h-5 w-5"
+          />
           <h1 className="truncate text-lg font-semibold leading-snug">
             {market.title}
           </h1>
