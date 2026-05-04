@@ -15,6 +15,8 @@ interface InteractiveDistributionChartProps {
   sigma: number;
   onMuChange: (mu: number) => void;
   onSigmaChange: (sigma: number) => void;
+  /** User's existing position holdings per bin (raw token amounts). Normalized internally for display. */
+  positionHoldings?: number[] | null;
   height?: number;
 }
 
@@ -29,11 +31,13 @@ export function InteractiveDistributionChart({
   sigma,
   onMuChange,
   onSigmaChange,
+  positionHoldings,
   height = DEFAULT_HEIGHT,
 }: InteractiveDistributionChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const gradientMarketId = useId();
   const gradientUserId = useId();
+  const gradientPositionId = useId();
   const clipId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right" | "y-scale">("none");
   const { prefs, setPref } = useLocalPrefs();
@@ -89,16 +93,26 @@ export function InteractiveDistributionChart({
   );
 
   const barW = plotW / numBins;
+
+  // Normalize position holdings to sum=1 (same scale as probabilities)
+  const positionWeights = useMemo(() => {
+    if (!positionHoldings || positionHoldings.length === 0) return [];
+    const sum = positionHoldings.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return [];
+    return positionHoldings.map((h) => h / sum);
+  }, [positionHoldings]);
+
   const computedMaxP = useMemo(() => {
     const marketMax = Math.max(...marketProbabilities, 0.001);
-    if (dynamicScale) {
-      const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
-      return Math.max(marketMax, traderMax, 0.001) * 1.1;
-    }
-    // Fixed scale: try to fit trader curve too, but never shrink market below ~1/3 of chart
     const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
-    return Math.max(marketMax * 1.2, Math.min(traderMax * 1.1, marketMax * 3));
-  }, [marketProbabilities, traderWeights, dynamicScale]);
+    const posMax = positionWeights.length > 0 ? Math.max(...positionWeights) : 0;
+    if (dynamicScale) {
+      return Math.max(marketMax, traderMax, posMax, 0.001) * 1.1;
+    }
+    // Fixed scale: try to fit trader/position curves too, but never shrink market below ~1/3 of chart
+    const othersMax = Math.max(traderMax, posMax);
+    return Math.max(marketMax * 1.2, Math.min(othersMax * 1.1, marketMax * 3));
+  }, [marketProbabilities, traderWeights, positionWeights, dynamicScale]);
   const maxP = yScaleOverride ?? computedMaxP;
 
   const marketPoints = useMemo(
@@ -117,6 +131,14 @@ export function InteractiveDistributionChart({
     [traderWeights, barW, plotH, maxP],
   );
 
+  const positionPoints = useMemo(
+    () => positionWeights.map((w, i) => ({
+      x: CHART_PADDING.left + barW * (i + 0.5),
+      y: CHART_PADDING.top + plotH * (1 - w / maxP),
+    })),
+    [positionWeights, barW, plotH, maxP],
+  );
+
   // Paths (smooth vs segmented)
   const marketAreaPath = useMemo(
     () => smooth ? buildSmoothAreaPath(marketPoints, baseline) : buildAreaPath(marketPoints, baseline),
@@ -133,6 +155,14 @@ export function InteractiveDistributionChart({
   const traderLinePath = useMemo(
     () => smooth ? buildSmoothLinePath(traderPoints) : buildPolylinePath(traderPoints),
     [traderPoints, smooth],
+  );
+  const positionAreaPath = useMemo(
+    () => smooth ? buildSmoothAreaPath(positionPoints, baseline) : buildAreaPath(positionPoints, baseline),
+    [positionPoints, baseline, smooth],
+  );
+  const positionLinePath = useMemo(
+    () => smooth ? buildSmoothLinePath(positionPoints) : buildPolylinePath(positionPoints),
+    [positionPoints, smooth],
   );
 
   // X-axis ticks (5 evenly spaced)
@@ -155,6 +185,17 @@ export function InteractiveDistributionChart({
       return vbX + ((clientX - rect.left) / rect.width) * vbW;
     },
     [vbX, vbW],
+  );
+
+  // Convert clientY to SVG Y coordinate (zoom-aware)
+  const clientYToSvgY = useCallback(
+    (clientY: number) => {
+      const svg = svgRef.current;
+      if (!svg) return 0;
+      const rect = svg.getBoundingClientRect();
+      return vbY + ((clientY - rect.top) / rect.height) * vbH;
+    },
+    [vbY, vbH],
   );
 
   // Convert client X to range value (zoom-aware)
@@ -253,26 +294,54 @@ export function InteractiveDistributionChart({
 
   // Cursor style
   const [hoverCursor, setHoverCursor] = useState("crosshair");
+  const [hoveredCurve, setHoveredCurve] = useState<"none" | "market" | "position" | "trader">("none");
   const handleHoverMove = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
       if (dragMode !== "none") return;
-      // Y-axis zone: show ns-resize cursor
       const svgX = clientXToSvgX(e.clientX);
+      // Y-axis zone: show ns-resize cursor
       if (svgX < CHART_PADDING.left) {
         setHoverCursor("ns-resize");
+        setHoveredCurve("none");
         return;
       }
-      if (mu === null) { setHoverCursor("crosshair"); return; }
-      const value = clientXToValue(e.clientX);
-      const leftBound = mu - sigma;
-      const rightBound = mu + sigma;
-      if (Math.abs(value - leftBound) < handleThreshold || Math.abs(value - rightBound) < handleThreshold) {
-        setHoverCursor("ew-resize");
-      } else {
+      if (mu === null) {
         setHoverCursor("crosshair");
+      } else {
+        const value = clientXToValue(e.clientX);
+        const leftBound = mu - sigma;
+        const rightBound = mu + sigma;
+        if (Math.abs(value - leftBound) < handleThreshold || Math.abs(value - rightBound) < handleThreshold) {
+          setHoverCursor("ew-resize");
+        } else {
+          setHoverCursor("crosshair");
+        }
+      }
+      // Detect closest curve for hover-to-front
+      if (svgX >= CHART_PADDING.left && svgX <= VIEW_W - CHART_PADDING.right) {
+        const svgY = clientYToSvgY(e.clientY);
+        const candidates: ["market" | "position" | "trader", number | null][] = [
+          ["market", interpolateY(marketPoints, svgX)],
+          ["position", positionPoints.length > 0 ? interpolateY(positionPoints, svgX) : null],
+          ["trader", traderPoints.length > 0 ? interpolateY(traderPoints, svgX) : null],
+        ];
+        let closest: "none" | "market" | "position" | "trader" = "none";
+        let closestDist = 25;
+        for (const [name, y] of candidates) {
+          if (y !== null) {
+            const dist = Math.abs(svgY - y);
+            if (dist < closestDist) {
+              closestDist = dist;
+              closest = name;
+            }
+          }
+        }
+        setHoveredCurve(closest);
+      } else {
+        setHoveredCurve("none");
       }
     },
-    [dragMode, mu, sigma, handleThreshold, clientXToValue, clientXToSvgX],
+    [dragMode, mu, sigma, handleThreshold, clientXToValue, clientXToSvgX, clientYToSvgY, marketPoints, positionPoints, traderPoints],
   );
 
   // Double-click: Y-axis resets manual scale, plot area resets zoom
@@ -346,6 +415,19 @@ export function InteractiveDistributionChart({
     svg.addEventListener("wheel", handler, { passive: false });
     return () => svg.removeEventListener("wheel", handler);
   }, []);
+
+  // Curve render order: hovered curve drawn last (on top)
+  const curveOrder = useMemo(() => {
+    const order: ("position" | "market" | "trader")[] = ["position", "market", "trader"];
+    if (hoveredCurve !== "none") {
+      const idx = order.indexOf(hoveredCurve);
+      if (idx >= 0) {
+        order.splice(idx, 1);
+        order.push(hoveredCurve);
+      }
+    }
+    return order;
+  }, [hoveredCurve]);
 
   // Mu and sigma positions
   const muX = mu !== null ? valueToX(mu) : null;
@@ -424,17 +506,21 @@ export function InteractiveDistributionChart({
         onPointerDown={handlePointerDown}
         onPointerMove={(e) => { handlePointerMove(e); handleHoverMove(e); }}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerLeave={() => { handlePointerUp(); setHoveredCurve("none"); }}
         onDoubleClick={handleDoubleClick}
       >
         <defs>
           <linearGradient id={gradientMarketId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(6 182 212)" stopOpacity={0.3} />
-            <stop offset="100%" stopColor="rgb(6 182 212)" stopOpacity={0.05} />
+            <stop offset="0%" stopColor="rgb(130 140 160)" stopOpacity={0.5} />
+            <stop offset="100%" stopColor="rgb(130 140 160)" stopOpacity={0.1} />
           </linearGradient>
           <linearGradient id={gradientUserId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
             <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity={0.05} />
+          </linearGradient>
+          <linearGradient id={gradientPositionId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgb(190 175 55)" stopOpacity={0.45} />
+            <stop offset="100%" stopColor="rgb(190 175 55)" stopOpacity={0.08} />
           </linearGradient>
           <clipPath id={clipId}>
             <rect x={CHART_PADDING.left} y={CHART_PADDING.top} width={plotW} height={plotH} />
@@ -479,33 +565,60 @@ export function InteractiveDistributionChart({
           </g>
         ))}
 
-        {/* Curves clipped to plot area */}
+        {/* Curves clipped to plot area — hovered curve drawn last (on top) */}
         <g clipPath={`url(#${clipId})`}>
-          {/* Market distribution — cyan filled area */}
-          <path d={marketAreaPath} fill={`url(#${gradientMarketId})`} />
-          <path
-            d={marketLinePath}
-            fill="none"
-            stroke="rgb(6 182 212)"
-            strokeWidth={2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-
-          {/* User distribution — blue filled area (only when mu is set) */}
-          {mu !== null && traderPoints.length > 0 && (
-            <>
-              <path d={traderAreaPath} fill={`url(#${gradientUserId})`} />
-              <path
-                d={traderLinePath}
-                fill="none"
-                stroke="rgb(59 130 246)"
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            </>
-          )}
+          {curveOrder.map((curve) => {
+            const isHovered = curve === hoveredCurve;
+            switch (curve) {
+              case "position":
+                return positionPoints.length > 0 ? (
+                  <g key="position">
+                    <path d={positionAreaPath} fill={`url(#${gradientPositionId})`} />
+                    <path
+                      d={positionLinePath}
+                      fill="none"
+                      stroke="rgb(190 175 55)"
+                      strokeWidth={isHovered ? 2.5 : 1.5}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-width 0.15s ease" }}
+                    />
+                  </g>
+                ) : null;
+              case "market":
+                return (
+                  <g key="market">
+                    <path d={marketAreaPath} fill={`url(#${gradientMarketId})`} />
+                    <path
+                      d={marketLinePath}
+                      fill="none"
+                      stroke="rgb(130 140 160)"
+                      strokeWidth={isHovered ? 2.5 : 2}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-width 0.15s ease" }}
+                    />
+                  </g>
+                );
+              case "trader":
+                return mu !== null && traderPoints.length > 0 ? (
+                  <g key="trader">
+                    <path d={traderAreaPath} fill={`url(#${gradientUserId})`} />
+                    <path
+                      d={traderLinePath}
+                      fill="none"
+                      stroke="rgb(59 130 246)"
+                      strokeWidth={isHovered ? 2.5 : 2}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-width 0.15s ease" }}
+                    />
+                  </g>
+                ) : null;
+              default:
+                return null;
+            }
+          })}
         </g>
 
         {/* Sigma boundary lines */}
@@ -621,13 +734,19 @@ export function InteractiveDistributionChart({
       {/* Legend */}
       <div className="mt-1 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0.5 w-4 rounded bg-cyan-500" />
+          <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(130 140 160)" }} />
           Market
         </span>
         {mu !== null && (
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
             Your prediction
+          </span>
+        )}
+        {positionPoints.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(190 175 55)" }} />
+            Your position
           </span>
         )}
       </div>
@@ -691,5 +810,19 @@ function buildSmoothAreaPath(points: { x: number; y: number }[], baseline: numbe
   if (points.length === 0) return "";
   const linePath = buildSmoothLinePath(points);
   return `${linePath} L ${points[points.length - 1].x} ${baseline} L ${points[0].x} ${baseline} Z`;
+}
+
+/** Interpolate Y value at a given X from a points array (linear between neighbors) */
+function interpolateY(points: { x: number; y: number }[], x: number): number | null {
+  if (points.length === 0) return null;
+  if (x <= points[0].x) return points[0].y;
+  if (x >= points[points.length - 1].x) return points[points.length - 1].y;
+  for (let i = 0; i < points.length - 1; i++) {
+    if (x >= points[i].x && x <= points[i + 1].x) {
+      const t = (x - points[i].x) / (points[i + 1].x - points[i].x);
+      return points[i].y + t * (points[i + 1].y - points[i].y);
+    }
+  }
+  return null;
 }
 

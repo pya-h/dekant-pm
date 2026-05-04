@@ -11,6 +11,7 @@ interface ContinuousTradingSectionProps {
   sigma: number;
   onMuChange: (mu: number | null) => void;
   onSigmaChange: (sigma: number) => void;
+  positionHoldings?: number[] | null;
 }
 
 export function ContinuousTradingSection({
@@ -19,6 +20,7 @@ export function ContinuousTradingSection({
   sigma,
   onMuChange,
   onSigmaChange,
+  positionHoldings,
 }: ContinuousTradingSectionProps) {
   return (
     <Card>
@@ -35,6 +37,7 @@ export function ContinuousTradingSection({
           sigma={sigma}
           onMuChange={onMuChange}
           onSigmaChange={onSigmaChange}
+          positionHoldings={positionHoldings}
         />
       </CardContent>
     </Card>
