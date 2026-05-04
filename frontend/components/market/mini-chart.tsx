@@ -7,6 +7,7 @@ import {
   type MarketSummary,
   computeProbabilities,
 } from "@/lib/types";
+import { formatChartValue as formatTickValue } from "@/lib/chart-format";
 
 interface MiniChartProps {
   market: MarketSummary;
@@ -254,10 +255,3 @@ function MultiMiniChart({
   );
 }
 
-/** Same formatting as DistributionChart.formatTickValue */
-function formatTickValue(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  if (Number.isInteger(v)) return String(v);
-  return v.toFixed(2);
-}

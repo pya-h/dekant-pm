@@ -1830,6 +1830,29 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
+### F-22: X-Axis Pan & Zoom for Interactive Chart
+
+**Goal:** Add independent X-axis panning and zooming to the interactive distribution chart, allowing users to zoom into a horizontal sub-range while keeping the full Y-axis visible.
+
+**Context:** The chart currently supports Y-axis drag scaling and a uniform scroll-to-zoom. Independent X-axis control would help users inspect dense regions of wide-range markets (e.g., 0–10000). This is significantly more complex than Y-axis or uniform zoom because:
+- X-axis maps directly to range values — all coordinate conversions (`clientXToValue`, `valueToX`) need a visible sub-range
+- Mu/sigma hit detection and clamping must account for the viewport offset
+- Both zoom AND pan are needed (zoom alone on X is frustrating)
+- Risk of accidental X-zoom when drawing distributions (both use horizontal gestures in adjacent areas)
+- Bin rendering may need partial-visibility handling
+
+**Deliverable:**
+- `visibleRangeMin` / `visibleRangeMax` viewport state
+- Updated coordinate conversions for the X viewport
+- Drag-to-pan on X-axis area (bottom padding)
+- Scroll-to-zoom X-axis independently (e.g., Shift+scroll for X-only zoom)
+- Reset X viewport on distribution construction or via button
+- Partial bin visibility (clip bins outside viewport)
+
+**Depends on:** F-18
+
+---
+
 ## Devkit Tasks (Program Interaction Scripts)
 
 > **Directory:** `devkit/`
@@ -2168,10 +2191,10 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
 | Backend | 13 | B-1 → B-13 | ✅ All done |
-| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-21 done |
+| Frontend | 22 | F-1 → F-22 | ⬅️ F-1→F-21 done; F-22 future |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
-| **Total** | **68** | | |
+| **Total** | **69** | | |
 
 ### Critical Path (longest dependency chain):
 
