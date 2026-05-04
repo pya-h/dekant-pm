@@ -13,6 +13,7 @@ import { SettingsModule } from "./settings/settings.module";
 import { FeeCollectionModule } from "./fee-collection/fee-collection.module";
 import { MarketEntity } from "./market/entity/market.entity";
 import { TradeEntity } from "./market/entity/trade.entity";
+import { BookmarkEntity } from "./market/entity/bookmark.entity";
 import { UserPositionEntity } from "./user/entity/user-position.entity";
 import { LpPositionEntity } from "./user/entity/lp-position.entity";
 import { UserRoleEntity } from "./user/entity/user-role.entity";
@@ -55,6 +56,7 @@ const isInProduction = process.env.NODE_ENV === "production";
         entities: [
           MarketEntity,
           TradeEntity,
+          BookmarkEntity,
           UserPositionEntity,
           LpPositionEntity,
           UserRoleEntity,

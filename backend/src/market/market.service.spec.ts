@@ -4,6 +4,7 @@ import { NotFoundException } from '@nestjs/common';
 import { MarketService } from './market.service';
 import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
+import { BookmarkEntity } from './entity/bookmark.entity';
 
 function createMockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
   return {
@@ -44,6 +45,7 @@ describe('MarketService', () => {
   let service: MarketService;
   let marketRepo: Record<string, jest.Mock>;
   let tradeRepo: Record<string, jest.Mock>;
+  let bookmarkRepo: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     marketRepo = {
@@ -58,11 +60,26 @@ describe('MarketService', () => {
       findAndCount: jest.fn(),
     };
 
+    const bookmarkInsertQb = {
+      insert: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+    };
+
+    bookmarkRepo = {
+      find: jest.fn(),
+      count: jest.fn(),
+      delete: jest.fn(),
+      createQueryBuilder: jest.fn().mockReturnValue(bookmarkInsertQb),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketService,
         { provide: getRepositoryToken(MarketEntity), useValue: marketRepo },
         { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
+        { provide: getRepositoryToken(BookmarkEntity), useValue: bookmarkRepo },
       ],
     }).compile();
 
@@ -466,6 +483,82 @@ describe('MarketService', () => {
     it('should throw NotFoundException for missing market', async () => {
       marketRepo.findOne.mockResolvedValue(null);
       await expect(service.getOracleData(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('bookmarks', () => {
+    it('should return bookmarked markets ordered by newest bookmark first', async () => {
+      const m1 = createMockMarket({ id: '1', title: 'One' });
+      const m2 = createMockMarket({ id: '2', title: 'Two' });
+      bookmarkRepo.find.mockResolvedValue([
+        { market: m2 },
+        { market: m1 },
+      ]);
+
+      const result = await service.getBookmarkedMarkets(
+        'Wallet11111111111111111111111111111111111111',
+      );
+
+      expect(bookmarkRepo.find).toHaveBeenCalledWith({
+        where: { userAddress: 'Wallet11111111111111111111111111111111111111' },
+        relations: ['market'],
+        order: { createdAt: 'DESC' },
+      });
+      expect(result).toEqual([m2, m1]);
+    });
+
+    it('should return bookmark state as true when bookmark exists', async () => {
+      marketRepo.findOne.mockResolvedValue(createMockMarket());
+      bookmarkRepo.count.mockResolvedValue(1);
+
+      const result = await service.getBookmarkState(
+        1,
+        'Wallet11111111111111111111111111111111111111',
+      );
+
+      expect(bookmarkRepo.count).toHaveBeenCalledWith({
+        where: {
+          marketId: '1',
+          userAddress: 'Wallet11111111111111111111111111111111111111',
+        },
+      });
+      expect(result).toEqual({ bookmarked: true });
+    });
+
+    it('should add bookmark idempotently', async () => {
+      marketRepo.findOne.mockResolvedValue(createMockMarket());
+
+      const result = await service.addBookmark(
+        1,
+        'Wallet11111111111111111111111111111111111111',
+      );
+
+      expect(bookmarkRepo.createQueryBuilder).toHaveBeenCalled();
+      const qb = bookmarkRepo.createQueryBuilder.mock.results[0].value;
+      expect(qb.insert).toHaveBeenCalled();
+      expect(qb.values).toHaveBeenCalledWith({
+        marketId: '1',
+        userAddress: 'Wallet11111111111111111111111111111111111111',
+      });
+      expect(qb.orIgnore).toHaveBeenCalled();
+      expect(qb.execute).toHaveBeenCalled();
+      expect(result).toEqual({ bookmarked: true });
+    });
+
+    it('should remove bookmark', async () => {
+      marketRepo.findOne.mockResolvedValue(createMockMarket());
+      bookmarkRepo.delete.mockResolvedValue({ affected: 1 });
+
+      const result = await service.removeBookmark(
+        1,
+        'Wallet11111111111111111111111111111111111111',
+      );
+
+      expect(bookmarkRepo.delete).toHaveBeenCalledWith({
+        marketId: '1',
+        userAddress: 'Wallet11111111111111111111111111111111111111',
+      });
+      expect(result).toEqual({ bookmarked: false });
     });
   });
 
