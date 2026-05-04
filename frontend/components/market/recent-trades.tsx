@@ -4,26 +4,11 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { USDC_DECIMALS, SCALE } from "@/lib/types";
+import { SCALE, type Trade } from "@/lib/types";
+import { formatCompactUsdc } from "@/lib/portfolio-utils";
 import { cn } from "@/lib/utils";
 
 const RECENT_TRADES_COUNT = 10;
-
-interface Trade {
-  id: string;
-  marketId: string;
-  trader: string;
-  isBuy: boolean;
-  collateralAmount: string;
-  outcomeIndex: number | null;
-  mu: string | null;
-  sigma: string | null;
-  tokensTransacted: string;
-  feePaid: string;
-  txSignature: string;
-  slot: string;
-  timestamp: string;
-}
 
 interface RecentTradesProps {
   marketId: string;
@@ -206,9 +191,3 @@ function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-function formatCompactUsdc(raw: number): string {
-  const n = Math.abs(raw) / 10 ** USDC_DECIMALS;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
-  return `$${n.toFixed(2)}`;
-}
