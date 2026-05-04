@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { VisuallyHidden } from "radix-ui";
 import { TradingPanel } from "./trading-panel";
 import type { MarketDetail } from "@/lib/types";
 
@@ -32,10 +32,10 @@ export function ClassicTradeModal({ market }: ClassicTradeModalProps) {
           <SlidersHorizontal className="h-3.5 w-3.5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="border-0 bg-transparent p-0 shadow-none sm:max-w-md">
+        <VisuallyHidden.Root>
           <DialogTitle>Classic Trade</DialogTitle>
-        </DialogHeader>
+        </VisuallyHidden.Root>
         <TradingPanel market={market} />
       </DialogContent>
     </Dialog>

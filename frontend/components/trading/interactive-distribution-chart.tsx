@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useId, useMemo, useCallback, useState, useEffect } from "react";
-import { computeBinWeights, sliderToSigma, sigmaToSlider } from "@/lib/normal";
+import { useRef, useId, useMemo, useCallback, useState } from "react";
+import { computeBinWeights } from "@/lib/normal";
 import { computeProbabilities, SCALE, type MarketDetail } from "@/lib/types";
+import { useLocalPrefs } from "@/lib/use-local-prefs";
 
 interface InteractiveDistributionChartProps {
   market: MarketDetail;
@@ -31,9 +32,12 @@ export function InteractiveDistributionChart({
   const svgRef = useRef<SVGSVGElement>(null);
   const gradientMarketId = useId();
   const gradientUserId = useId();
+  const clipId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right">("none");
-  const [smooth, setSmooth] = useState(true);
-  const [yUnit, setYUnit] = useState<"pct" | "price">("pct");
+  const { prefs, setPref } = useLocalPrefs();
+  const smooth = prefs.chartSmooth;
+  const yUnit = prefs.chartYUnit;
+  const dynamicScale = prefs.chartDynamicScale;
 
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -59,9 +63,15 @@ export function InteractiveDistributionChart({
 
   const barW = plotW / numBins;
   const maxP = useMemo(() => {
-    const vals = [...marketProbabilities, ...traderWeights];
-    return Math.max(...vals, 0.001);
-  }, [marketProbabilities, traderWeights]);
+    const marketMax = Math.max(...marketProbabilities, 0.001);
+    if (dynamicScale) {
+      const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
+      return Math.max(marketMax, traderMax, 0.001) * 1.1;
+    }
+    // Fixed scale: try to fit trader curve too, but never shrink market below ~1/3 of chart
+    const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
+    return Math.max(marketMax * 1.2, Math.min(traderMax * 1.1, marketMax * 3));
+  }, [marketProbabilities, traderWeights, dynamicScale]);
 
   const marketPoints = useMemo(
     () => marketProbabilities.map((p, i) => ({
@@ -210,30 +220,48 @@ export function InteractiveDistributionChart({
 
   return (
     <div className="relative w-full">
-      {/* Y-axis unit toggle (left corner) */}
-      <button
-        type="button"
-        onClick={() => setYUnit((u) => u === "pct" ? "price" : "pct")}
-        className="absolute left-1 top-1 z-10 cursor-pointer rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
-        title={yUnit === "pct" ? "Switch to price" : "Switch to percentage"}
-      >
-        {yUnit === "pct" ? "%" : "$"}
-      </button>
-      {/* Smooth/Real toggle (right corner) */}
-      <button
-        type="button"
-        onClick={() => setSmooth((s) => !s)}
-        className="absolute right-1 top-1 z-10 cursor-pointer rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 backdrop-blur-sm transition-colors hover:text-foreground"
-        title={smooth ? "Switch to segmented (real bins)" : "Switch to smooth curve"}
-      >
-        <svg width="16" height="10" viewBox="0 0 16 10" className="text-muted-foreground">
-          {smooth ? (
-            <path d="M1 8 L4 6 L7 2 L10 4 L13 3 L15 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          ) : (
-            <path d="M1 8 C3 8 4 2 8 2 C12 2 13 6 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          )}
-        </svg>
-      </button>
+      {/* Chart toolbar — sits above the chart, doesn't overlap */}
+      <div className="flex items-center justify-between mb-1">
+        {/* Left: Y-axis controls (stacked vertically) */}
+        <div className="flex flex-col gap-0.5">
+          <button
+            type="button"
+            onClick={() => setPref("chartYUnit", yUnit === "pct" ? "price" : "pct")}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            title={yUnit === "pct" ? "Switch to price" : "Switch to percentage"}
+          >
+            {yUnit === "pct" ? "%" : "$"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPref("chartDynamicScale", !dynamicScale)}
+            className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
+            title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
+          >
+            <svg width="12" height="10" viewBox="0 0 14 10">
+              <path d="M1 9 L1 1 M1 1 L3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              {dynamicScale && (
+                <path d="M6 5 L8 3 L10 6 L13 2" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+          </button>
+        </div>
+        {/* Right: curve style toggle */}
+        <button
+          type="button"
+          onClick={() => setPref("chartSmooth", !smooth)}
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-muted-foreground transition-colors hover:text-foreground"
+          title={smooth ? "Switch to segmented (real bins)" : "Switch to smooth curve"}
+        >
+          <svg width="14" height="10" viewBox="0 0 16 10">
+            {smooth ? (
+              <path d="M1 8 C3 8 5 2 8 2 C11 2 13 6 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            ) : (
+              <path d="M1 8 L4 6 L7 2 L10 4 L13 3 L15 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+            )}
+          </svg>
+        </button>
+      </div>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} ${height}`}
@@ -253,6 +281,9 @@ export function InteractiveDistributionChart({
             <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
             <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity={0.05} />
           </linearGradient>
+          <clipPath id={clipId}>
+            <rect x={CHART_PADDING.left} y={CHART_PADDING.top} width={plotW} height={plotH} />
+          </clipPath>
         </defs>
 
         {/* Grid lines + Y-axis labels */}
@@ -279,31 +310,34 @@ export function InteractiveDistributionChart({
           </g>
         ))}
 
-        {/* Market distribution — cyan filled area */}
-        <path d={marketAreaPath} fill={`url(#${gradientMarketId})`} />
-        <path
-          d={marketLinePath}
-          fill="none"
-          stroke="rgb(6 182 212)"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
+        {/* Curves clipped to plot area */}
+        <g clipPath={`url(#${clipId})`}>
+          {/* Market distribution — cyan filled area */}
+          <path d={marketAreaPath} fill={`url(#${gradientMarketId})`} />
+          <path
+            d={marketLinePath}
+            fill="none"
+            stroke="rgb(6 182 212)"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
 
-        {/* User distribution — blue filled area (only when mu is set) */}
-        {mu !== null && traderPoints.length > 0 && (
-          <>
-            <path d={traderAreaPath} fill={`url(#${gradientUserId})`} />
-            <path
-              d={traderLinePath}
-              fill="none"
-              stroke="rgb(59 130 246)"
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </>
-        )}
+          {/* User distribution — blue filled area (only when mu is set) */}
+          {mu !== null && traderPoints.length > 0 && (
+            <>
+              <path d={traderAreaPath} fill={`url(#${gradientUserId})`} />
+              <path
+                d={traderLinePath}
+                fill="none"
+                stroke="rgb(59 130 246)"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </>
+          )}
+        </g>
 
         {/* Sigma boundary lines */}
         {mu !== null && leftBoundX != null && rightBoundX != null && (
