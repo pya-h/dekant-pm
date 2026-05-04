@@ -12,7 +12,7 @@ interface DistributionChartProps {
   height?: number;
 }
 
-const CHART_PADDING = { top: 12, right: 20, bottom: 28, left: 20 };
+const CHART_PADDING = { top: 12, right: 20, bottom: 28, left: 44 };
 const VIEW_W = 600;
 const DEFAULT_HEIGHT = 200;
 
@@ -71,18 +71,28 @@ export function DistributionChart({
   return (
     <div className="relative w-full">
       <svg viewBox={`0 0 ${VIEW_W} ${height}`} className="w-full h-auto">
-        {/* Grid lines */}
+        {/* Grid lines + Y-axis labels */}
         {[0.25, 0.5, 0.75].map((frac) => (
-          <line
-            key={frac}
-            x1={CHART_PADDING.left}
-            x2={VIEW_W - CHART_PADDING.right}
-            y1={CHART_PADDING.top + plotH * (1 - frac)}
-            y2={CHART_PADDING.top + plotH * (1 - frac)}
-            stroke="currentColor"
-            strokeOpacity={0.06}
-            strokeWidth={0.5}
-          />
+          <g key={frac}>
+            <line
+              x1={CHART_PADDING.left}
+              x2={VIEW_W - CHART_PADDING.right}
+              y1={CHART_PADDING.top + plotH * (1 - frac)}
+              y2={CHART_PADDING.top + plotH * (1 - frac)}
+              stroke="currentColor"
+              strokeOpacity={0.06}
+              strokeWidth={0.5}
+            />
+            <text
+              x={CHART_PADDING.left - 6}
+              y={CHART_PADDING.top + plotH * (1 - frac) + 3.5}
+              textAnchor="end"
+              className="fill-muted-foreground"
+              fontSize={9}
+            >
+              {formatPct(maxP * frac)}
+            </text>
+          </g>
         ))}
 
         {/* Filled area */}
@@ -213,4 +223,11 @@ function formatTickValue(v: number): string {
   if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
   if (Number.isInteger(v)) return String(v);
   return v.toFixed(2);
+}
+
+function formatPct(p: number): string {
+  const pct = p * 100;
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  return `${pct.toFixed(2)}%`;
 }

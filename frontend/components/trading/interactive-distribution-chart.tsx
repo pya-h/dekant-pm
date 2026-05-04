@@ -15,7 +15,7 @@ interface InteractiveDistributionChartProps {
   height?: number;
 }
 
-const CHART_PADDING = { top: 16, right: 24, bottom: 32, left: 24 };
+const CHART_PADDING = { top: 16, right: 24, bottom: 32, left: 48 };
 const VIEW_W = 700;
 const DEFAULT_HEIGHT = 300;
 const HANDLE_RADIUS = 6;
@@ -33,6 +33,7 @@ export function InteractiveDistributionChart({
   const gradientUserId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right">("none");
   const [smooth, setSmooth] = useState(true);
+  const [yUnit, setYUnit] = useState<"pct" | "price">("pct");
 
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -209,14 +210,29 @@ export function InteractiveDistributionChart({
 
   return (
     <div className="relative w-full">
-      {/* Smooth/Real toggle */}
+      {/* Y-axis unit toggle (left corner) */}
+      <button
+        type="button"
+        onClick={() => setYUnit((u) => u === "pct" ? "price" : "pct")}
+        className="absolute left-1 top-1 z-10 cursor-pointer rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
+        title={yUnit === "pct" ? "Switch to price" : "Switch to percentage"}
+      >
+        {yUnit === "pct" ? "%" : "$"}
+      </button>
+      {/* Smooth/Real toggle (right corner) */}
       <button
         type="button"
         onClick={() => setSmooth((s) => !s)}
-        className="absolute right-1 top-1 z-10 rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
+        className="absolute right-1 top-1 z-10 cursor-pointer rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 backdrop-blur-sm transition-colors hover:text-foreground"
         title={smooth ? "Switch to segmented (real bins)" : "Switch to smooth curve"}
       >
-        {smooth ? "Smooth" : "Bins"}
+        <svg width="16" height="10" viewBox="0 0 16 10" className="text-muted-foreground">
+          {smooth ? (
+            <path d="M1 8 L4 6 L7 2 L10 4 L13 3 L15 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          ) : (
+            <path d="M1 8 C3 8 4 2 8 2 C12 2 13 6 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          )}
+        </svg>
       </button>
       <svg
         ref={svgRef}
@@ -239,18 +255,28 @@ export function InteractiveDistributionChart({
           </linearGradient>
         </defs>
 
-        {/* Grid lines */}
+        {/* Grid lines + Y-axis labels */}
         {[0.25, 0.5, 0.75].map((frac) => (
-          <line
-            key={frac}
-            x1={CHART_PADDING.left}
-            x2={VIEW_W - CHART_PADDING.right}
-            y1={CHART_PADDING.top + plotH * (1 - frac)}
-            y2={CHART_PADDING.top + plotH * (1 - frac)}
-            stroke="currentColor"
-            strokeOpacity={0.06}
-            strokeWidth={0.5}
-          />
+          <g key={frac}>
+            <line
+              x1={CHART_PADDING.left}
+              x2={VIEW_W - CHART_PADDING.right}
+              y1={CHART_PADDING.top + plotH * (1 - frac)}
+              y2={CHART_PADDING.top + plotH * (1 - frac)}
+              stroke="currentColor"
+              strokeOpacity={0.06}
+              strokeWidth={0.5}
+            />
+            <text
+              x={CHART_PADDING.left - 6}
+              y={CHART_PADDING.top + plotH * (1 - frac) + 3.5}
+              textAnchor="end"
+              className="fill-muted-foreground"
+              fontSize={9}
+            >
+              {yUnit === "pct" ? formatPct(maxP * frac) : formatPrice(maxP * frac)}
+            </text>
+          </g>
         ))}
 
         {/* Market distribution — cyan filled area */}
@@ -469,4 +495,17 @@ function formatChartValue(v: number): string {
   if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
   if (Number.isInteger(v)) return String(v);
   return v.toFixed(2);
+}
+
+function formatPct(p: number): string {
+  const pct = p * 100;
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  return `${pct.toFixed(2)}%`;
+}
+
+function formatPrice(p: number): string {
+  if (p >= 1) return `$${p.toFixed(2)}`;
+  if (p >= 0.01) return `$${p.toFixed(3)}`;
+  return `$${p.toFixed(4)}`;
 }
