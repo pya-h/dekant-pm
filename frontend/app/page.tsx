@@ -1,11 +1,10 @@
 "use client";
 
-import { Suspense, useState, useCallback } from "react";
+import { Suspense, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMarkets } from "@/hooks/use-markets";
 import { MarketCard } from "@/components/market/market-card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +15,7 @@ import {
 import type { MarketFilters } from "@/lib/types";
 import { ChevronDown } from "lucide-react";
 import { FeaturedSection } from "@/components/home/featured-section";
+import { getMarketAssetVisual } from "@/lib/market-asset";
 
 const timeRangeOptions = [
   { value: "all", label: "All Time" },
@@ -24,7 +24,32 @@ const timeRangeOptions = [
   { value: "30d", label: "30d" },
 ] as const;
 
+const assetOptions = [
+  { value: "all", label: "All Assets" },
+  { value: "BTC", label: "Bitcoin" },
+  { value: "ETH", label: "Ethereum" },
+  { value: "SOL", label: "Solana" },
+  { value: "USDC", label: "USDC" },
+  { value: "BNB", label: "BNB" },
+  { value: "XRP", label: "XRP" },
+  { value: "ADA", label: "Cardano" },
+  { value: "DOGE", label: "Dogecoin" },
+] as const;
+
 const LIMIT = 20;
+
+function getCreatedAfter(timeRange: string): string | undefined {
+  if (timeRange === "all") return undefined;
+  const now = Date.now();
+  const msMap: Record<string, number> = {
+    "24h": 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
+    "30d": 30 * 24 * 60 * 60 * 1000,
+  };
+  const ms = msMap[timeRange];
+  if (!ms) return undefined;
+  return new Date(now - ms).toISOString();
+}
 
 export default function Home() {
   return (
@@ -49,14 +74,17 @@ function HomeContent() {
   const searchFromUrl = searchParams.get("search") ?? "";
 
   const [timeRange, setTimeRange] = useState("all");
+  const [assetFilter, setAssetFilter] = useState("all");
   const [page, setPage] = useState(1);
 
-  const filters: MarketFilters & { page: number; limit: number } = {
+  const filters: MarketFilters & { page: number; limit: number } = useMemo(() => ({
     page: 1,
     limit: page * LIMIT,
     ...(searchFromUrl && { search: searchFromUrl }),
+    ...(assetFilter !== "all" && { subject: assetFilter }),
+    ...(timeRange !== "all" && { createdAfter: getCreatedAfter(timeRange) }),
     sortBy: "newest",
-  };
+  }), [page, searchFromUrl, assetFilter, timeRange]);
 
   const { data, isLoading, isError, error, refetch } = useMarkets(filters);
 
@@ -69,6 +97,8 @@ function HomeContent() {
   }, []);
 
   const timeLabel = timeRangeOptions.find((o) => o.value === timeRange)?.label ?? "All Time";
+  const assetLabel = assetOptions.find((o) => o.value === assetFilter)?.label ?? "All Assets";
+  const assetVisual = assetFilter !== "all" ? getMarketAssetVisual(assetFilter, null) : null;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -81,7 +111,6 @@ function HomeContent() {
 
         <div className="flex items-center gap-2">
           {/* Time range filter */}
-          <span className="hidden text-sm text-muted-foreground sm:inline">Time range</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
@@ -106,12 +135,47 @@ function HomeContent() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Assets filter placeholder */}
-          <Badge variant="outline" className="gap-1.5 text-xs cursor-default px-2.5 py-1">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-white">B</span>
-            Bitcoin
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-          </Badge>
+          {/* Asset filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                {assetVisual && (
+                  <span
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${assetVisual.bgClass} ${assetVisual.textClass}`}
+                  >
+                    {assetVisual.symbol}
+                  </span>
+                )}
+                {assetLabel}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={assetFilter}
+                onValueChange={(v) => {
+                  setAssetFilter(v);
+                  setPage(1);
+                }}
+              >
+                {assetOptions.map((opt) => {
+                  const v = opt.value !== "all" ? getMarketAssetVisual(opt.value, null) : null;
+                  return (
+                    <DropdownMenuRadioItem key={opt.value} value={opt.value} className="gap-2">
+                      {v && (
+                        <span
+                          className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${v.bgClass} ${v.textClass}`}
+                        >
+                          {v.symbol}
+                        </span>
+                      )}
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  );
+                })}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -137,7 +201,9 @@ function HomeContent() {
           <p className="text-sm text-muted-foreground">
             {searchFromUrl
               ? "No markets match your search"
-              : "No markets found"}
+              : assetFilter !== "all"
+                ? `No ${assetLabel} markets found`
+                : "No markets found"}
           </p>
         </div>
       ) : (

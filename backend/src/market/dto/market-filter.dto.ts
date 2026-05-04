@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, IsIn, IsBoolean, MaxLength, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsIn, IsBoolean, IsDateString, MaxLength, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
@@ -66,4 +66,9 @@ export class MarketFilterDto {
   @IsBoolean()
   @IsOptional()
   includeStats?: boolean;
+
+  @ApiPropertyOptional({ description: 'Only include markets created after this ISO 8601 date (e.g. 2026-05-04T00:00:00Z)' })
+  @IsDateString()
+  @IsOptional()
+  createdAfter?: string;
 }
