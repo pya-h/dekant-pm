@@ -129,6 +129,7 @@ export interface MarketFilters {
   marketType?: MarketType;
   state?: MarketState;
   category?: string;
+  subject?: string;
   oracle?: string;
   creator?: string;
   search?: string;

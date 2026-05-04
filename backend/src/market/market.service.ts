@@ -91,6 +91,10 @@ export class MarketService {
       qb.andWhere('m.category = :category', { category: filters.category });
     }
 
+    if (filters.subject) {
+      qb.andWhere('m.subject = :subject', { subject: filters.subject });
+    }
+
     if (filters.marketType !== undefined) {
       qb.andWhere('m.market_type = :marketType', {
         marketType: filters.marketType,
