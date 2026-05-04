@@ -21,8 +21,9 @@ export const mockBinaryMarket: MarketSummary = {
   title: "Will BTC reach $100k?",
   description: "Binary prediction market",
   category: "Crypto",
+  subject: "BTC",
   tags: ["btc", "price"],
-  imageUrl: null,
+  icon: null,
   outcomeLabels: ["Yes", "No"],
   // reserves: Yes outcome bought → reserve[0] low → x0 large → high prob
   reserves: ["30", "70"],

@@ -463,8 +463,9 @@ describe('Markets (e2e)', () => {
           validCreateDto({
             description: `Description ${randomString(12)}`,
             category: 'politics',
+            subject: 'ETH',
             tags: ['election', '2026'],
-            imageUrl: 'https://example.com/img.png',
+            icon: 'eth',
             outcomeLabels: ['Yes', 'No'],
           }),
         )

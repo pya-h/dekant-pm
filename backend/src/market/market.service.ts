@@ -20,6 +20,9 @@ export class MarketService {
   async create(dto: CreateMarketDto): Promise<MarketEntity> {
     const id = String(dto.marketId);
     const existing = await this.marketRepo.findOne({ where: { id } });
+    const category = dto.category?.trim() || 'crypto';
+    const subject = dto.subject?.trim() || 'SOL';
+    const icon = dto.icon?.trim() || null;
 
     if (existing) {
       // Indexer may have already inserted this row with a generic title.
@@ -30,9 +33,10 @@ export class MarketService {
       // hasn't populated them yet.
       existing.title = dto.title;
       existing.description = dto.description ?? null;
-      existing.category = dto.category ?? null;
+      existing.category = dto.category?.trim() || existing.category || 'crypto';
+      existing.subject = dto.subject?.trim() || existing.subject || 'SOL';
       existing.tags = dto.tags ?? null;
-      existing.imageUrl = dto.imageUrl ?? null;
+      existing.icon = dto.icon?.trim() || existing.icon || null;
       existing.outcomeLabels = dto.outcomeLabels ?? null;
       if (!existing.creator) existing.creator = dto.creator;
       if (!existing.oracle) existing.oracle = dto.oracle;
@@ -59,9 +63,10 @@ export class MarketService {
       numOutcomes: dto.numOutcomes,
       title: dto.title,
       description: dto.description ?? null,
-      category: dto.category ?? null,
+      category,
+      subject,
       tags: dto.tags ?? null,
-      imageUrl: dto.imageUrl ?? null,
+      icon,
       outcomeLabels: dto.outcomeLabels ?? null,
       reserves: initialReserves,
       kSquared: '0',

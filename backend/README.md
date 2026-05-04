@@ -243,7 +243,7 @@ Combines on-chain state (cached from indexer) and off-chain metadata:
 | `state` | number | 0=Active, 1=Paused, 2=Pending, 3=Resolved |
 | `reserves` | string[] | Cached reserves from on-chain |
 | `kSquared`, `totalMinted` | string | Cached AMM state |
-| `title`, `description`, `category`, `tags`, `imageUrl`, `outcomeLabels` | various | Off-chain metadata |
+| `title`, `description`, `category`, `subject`, `tags`, `icon`, `outcomeLabels` | various | Off-chain metadata |
 | `totalVolume`, `totalTraders`, `lastTradeAt` | various | Derived from indexed trades |
 
 ### TradeEntity

@@ -25,16 +25,21 @@ export class CreateMarketDto {
   @IsOptional()
   category?: string;
 
+  @ApiPropertyOptional({ description: 'Market subject/asset', default: 'SOL' })
+  @IsString()
+  @IsOptional()
+  subject?: string;
+
   @ApiPropertyOptional({ description: 'Tags', type: [String] })
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   tags?: string[];
 
-  @ApiPropertyOptional({ description: 'Image URL' })
+  @ApiPropertyOptional({ description: 'Market icon' })
   @IsString()
   @IsOptional()
-  imageUrl?: string;
+  icon?: string;
 
   @ApiPropertyOptional({ description: 'Outcome labels', type: [String] })
   @IsArray()

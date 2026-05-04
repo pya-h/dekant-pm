@@ -48,14 +48,17 @@ export class MarketEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true, default: 'crypto' })
   category!: string | null;
+
+  @Column({ type: 'varchar', length: 32, default: 'SOL' })
+  subject!: string;
 
   @Column({ type: 'text', array: true, nullable: true })
   tags!: string[] | null;
 
-  @Column({ type: 'text', nullable: true, name: 'image_url' })
-  imageUrl!: string | null;
+  @Column({ type: 'text', nullable: true })
+  icon!: string | null;
 
   @Column({ type: 'text', array: true, nullable: true, name: 'outcome_labels' })
   outcomeLabels!: string[] | null;

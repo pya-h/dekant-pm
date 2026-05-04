@@ -218,7 +218,7 @@ describe("Trade flow integration", () => {
 
     // 3. Submit
     const submitButton = screen.getByRole("button", {
-      name: /Place Buy Order/i,
+      name: /(Open Position|Place Buy Order)/i,
     });
     expect(submitButton).not.toBeDisabled();
     await user.click(submitButton);
