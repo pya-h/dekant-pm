@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import { formatChartValue as formatTickValue, formatPct } from "@/lib/chart-format";
 
 interface DistributionChartProps {
   probabilities: number[];
@@ -218,16 +219,3 @@ export function DistributionChart({
   );
 }
 
-function formatTickValue(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  if (Number.isInteger(v)) return String(v);
-  return v.toFixed(2);
-}
-
-function formatPct(p: number): string {
-  const pct = p * 100;
-  if (pct >= 10) return `${Math.round(pct)}%`;
-  if (pct >= 1) return `${pct.toFixed(1)}%`;
-  return `${pct.toFixed(2)}%`;
-}
