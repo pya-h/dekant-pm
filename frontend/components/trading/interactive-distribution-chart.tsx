@@ -32,6 +32,7 @@ export function InteractiveDistributionChart({
   const gradientMarketId = useId();
   const gradientUserId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right">("none");
+  const [smooth, setSmooth] = useState(true);
 
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -77,11 +78,23 @@ export function InteractiveDistributionChart({
     [traderWeights, barW, plotH, maxP],
   );
 
-  // Paths
-  const marketAreaPath = useMemo(() => buildAreaPath(marketPoints, baseline), [marketPoints, baseline]);
-  const marketLine = useMemo(() => marketPoints.map((pt) => `${pt.x},${pt.y}`).join(" "), [marketPoints]);
-  const traderAreaPath = useMemo(() => buildAreaPath(traderPoints, baseline), [traderPoints, baseline]);
-  const traderLine = useMemo(() => traderPoints.map((pt) => `${pt.x},${pt.y}`).join(" "), [traderPoints]);
+  // Paths (smooth vs segmented)
+  const marketAreaPath = useMemo(
+    () => smooth ? buildSmoothAreaPath(marketPoints, baseline) : buildAreaPath(marketPoints, baseline),
+    [marketPoints, baseline, smooth],
+  );
+  const marketLinePath = useMemo(
+    () => smooth ? buildSmoothLinePath(marketPoints) : buildPolylinePath(marketPoints),
+    [marketPoints, smooth],
+  );
+  const traderAreaPath = useMemo(
+    () => smooth ? buildSmoothAreaPath(traderPoints, baseline) : buildAreaPath(traderPoints, baseline),
+    [traderPoints, baseline, smooth],
+  );
+  const traderLinePath = useMemo(
+    () => smooth ? buildSmoothLinePath(traderPoints) : buildPolylinePath(traderPoints),
+    [traderPoints, smooth],
+  );
 
   // X-axis ticks (5 evenly spaced)
   const tickCount = Math.min(5, numBins);
@@ -194,11 +207,17 @@ export function InteractiveDistributionChart({
   const leftBoundValue = mu !== null ? Math.max(rangeMin, mu - sigma) : null;
   const rightBoundValue = mu !== null ? Math.min(rangeMax, mu + sigma) : null;
 
-  // Confidence percentage (for Normal distribution ±1σ ≈ 68.27%)
-  const confidencePct = 68;
-
   return (
     <div className="relative w-full">
+      {/* Smooth/Real toggle */}
+      <button
+        type="button"
+        onClick={() => setSmooth((s) => !s)}
+        className="absolute right-1 top-1 z-10 rounded-md border border-border/40 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
+        title={smooth ? "Switch to segmented (real bins)" : "Switch to smooth curve"}
+      >
+        {smooth ? "Smooth" : "Bins"}
+      </button>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} ${height}`}
@@ -236,24 +255,26 @@ export function InteractiveDistributionChart({
 
         {/* Market distribution — cyan filled area */}
         <path d={marketAreaPath} fill={`url(#${gradientMarketId})`} />
-        <polyline
-          points={marketLine}
+        <path
+          d={marketLinePath}
           fill="none"
           stroke="rgb(6 182 212)"
           strokeWidth={2}
           strokeLinejoin="round"
+          strokeLinecap="round"
         />
 
         {/* User distribution — blue filled area (only when mu is set) */}
         {mu !== null && traderPoints.length > 0 && (
           <>
             <path d={traderAreaPath} fill={`url(#${gradientUserId})`} />
-            <polyline
-              points={traderLine}
+            <path
+              d={traderLinePath}
               fill="none"
               stroke="rgb(59 130 246)"
               strokeWidth={2}
               strokeLinejoin="round"
+              strokeLinecap="round"
             />
           </>
         )}
@@ -322,28 +343,7 @@ export function InteractiveDistributionChart({
           </>
         )}
 
-        {/* Confidence label */}
-        {mu !== null && muX != null && (
-          <g>
-            <rect
-              x={muX - 52} y={CHART_PADDING.top + 6}
-              width={104} height={22}
-              rx={6}
-              fill="rgb(30 41 59)" fillOpacity={0.85}
-              stroke="rgb(59 130 246)" strokeWidth={0.5} strokeOpacity={0.4}
-            />
-            <text
-              x={muX} y={CHART_PADDING.top + 21}
-              textAnchor="middle"
-              fontSize={11} fontWeight={600}
-            >
-              <tspan className="fill-blue-400">{confidencePct}%</tspan>
-              <tspan className="fill-muted-foreground"> Confidence</tspan>
-            </text>
-          </g>
-        )}
-
-        {/* "Drag to change confidence" hint */}
+        {/* "Drag handles to adjust spread" hint */}
         {mu !== null && muX != null && (
           <text
             x={muX} y={baseline - 8}
@@ -351,7 +351,7 @@ export function InteractiveDistributionChart({
             className="fill-muted-foreground"
             fontSize={9} opacity={0.5}
           >
-            Drag handles to change confidence
+            Drag handles to adjust spread
           </text>
         )}
 
@@ -426,6 +426,42 @@ function buildAreaPath(points: { x: number; y: number }[], baseline: number): st
   }
   path += ` L ${points[points.length - 1].x} ${baseline} Z`;
   return path;
+}
+
+function buildPolylinePath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return "";
+  return "M " + points.map((pt) => `${pt.x} ${pt.y}`).join(" L ");
+}
+
+/** Catmull-Rom spline → cubic Bezier SVG path (smooth line through all points) */
+function buildSmoothLinePath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+    // Catmull-Rom to cubic Bezier control points (tension = 0, alpha = 0.5 uniform)
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+/** Smooth filled area path (smooth top edge, straight baseline) */
+function buildSmoothAreaPath(points: { x: number; y: number }[], baseline: number): string {
+  if (points.length === 0) return "";
+  const linePath = buildSmoothLinePath(points);
+  return `${linePath} L ${points[points.length - 1].x} ${baseline} L ${points[0].x} ${baseline} Z`;
 }
 
 function formatChartValue(v: number): string {
