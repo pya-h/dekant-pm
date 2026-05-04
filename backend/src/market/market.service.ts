@@ -120,6 +120,10 @@ export class MarketService {
       });
     }
 
+    if (filters.createdAfter) {
+      qb.andWhere('m.created_at >= :createdAfter', { createdAfter: filters.createdAfter });
+    }
+
     switch (filters.sortBy) {
       case 'deadline':
         qb.orderBy('m.deadline', 'ASC');

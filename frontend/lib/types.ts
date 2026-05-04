@@ -134,6 +134,7 @@ export interface MarketFilters {
   creator?: string;
   search?: string;
   sortBy?: "newest" | "deadline" | "volume";
+  createdAfter?: string;
 }
 
 export function computeProbabilities(
