@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState, useCallback } from "react";
 import Link from "next/link";
 import { useMarket } from "@/hooks/use-market";
 import { MarketStatus } from "@/components/market/market-status";
@@ -17,6 +17,7 @@ import {
 import { TradingPanel } from "@/components/trading/trading-panel";
 import { ContinuousTradingSection } from "@/components/trading/continuous-trading-section";
 import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
+import { sliderToSigma } from "@/lib/normal";
 import { UserPositionDisplay } from "@/components/trading/user-position-display";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,11 @@ export default function MarketDetailPage({
 }) {
   const { id } = use(params);
   const { data: market, isLoading, error } = useMarket(id);
+
+  // Hooks must be called unconditionally (before early returns)
+  const [mu, setMu] = useState<number | null>(null);
+  const [sigma, setSigma] = useState<number | null>(null);
+  const handleReset = useCallback(() => { setMu(null); setSigma(null); }, []);
 
   if (isLoading) return <MarketDetailSkeleton />;
 
@@ -55,6 +61,10 @@ export default function MarketDetailPage({
   }
 
   const isContinuous = market.marketType === MarketType.Continuous;
+  const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
+  const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
+  const effectiveSigma = sigma ?? sliderToSigma(0.5, rangeMax - rangeMin);
+
   const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
   const labels =
     market.outcomeLabels ??
@@ -104,7 +114,13 @@ export default function MarketDetailPage({
           </Card>
 
           {isContinuous ? (
-            <ContinuousTradingSection market={market} />
+            <ContinuousTradingSection
+              market={market}
+              mu={mu}
+              sigma={effectiveSigma}
+              onMuChange={setMu}
+              onSigmaChange={setSigma}
+            />
           ) : (
             <Card>
               <CardHeader className="pb-2">
@@ -238,7 +254,10 @@ export default function MarketDetailPage({
 
         {/* Right column */}
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          {!isContinuous && <TradingPanel market={market} />}
+          <TradingPanel
+            market={market}
+            distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset } : undefined}
+          />
 
           {/* Liquidity provision */}
           <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/10 px-4 py-3">

@@ -1697,7 +1697,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 
 ---
 
-### F-18: Interactive Graph Trading for Continuous Markets
+### F-18: Interactive Graph Trading for Continuous Markets ✅
 
 **Goal:** Upgrade the continuous market trading UX on the market detail page:
 1. Move the current form-based trading panel (mu/sigma sliders + amount) into a modal, accessible via a small "Classic Trade" button — preserves existing functionality
@@ -2168,7 +2168,7 @@ Before implementing the UI, thoroughly analyze and verify the on-chain `add_liqu
 | Infrastructure | 3 | I-1 → I-3 | ✅ Done |
 | On-chain Program | 21 | P-1 → P-21 | ⬅️ P-1→P-19 done; P-20, P-21 remaining |
 | Backend | 13 | B-1 → B-13 | ✅ All done |
-| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-21 done (except F-18) |
+| Frontend | 21 | F-1 → F-21 | ⬅️ F-1→F-21 done |
 | Devkit | 5 | S-1 → S-5 | ✅ Done |
 | Developer Review | 5 | D-1 → D-5 | Not started (post-implementation) |
 | **Total** | **68** | | |
