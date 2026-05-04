@@ -289,6 +289,11 @@ export function CostPreview({
                 label="Trade fee"
                 value={formatUsdcRaw(estimate.fee)}
               />
+              <SlippageRow
+                inputRaw={(estimate as BuyToPriceEstimate).collateralNeeded}
+                outputRaw={(estimate as BuyToPriceEstimate).tokensOut}
+                feeRaw={estimate.fee}
+              />
             </>
           ) : mode === "sellToPrice" && "tokensToSell" in estimate ? (
             <>
@@ -309,6 +314,11 @@ export function CostPreview({
                 label="Trade fee"
                 value={formatUsdcRaw(estimate.fee)}
               />
+              <SlippageRow
+                inputRaw={(estimate as SellToPriceEstimate).tokensToSell}
+                outputRaw={(estimate as SellToPriceEstimate).collateralOut}
+                feeRaw={estimate.fee}
+              />
             </>
           ) : mode === "buyByShares" && "collateralNeeded" in estimate ? (
             <>
@@ -323,6 +333,11 @@ export function CostPreview({
                 label="Trade fee"
                 value={formatUsdcRaw(estimate.fee)}
               />
+              <SlippageRow
+                inputRaw={(estimate as BuyBySharesEstimate).collateralNeeded}
+                outputRaw={Math.floor(Number(amount) * 10 ** USDC_DECIMALS)}
+                feeRaw={estimate.fee}
+              />
             </>
           ) : mode === "sellByCollateral" && "tokensNeeded" in estimate ? (
             <>
@@ -335,6 +350,11 @@ export function CostPreview({
               <PreviewRow
                 label="Trade fee"
                 value={formatUsdcRaw(estimate.fee)}
+              />
+              <SlippageRow
+                inputRaw={(estimate as SellByCollateralEstimate).tokensNeeded}
+                outputRaw={Math.floor(Number(amount) * 10 ** USDC_DECIMALS)}
+                feeRaw={estimate.fee}
               />
             </>
           ) : mode === "distributionBuy" &&
@@ -353,6 +373,16 @@ export function CostPreview({
                 )}
                 highlight
               />
+              <SlippageRow
+                inputRaw={Math.floor(Number(amount) * 10 ** USDC_DECIMALS)}
+                outputRaw={
+                  (estimate as DistributionBuyEstimate).tokensPerBin.reduce(
+                    (sum, t) => sum + t,
+                    0,
+                  )
+                }
+                feeRaw={estimate.fee}
+              />
             </>
           ) : mode === "buy" && "tokensOut" in estimate ? (
             <>
@@ -369,6 +399,11 @@ export function CostPreview({
                 value={formatUsdcRaw((estimate as BuyEstimate).tokensOut)}
                 highlight
               />
+              <SlippageRow
+                inputRaw={Math.floor(Number(amount) * 10 ** USDC_DECIMALS)}
+                outputRaw={(estimate as BuyEstimate).tokensOut}
+                feeRaw={estimate.fee}
+              />
             </>
           ) : "collateralOut" in estimate ? (
             <>
@@ -383,6 +418,11 @@ export function CostPreview({
                 label="Trade fee"
                 value={formatUsdcRaw(estimate.fee)}
               />
+              <SlippageRow
+                inputRaw={Math.floor(Number(amount) * 10 ** USDC_DECIMALS)}
+                outputRaw={(estimate as SellEstimate).collateralOut}
+                feeRaw={estimate.fee}
+              />
             </>
           ) : null}
         </dl>
@@ -395,16 +435,18 @@ function PreviewRow({
   label,
   value,
   highlight,
+  className,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
+  className?: string;
 }) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd
-        className={`text-xs font-medium tabular-nums ${highlight ? "text-emerald-400" : ""}`}
+        className={`text-xs font-medium tabular-nums ${highlight ? "text-emerald-400" : ""} ${className ?? ""}`}
       >
         {value}
       </dd>
@@ -445,4 +487,24 @@ function formatTokens(raw: number): string {
 function formatUsdcRaw(raw: number): string {
   const n = raw / 10 ** USDC_DECIMALS;
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
+/** Estimated slippage = how much worse the output is compared to the input, minus fees */
+function SlippageRow({
+  inputRaw,
+  outputRaw,
+  feeRaw,
+}: {
+  inputRaw: number;
+  outputRaw: number;
+  feeRaw: number;
+}) {
+  if (inputRaw <= 0 || outputRaw <= 0) return null;
+  // Slippage: comparing input to output, accounting for the fee portion
+  const effectiveInput = inputRaw - feeRaw;
+  if (effectiveInput <= 0) return null;
+  const slippage = Math.max(0, ((effectiveInput - outputRaw) / effectiveInput) * 100);
+  const label = slippage < 0.01 ? "<0.01%" : `${slippage.toFixed(2)}%`;
+  const color = slippage > 5 ? "text-rose-400" : slippage > 2 ? "text-amber-400" : "";
+  return <PreviewRow label="Est. Slippage" value={label} className={color} />;
 }

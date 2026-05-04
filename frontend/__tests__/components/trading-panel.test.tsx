@@ -33,6 +33,7 @@ vi.mock("@solana/wallet-adapter-react-ui", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQuery: () => ({ data: null, isLoading: false }),
 }));
 
 vi.mock("@/lib/solana", () => ({
@@ -50,6 +51,12 @@ vi.mock("@/hooks/use-user-position", () => ({
 
 vi.mock("@/hooks/use-token-balance", () => ({
   useTokenBalance: () => ({ data: 1_000_000_000 }), // 1000 USDC base units
+}));
+
+vi.mock("@/hooks/use-positions", () => ({
+  useLpPositions: () => ({ data: null }),
+  useUserPositions: () => ({ data: null }),
+  useLpPosition: () => ({ data: null }),
 }));
 
 vi.mock("@/lib/transactions", () => ({
