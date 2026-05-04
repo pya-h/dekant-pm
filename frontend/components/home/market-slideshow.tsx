@@ -13,7 +13,7 @@ import {
   computeProbabilities,
   type MarketSummary,
 } from "@/lib/types";
-import { BarChart3, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function MarketSlideshow() {
@@ -105,14 +105,6 @@ function SlideContent({ market }: { market: MarketSummary }) {
 
   return (
     <div className="rounded-xl border border-border/40 bg-card/50 p-5">
-      {/* Title row */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="shrink-0 rounded-lg bg-muted p-2.5">
-          <BarChart3 className="h-5 w-5 text-cyan-400" />
-        </div>
-        <h3 className="text-lg font-semibold leading-snug">{market.title}</h3>
-      </div>
-
       {/* Stats + countdown + action buttons — same as market detail, without faucet */}
       <div className="mb-4">
         <MarketHeaderBar market={market} />
