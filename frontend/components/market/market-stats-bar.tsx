@@ -1,16 +1,40 @@
 "use client";
 
+import { useMemo } from "react";
 import { useOracleData } from "@/hooks/use-oracle-data";
-import { MarketType, formatUsdc, type MarketSummary } from "@/lib/types";
+import {
+  MarketType,
+  SCALE,
+  formatUsdc,
+  type MarketSummary,
+} from "@/lib/types";
 
 interface MarketStatsBarProps {
-  market: Pick<MarketSummary, "id" | "marketType" | "reserves" | "totalVolume">;
+  market: Pick<
+    MarketSummary,
+    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax"
+  >;
 }
 
 export function MarketStatsBar({ market }: MarketStatsBarProps) {
   const isContinuous = market.marketType === MarketType.Continuous;
   const { data: oracleData } = useOracleData(market.id, isContinuous);
   const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
+
+  // Placeholder live price: random-ish but stable value within the market range
+  const livePrice = useMemo(() => {
+    if (!isContinuous || market.rangeMin == null || market.rangeMax == null)
+      return null;
+    const rMin = Number(market.rangeMin) / SCALE;
+    const rMax = Number(market.rangeMax) / SCALE;
+    // Use distribution peak if available, otherwise midpoint with small offset
+    if (oracleData?.distributionPeak != null) {
+      // Simulate a live price near the distribution peak
+      const offset = (rMax - rMin) * 0.03;
+      return oracleData.distributionPeak - offset;
+    }
+    return rMin + (rMax - rMin) * 0.48;
+  }, [isContinuous, market.rangeMin, market.rangeMax, oracleData?.distributionPeak]);
 
   return (
     <>
@@ -33,7 +57,13 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
         />
       )}
       <StatCard label="Liquidity" value={formatUsdc(liquidity)} />
-      <StatCard label="Volume" value={formatUsdc(market.totalVolume)} />
+      <StatCard label="Volume (24h)" value={formatUsdc(market.totalVolume)} />
+      {livePrice != null && (
+        <StatCard
+          label="$TOKEN Price (live)*"
+          value={formatStatValue(livePrice)}
+        />
+      )}
     </>
   );
 }

@@ -2,7 +2,6 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { InteractiveDistributionChart } from "./interactive-distribution-chart";
-import { MarketStatsBar } from "@/components/market/market-stats-bar";
 import { type MarketDetail } from "@/lib/types";
 
 interface ContinuousTradingSectionProps {
@@ -24,13 +23,7 @@ export function ContinuousTradingSection({
 }: ContinuousTradingSectionProps) {
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6">
-        {/* Stats bar */}
-        <div className="flex flex-wrap items-stretch gap-2">
-          <MarketStatsBar market={market} />
-        </div>
-
-        {/* Interactive chart */}
+      <CardContent className="pt-6">
         <InteractiveDistributionChart
           market={market}
           mu={mu}

@@ -5,6 +5,7 @@ import { TradeEntity } from './entity/trade.entity';
 import { MarketService } from './market.service';
 import { MarketDeadlineService } from './market-deadline.service';
 import { MarketController } from './market.controller';
+import { FaucetController } from './faucet.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
 
@@ -14,7 +15,7 @@ import { SettingsModule } from '../settings/settings.module';
     AuthModule,
     SettingsModule,
   ],
-  controllers: [MarketController],
+  controllers: [MarketController, FaucetController],
   providers: [MarketService, MarketDeadlineService],
   exports: [MarketService],
 })

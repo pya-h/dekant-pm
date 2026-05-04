@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTopMarkets } from "@/hooks/use-top-markets";
 import { DistributionChart } from "@/components/market/distribution-chart";
 import { PriceBar } from "@/components/market/price-bar";
-import { MarketStatsBar } from "@/components/market/market-stats-bar";
+import { MarketHeaderBar } from "@/components/market/market-header-bar";
 import {
   MarketType,
   MarketState,
@@ -13,7 +13,7 @@ import {
   computeProbabilities,
   type MarketSummary,
 } from "@/lib/types";
-import { BarChart3, ChevronLeft, ChevronRight, Heart, Share2, Bookmark } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function MarketSlideshow() {
@@ -103,48 +103,19 @@ function SlideContent({ market }: { market: MarketSummary }) {
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
-  const deadline = new Date(market.deadline);
-  const countdown = deadlineCountdown(deadline);
-
   return (
     <div className="rounded-xl border border-border/40 bg-card/50 p-5">
-      {/* Title row + action buttons */}
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div className="flex items-center gap-3">
-          <div className="shrink-0 rounded-lg bg-muted p-2.5">
-            <BarChart3 className="h-5 w-5 text-cyan-400" />
-          </div>
-          <h3 className="text-lg font-semibold leading-snug">{market.title}</h3>
+      {/* Title row */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="shrink-0 rounded-lg bg-muted p-2.5">
+          <BarChart3 className="h-5 w-5 text-cyan-400" />
         </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
-            <Heart className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
-            <Share2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full text-muted-foreground border-border/40">
-            <Bookmark className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <h3 className="text-lg font-semibold leading-snug">{market.title}</h3>
       </div>
 
-      <div className="flex flex-wrap items-stretch gap-2 mb-4">
-        <MarketStatsBar market={market} />
-        {countdown ? (
-          <div className="flex items-center gap-3 rounded-lg border border-border/30 bg-muted/20 px-3 py-2">
-            {countdown.days > 0 && (
-              <CountdownUnit value={countdown.days} label="Days" />
-            )}
-            <CountdownUnit value={countdown.hours} label="Hours" />
-            <CountdownUnit value={countdown.minutes} label="Minutes" />
-          </div>
-        ) : (
-          <div className="flex items-center rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2">
-            <span className="text-sm font-semibold text-rose-400">Expired</span>
-          </div>
-        )}
+      {/* Stats + countdown + action buttons — same as market detail, without faucet */}
+      <div className="mb-4">
+        <MarketHeaderBar market={market} />
       </div>
 
       {/* Chart — clickable to market detail */}
@@ -203,17 +174,6 @@ function SlideChart({
   );
 }
 
-function CountdownUnit({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="text-center">
-      <div className="text-lg font-bold tabular-nums leading-tight">
-        {String(value).padStart(2, "0")}
-      </div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-    </div>
-  );
-}
-
 function SlideshowSkeleton() {
   return (
     <div className="rounded-xl border border-border/40 bg-card/50 p-5">
@@ -222,21 +182,11 @@ function SlideshowSkeleton() {
         <div className="h-6 w-64 animate-pulse rounded bg-muted" />
       </div>
       <div className="flex gap-2 mb-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 w-32 animate-pulse rounded-lg bg-muted" />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-14 w-28 animate-pulse rounded-lg bg-muted" />
         ))}
       </div>
       <div className="h-48 animate-pulse rounded-lg bg-muted" />
     </div>
   );
-}
-
-function deadlineCountdown(deadline: Date): { days: number; hours: number; minutes: number } | null {
-  const diff = deadline.getTime() - Date.now();
-  if (diff <= 0) return null;
-  const totalMinutes = Math.floor(diff / 60_000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  return { days, hours, minutes };
 }
