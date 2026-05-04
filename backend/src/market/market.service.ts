@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
+import { BookmarkEntity } from './entity/bookmark.entity';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 
@@ -15,6 +16,8 @@ export class MarketService {
     private readonly marketRepo: Repository<MarketEntity>,
     @InjectRepository(TradeEntity)
     private readonly tradeRepo: Repository<TradeEntity>,
+    @InjectRepository(BookmarkEntity)
+    private readonly bookmarkRepo: Repository<BookmarkEntity>,
   ) {}
 
   async create(dto: CreateMarketDto): Promise<MarketEntity> {
@@ -257,6 +260,51 @@ export class MarketService {
       mostLikelyRange: [Math.round(mlrLow * 100) / 100, Math.round(mlrHigh * 100) / 100],
       confidence95: [Math.round(c95Low * 100) / 100, Math.round(c95High * 100) / 100],
     };
+  }
+
+  async getBookmarkedMarkets(walletAddress: string): Promise<MarketEntity[]> {
+    const bookmarks = await this.bookmarkRepo.find({
+      where: { userAddress: walletAddress },
+      relations: ['market'],
+      order: { createdAt: 'DESC' },
+    });
+    return bookmarks.map((bookmark) => bookmark.market);
+  }
+
+  async getBookmarkState(
+    id: number,
+    walletAddress: string,
+  ): Promise<{ bookmarked: boolean }> {
+    await this.findById(id);
+    const count = await this.bookmarkRepo.count({
+      where: { marketId: String(id), userAddress: walletAddress },
+    });
+    return { bookmarked: count > 0 };
+  }
+
+  async addBookmark(
+    id: number,
+    walletAddress: string,
+  ): Promise<{ bookmarked: boolean }> {
+    await this.findById(id);
+
+    await this.bookmarkRepo
+      .createQueryBuilder()
+      .insert()
+      .values({ marketId: String(id), userAddress: walletAddress })
+      .orIgnore()
+      .execute();
+
+    return { bookmarked: true };
+  }
+
+  async removeBookmark(
+    id: number,
+    walletAddress: string,
+  ): Promise<{ bookmarked: boolean }> {
+    await this.findById(id);
+    await this.bookmarkRepo.delete({ marketId: String(id), userAddress: walletAddress });
+    return { bookmarked: false };
   }
 
   async updateCachedState(

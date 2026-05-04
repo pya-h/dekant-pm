@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useUserPositions } from "@/hooks/use-positions";
+import { useBookmarkedMarkets } from "@/hooks/use-bookmarks";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { MarketCard } from "@/components/market/market-card";
 import {
   MarketState,
-  MarketType,
   SCALE,
-  USDC_DECIMALS,
-  computeProbabilities,
   type UserPosition,
 } from "@/lib/types";
 import {
@@ -33,9 +33,9 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useState } from "react";
-import { Wallet, TrendingUp, AlertCircle, AlertTriangle } from "lucide-react";
+import { Wallet, TrendingUp, AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
 
-type TabKey = "all" | "open" | "settled" | "expired";
+type TabKey = "all" | "open" | "settled" | "expired" | "bookmarked";
 
 export default function PortfolioPage() {
   const { publicKey, connected } = useWallet();
@@ -44,6 +44,36 @@ export default function PortfolioPage() {
 
   const address = publicKey?.toBase58();
   const { data: positions, isLoading, isError, error, refetch } = useUserPositions(address);
+  const { token, authenticate, isAuthenticating, error: authError } = useAuth();
+  const {
+    data: bookmarkedMarkets,
+    isLoading: bookmarkedLoading,
+    isError: isBookmarkedError,
+    error: bookmarkedError,
+    refetch: refetchBookmarked,
+  } = useBookmarkedMarkets(address, token, activeTab === "bookmarked");
+
+  useEffect(() => {
+    if (
+      activeTab !== "bookmarked" ||
+      !connected ||
+      !address ||
+      token ||
+      isAuthenticating ||
+      authError
+    ) {
+      return;
+    }
+    authenticate().catch(() => {});
+  }, [
+    activeTab,
+    connected,
+    address,
+    token,
+    isAuthenticating,
+    authError,
+    authenticate,
+  ]);
 
   const tabs = useMemo(() => {
     if (!positions) return { all: [], open: [], settled: [], expired: [] };
@@ -84,7 +114,7 @@ export default function PortfolioPage() {
     );
   }
 
-  const currentPositions = tabs[activeTab];
+  const currentPositions = activeTab === "bookmarked" ? [] : tabs[activeTab];
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
@@ -131,13 +161,11 @@ export default function PortfolioPage() {
             Retry
           </Button>
         </div>
-      ) : !positions || tabs.all.length === 0 ? (
-        <EmptyPortfolio />
       ) : (
         <>
           {/* ── Tabs ── */}
           <div className="mt-6 flex items-center gap-6 border-b border-border/30">
-            {(["all", "open", "settled", "expired"] as const).map((tab) => (
+            {(["all", "open", "settled", "expired", "bookmarked"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -154,30 +182,90 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          {/* ── Main grid: position list + risk sidebar ── */}
-          <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_280px]">
-            {/* Position list */}
-            <div>
-              {currentPositions.length === 0 ? (
+          {activeTab === "bookmarked" ? (
+            <div className="mt-4">
+              {isAuthenticating && !token ? (
+                <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing authentication message...
+                </div>
+              ) : authError && !token ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-400">
+                  Authentication failed: {authError}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="ml-2 h-auto p-0 text-amber-400 underline"
+                    onClick={() => authenticate().catch(() => {})}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : bookmarkedLoading ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-44 animate-pulse rounded-xl border bg-card/50"
+                    />
+                  ))}
+                </div>
+              ) : isBookmarkedError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
+                  <AlertCircle className="mx-auto mb-2 h-6 w-6 text-destructive" />
+                  <p className="text-sm text-destructive">
+                    Failed to load bookmarked markets
+                    {bookmarkedError instanceof Error ? `: ${bookmarkedError.message}` : ""}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => refetchBookmarked()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : !bookmarkedMarkets || bookmarkedMarkets.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/40 p-12 text-center">
                   <p className="text-sm text-muted-foreground">
-                    No positions in this category
+                    No bookmarked markets yet
                   </p>
                 </div>
               ) : (
-                <div className="space-y-0">
-                  {currentPositions.map((pos) => (
-                    <PositionRow key={pos.id} position={pos} />
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {bookmarkedMarkets.map((market) => (
+                    <MarketCard key={market.id} market={market} />
                   ))}
                 </div>
               )}
             </div>
+          ) : (
+            /* ── Main grid: position list + risk sidebar ── */
+            <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_280px]">
+              {/* Position list */}
+              <div>
+                {currentPositions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/40 p-12 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No positions in this category
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-0">
+                    {currentPositions.map((pos) => (
+                      <PositionRow key={pos.id} position={pos} />
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {/* Risk Summary sidebar */}
-            <div className="lg:sticky lg:top-16 lg:self-start">
-              <RiskSummary stats={stats} undecided={[...tabs.open, ...tabs.expired]} />
+              {/* Risk Summary sidebar */}
+              <div className="lg:sticky lg:top-16 lg:self-start">
+                <RiskSummary stats={stats} undecided={[...tabs.open, ...tabs.expired]} />
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
@@ -414,25 +502,6 @@ function RiskRow({
       <span className={cn("text-sm font-medium tabular-nums", valueClass)}>
         {value}
       </span>
-    </div>
-  );
-}
-
-// ── Empty state ──
-
-function EmptyPortfolio() {
-  return (
-    <div className="mt-8 flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed p-12 text-center">
-      <TrendingUp className="h-8 w-8 text-muted-foreground/40" />
-      <div>
-        <p className="font-medium">No positions yet</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Start trading on prediction markets to see your positions here.
-        </p>
-      </div>
-      <Button variant="outline" asChild>
-        <Link href="/markets">Explore Markets</Link>
-      </Button>
     </div>
   );
 }
