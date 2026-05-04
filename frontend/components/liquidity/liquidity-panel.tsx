@@ -174,8 +174,14 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
       }
 
       showTradeSuccess(signature, tab === "add" ? "Add Liquidity" : "Remove Liquidity");
-      invalidateQueries();
-      setTimeout(invalidateQueries, 3000);
+      const invalidate = () => {
+        queryClient.invalidateQueries({ queryKey: ["market", market.id] });
+        queryClient.invalidateQueries({ queryKey: ["markets"] });
+        queryClient.invalidateQueries({ queryKey: ["lpPositions", address] });
+        queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
+      };
+      invalidate();
+      setTimeout(invalidate, 3000);
       setAmount("");
     } catch (error) {
       showTradeError(error);
@@ -183,13 +189,6 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
       setLoading(false);
     }
   }, [connected, publicKey, program, hasValidAmount, tab, amount, numAmount, userShares, market.pubkey, market.id, market.collateralMint, address, connection, setVisible, queryClient]);
-
-  function invalidateQueries() {
-    queryClient.invalidateQueries({ queryKey: ["market", market.id] });
-    queryClient.invalidateQueries({ queryKey: ["markets"] });
-    queryClient.invalidateQueries({ queryKey: ["lpPositions", address] });
-    queryClient.invalidateQueries({ queryKey: ["tokenBalance", market.collateralMint, address] });
-  }
 
   const buttonLabel = !connected
     ? "Connect Wallet"

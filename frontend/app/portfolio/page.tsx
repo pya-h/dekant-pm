@@ -14,8 +14,8 @@ import {
   computeProbabilities,
   formatUsdc,
   type UserPosition,
-  type LpPosition,
 } from "@/lib/types";
+import Link from "next/link";
 import { Wallet, TrendingUp, AlertCircle } from "lucide-react";
 
 export default function PortfolioPage() {
@@ -24,7 +24,7 @@ export default function PortfolioPage() {
 
   const address = publicKey?.toBase58();
   const { data: positions, isLoading, isError, error, refetch } = useUserPositions(address);
-  const { data: lpPositions, isLoading: lpLoading } = useLpPositions(address);
+  const { data: lpPositions } = useLpPositions(address);
 
   // Group positions
   const { active, claimable, past, summary } = useMemo(() => {
@@ -275,7 +275,7 @@ function EmptyPortfolio() {
         </p>
       </div>
       <Button variant="outline" asChild>
-        <a href="/markets">Explore Markets</a>
+        <Link href="/markets">Explore Markets</Link>
       </Button>
     </div>
   );

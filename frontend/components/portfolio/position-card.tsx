@@ -48,7 +48,6 @@ export function PositionCard({ position }: PositionCardProps) {
     holdingsNum,
     probabilities,
     market,
-    position,
   );
   const pnl = currentValue - deposited + withdrawn;
   const pnlPct = deposited > 0 ? (pnl / deposited) * 100 : 0;
@@ -129,7 +128,6 @@ function computeCurrentValue(
   holdings: number[],
   probabilities: number[],
   market: UserPosition["market"],
-  position: UserPosition,
 ): number {
   // For resolved markets: winning tokens are worth face value
   if (market.state === MarketState.Resolved) {
