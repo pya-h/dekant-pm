@@ -1,8 +1,10 @@
 "use client";
 
-import { use, useState, useCallback } from "react";
+import { use, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarket } from "@/hooks/use-market";
+import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { MarketStatus } from "@/components/market/market-status";
 import { MarketTypeBadge } from "@/components/market/market-type-badge";
 import { PriceBar } from "@/components/market/price-bar";
@@ -38,6 +40,15 @@ export default function MarketDetailPage({
   const { data: market, isLoading, error } = useMarket(id);
 
   // Hooks must be called unconditionally (before early returns)
+  const { publicKey } = useWallet();
+  const walletAddress = publicKey?.toBase58();
+  const { data: position } = useUserMarketPosition(walletAddress, id);
+  const positionHoldings = useMemo(() => {
+    if (!position) return null;
+    const nums = position.holdings.map(Number);
+    return nums.some((h) => h > 0) ? nums : null;
+  }, [position]);
+
   const [mu, setMu] = useState<number | null>(null);
   const [sigma, setSigma] = useState<number | null>(null);
   const handleReset = useCallback(() => { setMu(null); setSigma(null); }, []);
@@ -121,6 +132,7 @@ export default function MarketDetailPage({
               sigma={effectiveSigma}
               onMuChange={setMu}
               onSigmaChange={setSigma}
+              positionHoldings={positionHoldings}
             />
           ) : (
             <Card>
