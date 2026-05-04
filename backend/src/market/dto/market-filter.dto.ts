@@ -8,6 +8,11 @@ export class MarketFilterDto {
   @IsOptional()
   category?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by subject/asset (e.g. BTC, ETH, SOL)' })
+  @IsString()
+  @IsOptional()
+  subject?: string;
+
   @ApiPropertyOptional({ description: 'Filter by market type: 0=binary, 1=multi, 2=continuous' })
   @Type(() => Number)
   @IsNumber()
