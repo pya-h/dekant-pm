@@ -87,6 +87,24 @@ export interface LpPosition {
   updatedAt: string;
 }
 
+// Matches TradeEntity with nested market relation.
+export interface Trade {
+  id: string;
+  marketId: string;
+  market: MarketSummary;
+  trader: string;
+  isBuy: boolean;
+  collateralAmount: string;
+  outcomeIndex: number | null;
+  mu: string | null;
+  sigma: string | null;
+  tokensTransacted: string;
+  feePaid: string;
+  txSignature: string;
+  slot: string;
+  timestamp: string;
+}
+
 // Backend findAll returns { data, total } -- no page/limit/hasMore
 // Optional `stats` included when `includeStats=true` query param is set.
 export interface PaginatedResponse<T> {
