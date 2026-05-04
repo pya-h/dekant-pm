@@ -99,7 +99,7 @@ export function MarketHeaderBar({
                 <CountdownUnit value={countdown.days} label="Days" />
               )}
               <CountdownUnit value={countdown.hours} label="Hours" />
-              <CountdownUnit value={countdown.minutes} label="Minuts" />
+              <CountdownUnit value={countdown.minutes} label="Minutes" />
             </div>
           ) : (
             <div className="flex items-center rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2">
