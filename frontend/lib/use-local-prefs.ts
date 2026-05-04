@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 const STORAGE_KEY = "dekant-pm-prefs";
 
@@ -38,7 +38,9 @@ function savePrefs(prefs: AppPrefs) {
 export function useLocalPrefs() {
   const [prefs, setPrefsState] = useState<AppPrefs>(loadPrefs);
   const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
+  useEffect(() => {
+    prefsRef.current = prefs;
+  });
 
   const setPref = useCallback(<K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => {
     const next = { ...prefsRef.current, [key]: value };

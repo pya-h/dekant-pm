@@ -11,7 +11,7 @@ import { executeCollectFees } from "@/lib/admin-transactions";
 import { showTradeSuccess, showTradeError } from "@/components/common/transaction-toast";
 import { MarketStatus } from "@/components/market/market-status";
 import { Button } from "@/components/ui/button";
-import { MarketState, formatUsdc } from "@/lib/types";
+import { formatUsdc } from "@/lib/types";
 import { Loader2, Coins } from "lucide-react";
 
 export function FeeCollector() {
@@ -77,8 +77,8 @@ export function FeeCollector() {
       const marketsWithFees = candidates.filter((_, i) => {
         const account = onChainAccounts[i];
         if (!account) return false;
-        const fees = (account.protocolFeeAccumulated as any).toNumber?.()
-          ?? Number(account.protocolFeeAccumulated);
+        const raw = account.protocolFeeAccumulated as { toNumber?: () => number };
+        const fees = raw.toNumber?.() ?? Number(account.protocolFeeAccumulated);
         return fees > 0;
       });
 

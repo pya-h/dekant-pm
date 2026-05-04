@@ -34,7 +34,6 @@ export function DistributionInput({
   side = "buy",
   onParamsChange,
   collateralBalance,
-  position,
 }: DistributionInputProps) {
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -73,10 +72,12 @@ export function DistributionInput({
     [rangeMin, rangeMax, numBins, mu, sigma],
   );
 
-  // Reset inputUnit when side changes
-  useEffect(() => {
+  // Reset inputUnit when side changes (React-recommended pattern)
+  const [prevSide, setPrevSide] = useState(side);
+  if (prevSide !== side) {
+    setPrevSide(side);
     setInputUnit(side === "buy" ? "collateral" : "shares");
-  }, [side]);
+  }
 
   useEffect(() => {
     if (amount && Number(amount) > 0 && sigma > 0) {

@@ -57,7 +57,9 @@ export function InteractiveDistributionChart({
 
   // Ref for wheel handler to avoid stale closures
   const zoomStateRef = useRef({ zoom, vbX, vbY, vbW, vbH, height });
-  zoomStateRef.current = { zoom, vbX, vbY, vbW, vbH, height };
+  useEffect(() => {
+    zoomStateRef.current = { zoom, vbX, vbY, vbW, vbH, height };
+  });
 
   const resetZoom = useCallback(() => {
     setZoom(1);
@@ -343,7 +345,7 @@ export function InteractiveDistributionChart({
     };
     svg.addEventListener("wheel", handler, { passive: false });
     return () => svg.removeEventListener("wheel", handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- reads from zoomStateRef
+  }, []);
 
   // Mu and sigma positions
   const muX = mu !== null ? valueToX(mu) : null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { useWallet } from "@solana/wallet-adapter-react";
 import type { UseQueryResult } from "@tanstack/react-query";
@@ -83,10 +83,10 @@ export function StepParameters({
     }));
   }, [walletTokens]);
 
-  // Minimum datetime: now + 1 hour
-  const minDatetime = new Date(Date.now() + 3600_000)
-    .toISOString()
-    .slice(0, 16);
+  // Minimum datetime: now + 1 hour (computed once on mount)
+  const [minDatetime] = useState(() =>
+    new Date(Date.now() + 3600_000).toISOString().slice(0, 16),
+  );
 
   return (
     <div className="space-y-6">

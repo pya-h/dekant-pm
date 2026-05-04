@@ -13,7 +13,7 @@ import {
   showTradeSuccess,
   showTradeError,
 } from "@/components/common/transaction-toast";
-import { formatUsdc, USDC_DECIMALS } from "@/lib/types";
+import { formatUsdc } from "@/lib/types";
 
 interface ClaimButtonProps {
   marketPubkey: string;

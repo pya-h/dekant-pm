@@ -97,10 +97,12 @@ export function MultiOutcomeInput({
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
-  // Reset inputUnit when side changes
-  useEffect(() => {
+  // Reset inputUnit when side changes (React-recommended pattern)
+  const [prevSide, setPrevSide] = useState(side);
+  if (prevSide !== side) {
+    setPrevSide(side);
     setInputUnit(side === "buy" ? "collateral" : "shares");
-  }, [side]);
+  }
 
   useEffect(() => {
     if (inputUnit === "target") {

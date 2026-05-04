@@ -70,6 +70,7 @@ export default function MarketDetailPage({
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
   const deadlineDate = new Date(market.deadline);
+  // eslint-disable-next-line react-hooks/purity -- Date.now() is fine for a one-shot expiry check
   const isExpired = deadlineDate.getTime() < Date.now();
 
   return (
