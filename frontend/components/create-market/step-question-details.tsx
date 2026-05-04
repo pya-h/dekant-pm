@@ -9,15 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 
 const CATEGORIES = [
-  "",
-  "Crypto",
-  "Politics",
-  "Sports",
-  "Entertainment",
-  "Technology",
-  "Science",
-  "Economics",
-  "Other",
+  { value: "crypto", label: "Crypto" },
+  { value: "politics", label: "Politics" },
+  { value: "sports", label: "Sports" },
+  { value: "entertainment", label: "Entertainment" },
+  { value: "technology", label: "Technology" },
+  { value: "science", label: "Science" },
+  { value: "economics", label: "Economics" },
+  { value: "other", label: "Other" },
 ];
 
 export function StepQuestionDetails() {
@@ -100,11 +99,27 @@ export function StepQuestionDetails() {
           className="flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm text-foreground shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat || "None"}
+            <option key={cat.value} value={cat.value}>
+              {cat.label}
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Subject */}
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          Subject (Asset)
+        </label>
+        <Input
+          {...register("subject")}
+          placeholder="SOL"
+        />
+        {errors.subject && (
+          <p className="mt-1 text-xs text-destructive">
+            {errors.subject.message}
+          </p>
+        )}
       </div>
 
       {/* Tags */}

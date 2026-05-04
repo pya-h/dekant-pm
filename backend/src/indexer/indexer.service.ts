@@ -199,9 +199,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         id: String(marketId),
         title: `${typeName} Market #${marketId}`,
         description: null,
-        category: null,
+        category: 'crypto',
+        subject: 'SOL',
         tags: null,
-        imageUrl: null,
+        icon: null,
         outcomeLabels: null,
         ...onChainFields,
       });

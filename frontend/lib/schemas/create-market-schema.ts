@@ -13,6 +13,7 @@ export const createMarketSchema = z
       .max(200, "Title too long"),
     description: z.string().max(2000, "Description too long").optional().or(z.literal("")),
     category: z.string().max(50).optional().or(z.literal("")),
+    subject: z.string().max(30).optional().or(z.literal("")),
     tags: z.array(z.string().min(1).max(30)).max(10, "Maximum 10 tags").optional(),
 
     // Step 2: Outcomes (conditional on type)
@@ -109,7 +110,7 @@ export type CreateMarketFormData = z.infer<typeof createMarketSchema>;
 /** Fields per step for partial validation with trigger(). */
 export const STEP_FIELDS: Record<number, (keyof CreateMarketFormData)[]> = {
   0: ["marketType"],
-  1: ["title", "description", "category", "tags"],
+  1: ["title", "description", "category", "subject", "tags"],
   2: ["outcomeLabels", "rangeMin", "rangeMax", "numBins"],
   3: ["deadline", "oracle", "collateralMint", "initialLiquidity"],
   4: [],
@@ -119,7 +120,8 @@ export const DEFAULT_VALUES: CreateMarketFormData = {
   marketType: MarketType.Binary,
   title: "",
   description: "",
-  category: "",
+  category: "crypto",
+  subject: "SOL",
   tags: [],
   outcomeLabels: ["Yes", "No"],
   rangeMin: undefined,

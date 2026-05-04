@@ -50,7 +50,10 @@ export function StepReview() {
           <ReviewRow label="Description">{data.description}</ReviewRow>
         )}
         {data.category && (
-          <ReviewRow label="Category">{data.category}</ReviewRow>
+          <ReviewRow label="Category">{toTitleCase(data.category)}</ReviewRow>
+        )}
+        {data.subject && (
+          <ReviewRow label="Subject (Asset)">{data.subject}</ReviewRow>
         )}
         {data.tags && data.tags.length > 0 && (
           <ReviewRow label="Tags">
@@ -130,4 +133,12 @@ function ReviewRow({
 function truncate(s: string): string {
   if (!s || s.length <= 12) return s || "Not set";
   return `${s.slice(0, 6)}...${s.slice(-6)}`;
+}
+
+function toTitleCase(value: string): string {
+  if (!value) return value;
+  return value
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
