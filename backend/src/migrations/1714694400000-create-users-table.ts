@@ -10,6 +10,7 @@ export class CreateUsersTable1714694400000 implements MigrationInterface {
         "email"           VARCHAR(255) UNIQUE,
         "avatar"          VARCHAR(512),
         "faucets_per_day" INT NOT NULL DEFAULT 3,
+        "last_faucet_at"  TIMESTAMP,
         "created_at"      TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"      TIMESTAMP NOT NULL DEFAULT now()
       )
@@ -30,7 +31,7 @@ export class CreateUsersTable1714694400000 implements MigrationInterface {
         UNION
         SELECT user_address AS addr FROM lp_positions
         UNION
-        SELECT "userAddress" AS addr FROM user_roles
+        SELECT user_address AS addr FROM user_roles
       ) existing_wallets
       ON CONFLICT ("wallet_address") DO NOTHING
     `);

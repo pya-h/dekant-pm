@@ -30,6 +30,9 @@ export class UserEntity {
   @Column({ type: 'int', name: 'faucets_per_day', default: 3 })
   faucetsPerDay!: number;
 
+  @Column({ type: 'timestamp', name: 'last_faucet_at', nullable: true })
+  lastFaucetAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
   createdAt!: Date;
 

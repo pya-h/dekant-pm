@@ -68,7 +68,7 @@ export function Navbar() {
     }
   };
 
-  const displayName = profile?.username ?? publicKey?.toBase58().slice(0, 4) + "..." + publicKey?.toBase58().slice(-4);
+  const displayName = profile?.username ?? (publicKey ? publicKey.toBase58().slice(0, 4) + "..." + publicKey.toBase58().slice(-4) : "");
 
   const handleCopyAddress = useCallback(() => {
     if (publicKey) {
