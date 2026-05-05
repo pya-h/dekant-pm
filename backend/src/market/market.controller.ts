@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -20,15 +21,27 @@ import {
 import { MarketService } from './market.service';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
+import { UpdateMarketMetadataDto } from './dto/update-market-metadata.dto';
 import { AuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Request } from 'express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { UserRoleEntity } from '../user/entity/user-role.entity';
+import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+
+const ADMIN_ROLE = 1;
 
 @ApiTags('markets')
 @Controller('markets')
 export class MarketController {
-  constructor(private readonly marketService: MarketService) {}
+  constructor(
+    private readonly marketService: MarketService,
+    @InjectRepository(UserRoleEntity)
+    private readonly userRoleRepo: Repository<UserRoleEntity>,
+    private readonly configService: ConfigService,
+  ) {}
 
   private getWalletAddress(request: Request): string {
     const walletAddress = (request as any).walletAddress as string | undefined;
@@ -36,6 +49,21 @@ export class MarketController {
       throw new UnauthorizedException('Missing authenticated wallet address');
     }
     return walletAddress;
+  }
+
+  private async canEditAnyMarket(walletAddress: string): Promise<boolean> {
+    const superadminAddress = this.configService
+      .get<string>('SUPERADMIN_ADDRESS')
+      ?.trim();
+    if (superadminAddress && walletAddress === superadminAddress) {
+      return true;
+    }
+
+    const adminRole = await this.userRoleRepo.findOne({
+      where: { userAddress: walletAddress, role: ADMIN_ROLE },
+      select: ['id'],
+    });
+    return !!adminRole;
   }
 
   @Get()
@@ -125,6 +153,32 @@ export class MarketController {
     @Req() request: Request,
   ) {
     return this.marketService.removeBookmark(id, this.getWalletAddress(request));
+  }
+
+  @Patch(':id')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('admin', 'creator')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Update editable market metadata fields (category, subject, icon, tags)',
+  })
+  @ApiResponse({ status: 200, description: 'Market metadata updated' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async updateMetadata(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: Request,
+    @Body() dto: UpdateMarketMetadataDto,
+  ) {
+    const walletAddress = this.getWalletAddress(request);
+    const canEditAnyMarket = await this.canEditAnyMarket(walletAddress);
+    return this.marketService.updateEditableMetadata(
+      id,
+      walletAddress,
+      canEditAnyMarket,
+      dto,
+    );
   }
 
   @Post()
