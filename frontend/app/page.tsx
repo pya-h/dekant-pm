@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState, useCallback, useMemo } from "react";
+import { Suspense, useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { useMarkets } from "@/hooks/use-markets";
+import { useInfiniteMarkets } from "@/hooks/use-markets";
 import { MarketCard } from "@/components/market/market-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { MarketFilters } from "@/lib/types";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { FeaturedSection } from "@/components/home/featured-section";
 import { getMarketAssetVisual } from "@/lib/market-asset";
 
@@ -36,7 +36,7 @@ const assetOptions = [
   { value: "DOGE", label: "Dogecoin" },
 ] as const;
 
-const LIMIT = 20;
+const PAGE_SIZE = 16;
 
 function getCreatedAfter(timeRange: string): string | undefined {
   if (timeRange === "all") return undefined;
@@ -75,26 +75,53 @@ function HomeContent() {
 
   const [timeRange, setTimeRange] = useState("all");
   const [assetFilter, setAssetFilter] = useState("all");
-  const [page, setPage] = useState(1);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  const filters: MarketFilters & { page: number; limit: number } = useMemo(() => ({
-    page: 1,
-    limit: page * LIMIT,
+  const filters: MarketFilters = useMemo(() => ({
     ...(searchFromUrl && { search: searchFromUrl }),
     ...(assetFilter !== "all" && { subject: assetFilter }),
     ...(timeRange !== "all" && { createdAfter: getCreatedAfter(timeRange) }),
     sortBy: "newest",
-  }), [page, searchFromUrl, assetFilter, timeRange]);
+  }), [searchFromUrl, assetFilter, timeRange]);
 
-  const { data, isLoading, isError, error, refetch } = useMarkets(filters);
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteMarkets({
+    ...filters,
+    limit: PAGE_SIZE,
+  });
 
-  const totalLoaded = data?.data.length ?? 0;
-  const total = data?.total ?? 0;
-  const hasMore = totalLoaded < total;
+  const markets = useMemo(
+    () => data?.pages.flatMap((page) => page.data) ?? [],
+    [data],
+  );
+  const total = data?.pages[0]?.total ?? 0;
 
-  const loadMore = useCallback(() => {
-    setPage((p) => p + 1);
-  }, []);
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, markets.length]);
 
   const timeLabel = timeRangeOptions.find((o) => o.value === timeRange)?.label ?? "All Time";
   const assetLabel = assetOptions.find((o) => o.value === assetFilter)?.label ?? "All Assets";
@@ -121,10 +148,7 @@ function HomeContent() {
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup
                 value={timeRange}
-                onValueChange={(v) => {
-                  setTimeRange(v);
-                  setPage(1);
-                }}
+                onValueChange={(v) => setTimeRange(v)}
               >
                 {timeRangeOptions.map((opt) => (
                   <DropdownMenuRadioItem key={opt.value} value={opt.value}>
@@ -153,10 +177,7 @@ function HomeContent() {
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup
                 value={assetFilter}
-                onValueChange={(v) => {
-                  setAssetFilter(v);
-                  setPage(1);
-                }}
+                onValueChange={(v) => setAssetFilter(v)}
               >
                 {assetOptions.map((opt) => {
                   const v = opt.value !== "all" ? getMarketAssetVisual(opt.value, null) : null;
@@ -196,7 +217,7 @@ function HomeContent() {
             Retry
           </Button>
         </div>
-      ) : !data || data.data.length === 0 ? (
+      ) : markets.length === 0 ? (
         <div className="rounded-lg border border-dashed p-12 text-center">
           <p className="text-sm text-muted-foreground">
             {searchFromUrl
@@ -209,17 +230,30 @@ function HomeContent() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {data.data.map((market) => (
+            {markets.map((market) => (
               <MarketCard key={market.id} market={market} />
             ))}
           </div>
 
-          {/* Load More */}
-          {hasMore && (
-            <div className="flex justify-center pt-4">
-              <Button variant="outline" onClick={loadMore}>
-                Load More
-              </Button>
+          {/* Infinite loader sentinel + fallback button */}
+          {hasNextPage && (
+            <div ref={loadMoreRef} className="flex justify-center pt-4">
+              {isFetchingNextPage ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading more markets...
+                </div>
+              ) : (
+                <Button variant="outline" onClick={() => fetchNextPage()}>
+                  Load More
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!hasNextPage && total > 0 && (
+            <div className="pt-2 text-center text-xs text-muted-foreground">
+              All markets loaded
             </div>
           )}
         </>

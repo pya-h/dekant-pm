@@ -9,10 +9,16 @@ import { MarketController } from './market.controller';
 import { FaucetController } from './faucet.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
+import { UserRoleEntity } from '../user/entity/user-role.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MarketEntity, TradeEntity, BookmarkEntity]),
+    TypeOrmModule.forFeature([
+      MarketEntity,
+      TradeEntity,
+      BookmarkEntity,
+      UserRoleEntity,
+    ]),
     AuthModule,
     SettingsModule,
   ],
