@@ -33,7 +33,7 @@ export function RecentTrades({ marketId, rangeMin, rangeMax }: RecentTradesProps
   const trades = useMemo(() => data?.data ?? [], [data]);
 
   return (
-    <Card className={cn("transition-all", !collapsed && "min-h-[420px]")}>
+    <Card className={cn("transition-all", !collapsed && "min-h-[440px]")}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Recent Trades</h2>
