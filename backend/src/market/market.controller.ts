@@ -23,6 +23,7 @@ import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 import { UpdateMarketMetadataDto } from './dto/update-market-metadata.dto';
 import { AuthGuard } from '../auth/guard/auth.guard';
+import { OptionalAuthGuard } from '../auth/guard/optional-auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Request } from 'express';
@@ -76,10 +77,17 @@ export class MarketController {
   @Get('bookmarks/me')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'List current user bookmarked markets' })
+  @ApiOperation({ summary: 'List current user bookmarked markets (auth)' })
   @ApiResponse({ status: 200, description: 'Bookmarked market list' })
   getMyBookmarks(@Req() request: Request) {
     return this.marketService.getBookmarkedMarkets(this.getWalletAddress(request));
+  }
+
+  @Get('bookmarks/wallet/:walletAddress')
+  @ApiOperation({ summary: 'List bookmarked markets by wallet address (no auth)' })
+  @ApiResponse({ status: 200, description: 'Bookmarked market list' })
+  getBookmarksByWallet(@Param('walletAddress') walletAddress: string) {
+    return this.marketService.getBookmarkedMarkets(walletAddress);
   }
 
   @Get(':id')
@@ -105,17 +113,27 @@ export class MarketController {
   }
 
   @Get(':id/history')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'Get trade history for a market' })
   @ApiResponse({ status: 200, description: 'Paginated trade list' })
-  getHistory(
+  async getHistory(
     @Param('id', ParseIntPipe) id: number,
+    @Req() request: Request,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
+    const callerWallet = (request as any).walletAddress as
+      | string
+      | undefined;
+    const isPrivileged = callerWallet
+      ? await this.canEditAnyMarket(callerWallet)
+      : false;
     return this.marketService.getHistory(
       id,
       Math.max(1, Number(page) || 1),
       Math.min(Math.max(1, Number(limit) || 50), 100),
+      callerWallet,
+      isPrivileged,
     );
   }
 

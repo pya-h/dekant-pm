@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
 import { BookmarkEntity } from './entity/bookmark.entity';
+import { UserEntity } from '../user/entity/user.entity';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 import { UpdateMarketMetadataDto } from './dto/update-market-metadata.dto';
@@ -24,6 +25,8 @@ export class MarketService {
     private readonly tradeRepo: Repository<TradeEntity>,
     @InjectRepository(BookmarkEntity)
     private readonly bookmarkRepo: Repository<BookmarkEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
   async create(dto: CreateMarketDto): Promise<MarketEntity> {
@@ -263,13 +266,50 @@ export class MarketService {
     id: number,
     page = 1,
     limit = 50,
-  ): Promise<{ data: TradeEntity[]; total: number }> {
-    const [data, total] = await this.tradeRepo.findAndCount({
+    callerWallet?: string,
+    isPrivileged = false,
+  ): Promise<{ data: Record<string, any>[]; total: number }> {
+    const [trades, total] = await this.tradeRepo.findAndCount({
       where: { marketId: String(id) },
       order: { timestamp: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+
+    // Collect unique trader addresses to look up usernames
+    const traderAddresses = [...new Set(trades.map((t) => t.trader))];
+    const users =
+      traderAddresses.length > 0
+        ? await this.userRepo
+            .createQueryBuilder('u')
+            .select(['u.walletAddress', 'u.username', 'u.id'])
+            .where('u.walletAddress IN (:...addrs)', {
+              addrs: traderAddresses,
+            })
+            .getMany()
+        : [];
+    const userMap = new Map(users.map((u) => [u.walletAddress, u]));
+
+    const data = trades.map((trade) => {
+      const user = userMap.get(trade.trader);
+      const isSelf = callerWallet && trade.trader === callerWallet;
+
+      if (isPrivileged || isSelf) {
+        // Admin/superadmin or own trades: full data
+        return {
+          ...trade,
+          username: user?.username ?? null,
+        };
+      }
+
+      // Regular/unauthenticated user: mask identity
+      return {
+        ...trade,
+        trader: user ? `user#${user.id}` : `anon#${trade.trader.slice(-4)}`,
+        username: user ? `user#${user.id}` : null,
+      };
+    });
+
     return { data, total };
   }
 

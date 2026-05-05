@@ -9,6 +9,7 @@ import { MarketService } from './market.service';
 import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
 import { BookmarkEntity } from './entity/bookmark.entity';
+import { UserEntity } from '../user/entity/user.entity';
 
 function createMockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
   return {
@@ -50,6 +51,7 @@ describe('MarketService', () => {
   let marketRepo: Record<string, jest.Mock>;
   let tradeRepo: Record<string, jest.Mock>;
   let bookmarkRepo: Record<string, jest.Mock>;
+  let userRepo: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     marketRepo = {
@@ -78,12 +80,25 @@ describe('MarketService', () => {
       createQueryBuilder: jest.fn().mockReturnValue(bookmarkInsertQb),
     };
 
+    userRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((dto: any) => dto),
+      save: jest.fn((entity: any) => Promise.resolve({ ...entity, id: entity.id ?? '1' })),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketService,
         { provide: getRepositoryToken(MarketEntity), useValue: marketRepo },
         { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
         { provide: getRepositoryToken(BookmarkEntity), useValue: bookmarkRepo },
+        { provide: getRepositoryToken(UserEntity), useValue: userRepo },
       ],
     }).compile();
 
@@ -378,18 +393,29 @@ describe('MarketService', () => {
   });
 
   describe('getHistory', () => {
-    it('should return paginated trade history', async () => {
-      const trades = [{ id: '1' }] as any;
+    it('should return paginated trade history with masked traders for unauthenticated caller', async () => {
+      const trades = [{ id: '1', trader: 'Trader11111111111111111111111111111111111111' }] as any;
       tradeRepo.findAndCount.mockResolvedValue([trades, 1]);
 
       const result = await service.getHistory(1, 1, 50);
-      expect(result).toEqual({ data: trades, total: 1 });
+      expect(result.total).toBe(1);
+      expect(result.data).toHaveLength(1);
+      // Trader should be masked (no matching user → anon#...)
+      expect(result.data[0].trader).toMatch(/^anon#/);
       expect(tradeRepo.findAndCount).toHaveBeenCalledWith({
         where: { marketId: '1' },
         order: { timestamp: 'DESC' },
         skip: 0,
         take: 50,
       });
+    });
+
+    it('should return full trader data for privileged caller', async () => {
+      const trades = [{ id: '1', trader: 'Trader11111111111111111111111111111111111111' }] as any;
+      tradeRepo.findAndCount.mockResolvedValue([trades, 1]);
+
+      const result = await service.getHistory(1, 1, 50, 'Admin111', true);
+      expect(result.data[0].trader).toBe('Trader11111111111111111111111111111111111111');
     });
 
     it('should respect page and limit params', async () => {

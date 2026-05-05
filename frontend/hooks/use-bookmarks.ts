@@ -28,14 +28,13 @@ export function useMarketBookmark(
 
 export function useBookmarkedMarkets(
   walletAddress: string | undefined,
-  token: string | null,
   enabled = true,
 ) {
   return useQuery({
     queryKey: ["bookmarkedMarkets", walletAddress],
     queryFn: () =>
-      api.get<MarketSummary[]>("/markets/bookmarks/me", undefined, token!),
+      api.get<MarketSummary[]>(`/markets/bookmarks/wallet/${walletAddress}`),
     staleTime: 10_000,
-    enabled: enabled && !!walletAddress && !!token,
+    enabled: enabled && !!walletAddress,
   });
 }
