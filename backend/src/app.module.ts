@@ -17,6 +17,7 @@ import { BookmarkEntity } from "./market/entity/bookmark.entity";
 import { UserPositionEntity } from "./user/entity/user-position.entity";
 import { LpPositionEntity } from "./user/entity/lp-position.entity";
 import { UserRoleEntity } from "./user/entity/user-role.entity";
+import { UserEntity } from "./user/entity/user.entity";
 import { IndexerStateEntity } from "./indexer/entity/indexer-state.entity";
 import { SettingEntity } from "./settings/setting.entity";
 import { LoggerModule } from "nestjs-pino";
@@ -60,6 +61,7 @@ const isInProduction = process.env.NODE_ENV === "production";
           UserPositionEntity,
           LpPositionEntity,
           UserRoleEntity,
+          UserEntity,
           IndexerStateEntity,
           SettingEntity,
         ],

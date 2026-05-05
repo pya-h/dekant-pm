@@ -16,6 +16,14 @@ vi.mock("@/hooks/use-admin-role", () => ({
   useAdminRole: (...args: unknown[]) => mockUseAdminRole(...args),
 }));
 
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ token: null, isAuthenticated: false, isAuthenticating: false, authenticate: vi.fn(), error: null }),
+}));
+
+vi.mock("@/hooks/use-profile", () => ({
+  useProfile: () => ({ data: null, isLoading: false }),
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: vi.fn() }),
@@ -55,11 +63,19 @@ const defaultRoles = {
   isLoading: false,
 };
 
+const mockPublicKey = {
+  toBase58: () => "4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P",
+};
+
 function setupMocks(
   connected: boolean,
   roles: Partial<typeof defaultRoles> = {},
 ) {
-  mockUseWallet.mockReturnValue({ connected, publicKey: connected ? {} : null });
+  mockUseWallet.mockReturnValue({
+    connected,
+    publicKey: connected ? mockPublicKey : null,
+    disconnect: vi.fn(),
+  });
   mockUseAdminRole.mockReturnValue({ ...defaultRoles, ...roles });
 }
 
