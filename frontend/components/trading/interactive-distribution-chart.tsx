@@ -40,6 +40,7 @@ export function InteractiveDistributionChart({
   const gradientPositionId = useId();
   const clipId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right" | "y-scale">("none");
+  const [hiddenCurves, setHiddenCurves] = useState<Set<"market" | "trader" | "position">>(new Set());
   const { prefs, setPref } = useLocalPrefs();
   const smooth = prefs.chartSmooth;
   const yUnit = prefs.chartYUnit;
@@ -416,18 +417,28 @@ export function InteractiveDistributionChart({
     return () => svg.removeEventListener("wheel", handler);
   }, []);
 
-  // Curve render order: hovered curve drawn last (on top)
+  const toggleCurve = useCallback((curve: "market" | "trader" | "position") => {
+    setHiddenCurves((prev) => {
+      const next = new Set(prev);
+      if (next.has(curve)) next.delete(curve);
+      else next.add(curve);
+      return next;
+    });
+  }, []);
+
+  // Curve render order: hovered curve drawn last (on top), hidden curves excluded
   const curveOrder = useMemo(() => {
     const order: ("position" | "market" | "trader")[] = ["position", "market", "trader"];
+    const visible = order.filter((c) => !hiddenCurves.has(c));
     if (hoveredCurve !== "none") {
-      const idx = order.indexOf(hoveredCurve);
+      const idx = visible.indexOf(hoveredCurve);
       if (idx >= 0) {
-        order.splice(idx, 1);
-        order.push(hoveredCurve);
+        visible.splice(idx, 1);
+        visible.push(hoveredCurve);
       }
     }
-    return order;
-  }, [hoveredCurve]);
+    return visible;
+  }, [hoveredCurve, hiddenCurves]);
 
   // Mu and sigma positions
   const muX = mu !== null ? valueToX(mu) : null;
@@ -731,23 +742,38 @@ export function InteractiveDistributionChart({
         )}
       </svg>
 
-      {/* Legend */}
+      {/* Legend (clickable to toggle curves) */}
       <div className="mt-1 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
-        <span className="flex items-center gap-1.5">
+        <button
+          type="button"
+          className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("market") ? "opacity-40 line-through" : ""}`}
+          onClick={() => toggleCurve("market")}
+          title={hiddenCurves.has("market") ? "Show Market curve" : "Hide Market curve"}
+        >
           <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(85 95 110)" }} />
           Market
-        </span>
+        </button>
         {mu !== null && (
-          <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("trader") ? "opacity-40 line-through" : ""}`}
+            onClick={() => toggleCurve("trader")}
+            title={hiddenCurves.has("trader") ? "Show Your prediction curve" : "Hide Your prediction curve"}
+          >
             <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
             Your prediction
-          </span>
+          </button>
         )}
         {positionPoints.length > 0 && (
-          <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("position") ? "opacity-40 line-through" : ""}`}
+            onClick={() => toggleCurve("position")}
+            title={hiddenCurves.has("position") ? "Show Your position curve" : "Hide Your position curve"}
+          >
             <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(190 175 55)" }} />
             Your position
-          </span>
+          </button>
         )}
       </div>
 
