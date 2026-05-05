@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { use, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -41,7 +41,7 @@ export default function MarketDetailPage({
   const { setVisible } = useWalletModal();
   const queryClient = useQueryClient();
   const walletAddress = publicKey?.toBase58();
-  const { token, authenticate, isAuthenticating, error: authError } = useAuth();
+  const { token, authenticate, isAuthenticating } = useAuth();
   const { data: position } = useUserMarketPosition(walletAddress, id);
   const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
     id,
@@ -63,10 +63,8 @@ export default function MarketDetailPage({
   const faucetAvailable = faucetData?.availableClaims ?? 0;
   const isBookmarked = bookmarkState?.bookmarked ?? false;
 
-  useEffect(() => {
-    if (!connected || !walletAddress || token || isAuthenticating || authError) return;
-    authenticate().catch(() => {});
-  }, [connected, walletAddress, token, isAuthenticating, authError, authenticate]);
+  // Auth is triggered lazily (on bookmark click), not on page load.
+  // This avoids forcing admins to sign on every market detail visit.
 
   const toggleBookmarkMutation = useMutation({
     mutationFn: async (nextBookmarked: boolean) => {
@@ -157,7 +155,7 @@ export default function MarketDetailPage({
       />
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}
-      <div className="mt-4 grid items-start gap-3 lg:grid-cols-[260px_1fr_300px] xl:grid-cols-[280px_1fr_320px]">
+      <div className="mt-4 grid items-start gap-5 lg:grid-cols-[280px_1fr_320px] xl:grid-cols-[300px_1fr_340px]">
         {/* Left panel — Recent Trades */}
         <div className="hidden lg:block">
           <RecentTrades
@@ -167,33 +165,38 @@ export default function MarketDetailPage({
           />
         </div>
 
-        {/* Center — chart */}
-        <div ref={chartRef} className="min-w-0">
-          {isContinuous ? (
-            <ContinuousTradingSection
-              market={market}
-              mu={mu}
-              sigma={effectiveSigma}
-              onMuChange={setMu}
-              onSigmaChange={setSigma}
-              positionHoldings={positionHoldings}
-            />
-          ) : (
-            <Card>
-              <CardHeader className="pb-2">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Probabilities
-                </h2>
-              </CardHeader>
-              <CardContent>
-                <ProbabilitySection
-                  market={market}
-                  probabilities={probabilities}
-                  labels={labels}
-                />
-              </CardContent>
-            </Card>
-          )}
+        {/* Center — chart + info sections */}
+        <div className="min-w-0 space-y-5">
+          <div ref={chartRef}>
+            {isContinuous ? (
+              <ContinuousTradingSection
+                market={market}
+                mu={mu}
+                sigma={effectiveSigma}
+                onMuChange={setMu}
+                onSigmaChange={setSigma}
+                positionHoldings={positionHoldings}
+              />
+            ) : (
+              <Card>
+                <CardHeader className="pb-2">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Probabilities
+                  </h2>
+                </CardHeader>
+                <CardContent>
+                  <ProbabilitySection
+                    market={market}
+                    probabilities={probabilities}
+                    labels={labels}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Market Context / Rules / Timeline & Payout — below chart, same width */}
+          <MarketInfoSection market={market} />
         </div>
 
         {/* Right — trading panel */}
@@ -203,11 +206,6 @@ export default function MarketDetailPage({
             distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset } : undefined}
           />
         </div>
-      </div>
-
-      {/* ── Below fold: Market Context / Rules / Timeline & Payout ── */}
-      <div className="mt-6">
-        <MarketInfoSection market={market} />
       </div>
 
       {/* ── Comments & Activity ── */}
@@ -267,7 +265,7 @@ function MarketDetailSkeleton() {
       </div>
 
       {/* 3-column skeleton */}
-      <div className="mt-4 grid gap-3 lg:grid-cols-[260px_1fr_300px] xl:grid-cols-[280px_1fr_320px]">
+      <div className="mt-4 grid gap-5 lg:grid-cols-[280px_1fr_320px] xl:grid-cols-[300px_1fr_340px]">
         <div className="hidden lg:block">
           <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
         </div>
