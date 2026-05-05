@@ -125,6 +125,18 @@ export interface UserRoleEntry {
   assignedAt: string;
 }
 
+// Matches UserEntity as serialized by NestJS.
+export interface UserProfile {
+  id: string;
+  walletAddress: string;
+  username: string;
+  email: string | null;
+  avatar: string | null;
+  faucetsPerDay: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MarketFilters {
   marketType?: MarketType;
   state?: MarketState;

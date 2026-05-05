@@ -1,9 +1,12 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Param,
+  Patch,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -17,6 +20,8 @@ import { UserService } from './user.service';
 import { AuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/decorator/roles.decorator';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { Request } from 'express';
 
 function validateAddress(address: string): void {
   try {
@@ -72,6 +77,33 @@ export class UserController {
   getLpPositions(@Param('address') address: string) {
     validateAddress(address);
     return this.userService.getLpPositions(address);
+  }
+}
+
+@ApiTags('profile')
+@ApiBearerAuth()
+@UseGuards(AuthGuard)
+@Controller('profile')
+export class ProfileController {
+  constructor(private readonly userService: UserService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({ status: 200, description: 'User profile' })
+  async getProfile(@Req() req: Request) {
+    const walletAddress = (req as any).walletAddress as string;
+    return this.userService.findOrCreateUser(walletAddress);
+  }
+
+  @Patch()
+  @ApiOperation({ summary: 'Update current user profile' })
+  @ApiResponse({ status: 200, description: 'Updated user profile' })
+  async updateProfile(
+    @Req() req: Request,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    const walletAddress = (req as any).walletAddress as string;
+    return this.userService.updateProfile(walletAddress, dto);
   }
 }
 

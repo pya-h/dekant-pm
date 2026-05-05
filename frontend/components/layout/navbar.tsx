@@ -1,16 +1,26 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
+
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAuth } from "@/hooks/use-auth";
+import { useProfile } from "@/hooks/use-profile";
 import { cn } from "@/lib/utils";
 import { WalletButton } from "@/components/common/wallet-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Menu, X, Search } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Menu, X, Search, User, LogOut, Copy, Check } from "lucide-react";
 
 interface NavLink {
   href: string;
@@ -22,8 +32,11 @@ export function Navbar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const { connected } = useWallet();
+  const [copied, setCopied] = useState(false);
+  const { connected, publicKey, disconnect } = useWallet();
   const { isSuperadmin, isAdmin, isCreator, isOracle } = useAdminRole();
+  const { token } = useAuth();
+  const { data: profile } = useProfile(token);
 
   const roleLinks = useMemo(() => {
     const links: NavLink[] = [];
@@ -54,6 +67,16 @@ export function Navbar() {
       router.push(`/?search=${encodeURIComponent(search.trim())}`);
     }
   };
+
+  const displayName = profile?.username ?? publicKey?.toBase58().slice(0, 4) + "..." + publicKey?.toBase58().slice(-4);
+
+  const handleCopyAddress = useCallback(() => {
+    if (publicKey) {
+      navigator.clipboard.writeText(publicKey.toBase58());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [publicKey]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-lg">
@@ -103,7 +126,41 @@ export function Navbar() {
           })}
         </div>
 
-        <WalletButton />
+        {connected && publicKey ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-sm font-medium"
+              >
+                <User className="h-3.5 w-3.5" />
+                {displayName}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => router.push("/profile")}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleCopyAddress}>
+                {copied ? (
+                  <Check className="mr-2 h-4 w-4 text-emerald-400" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}
+                Copy Address
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => disconnect()}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <WalletButton />
+        )}
 
         {/* Mobile hamburger */}
         <Button
@@ -145,6 +202,17 @@ export function Navbar() {
                 </li>
               );
             })}
+            {connected && (
+              <li>
+                <Link
+                  href="/profile"
+                  onClick={() => setMobileOpen(false)}
+                  className="block rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  Profile
+                </Link>
+              </li>
+            )}
           </ul>
         </div>
       )}

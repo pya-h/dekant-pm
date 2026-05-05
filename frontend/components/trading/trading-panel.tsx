@@ -500,6 +500,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               <p className="text-center text-xs text-rose-400">{validationError}</p>
             )}
 
+            {/* Always-visible market info */}
+            <MarketInfoFields market={market} />
+
             {/* Submit button */}
             <Button
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
@@ -553,6 +556,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               <p className="text-center text-xs text-rose-400">{validationError}</p>
             )}
 
+            {/* Always-visible market info */}
+            <MarketInfoFields market={market} />
+
             <Button
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
@@ -597,6 +603,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               <p className="text-center text-xs text-rose-400">{validationError}</p>
             )}
 
+            {/* Always-visible market info */}
+            <MarketInfoFields market={market} />
+
             <Button
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
@@ -607,9 +616,6 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             </Button>
           </>
         )}
-
-        {/* Always-visible market info */}
-        <MarketInfoFields market={market} />
       </CardContent>
     </Card>
   );

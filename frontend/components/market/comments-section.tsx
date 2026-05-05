@@ -1,7 +1,10 @@
 "use client";
 
-import { MessageSquare, UserCircle2 } from "lucide-react";
+import { useState } from "react";
+import { MessageSquare, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UserCircle2 } from "lucide-react";
+import { ActivityTab } from "./activity-tab";
 
 type CommentSide = "buy" | "sell";
 
@@ -86,55 +89,94 @@ const DUMMY_COMMENTS: DummyComment[] = [
   },
 ];
 
-export function CommentsSection() {
+interface CommentsSectionProps {
+  marketId?: string;
+  marketCreator?: string;
+}
+
+export function CommentsSection({ marketId, marketCreator }: CommentsSectionProps) {
+  const [tab, setTab] = useState<"comments" | "activity">("comments");
+
   return (
     <section className="overflow-hidden rounded-xl border border-border/40 bg-card/35 backdrop-blur-sm">
-      <header className="flex items-center gap-2 border-b border-border/30 px-4 py-3">
-        <MessageSquare className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Comments</h3>
+      <header className="flex items-center border-b border-border/30">
+        <button
+          onClick={() => setTab("comments")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+            tab === "comments"
+              ? "border-b-2 border-primary text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Comments
+        </button>
+        <button
+          onClick={() => setTab("activity")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+            tab === "activity"
+              ? "border-b-2 border-primary text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Activity className="h-4 w-4" />
+          Activity
+        </button>
       </header>
 
-      <div className="divide-y divide-border/20">
-        {DUMMY_COMMENTS.map((comment) => (
-          <article
-            key={comment.id}
-            className="flex items-center justify-between gap-3 px-4 py-3.5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <UserCircle2 className="h-6 w-6 shrink-0 text-muted-foreground/70" />
-                <span className="text-sm font-medium">{comment.username}</span>
-                <span className="text-xs text-muted-foreground">
-                  {comment.minutesAgo}m
-                </span>
-                <span
-                  className={cn(
-                    "rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                    comment.side === "buy"
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-rose-500/15 text-rose-400",
-                  )}
-                >
-                  {comment.side}
-                </span>
-              </div>
-              <p className="mt-1 truncate text-sm text-muted-foreground">
-                {comment.text}
-              </p>
-            </div>
-
-            <div className="hidden w-[170px] shrink-0 md:block">
-              <CommentMiniChart
-                confidence={comment.confidence}
-                leftLabel={comment.leftLabel}
-                rightLabel={comment.rightLabel}
-                peak={comment.peak}
-              />
-            </div>
-          </article>
-        ))}
-      </div>
+      {tab === "comments" ? (
+        <CommentsContent />
+      ) : (
+        <ActivityTab marketId={marketId} marketCreator={marketCreator} />
+      )}
     </section>
+  );
+}
+
+function CommentsContent() {
+  return (
+    <div className="divide-y divide-border/20">
+      {DUMMY_COMMENTS.map((comment) => (
+        <article
+          key={comment.id}
+          className="flex items-center justify-between gap-3 px-4 py-3.5"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <UserCircle2 className="h-6 w-6 shrink-0 text-muted-foreground/70" />
+              <span className="text-sm font-medium">{comment.username}</span>
+              <span className="text-xs text-muted-foreground">
+                {comment.minutesAgo}m
+              </span>
+              <span
+                className={cn(
+                  "rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  comment.side === "buy"
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : "bg-rose-500/15 text-rose-400",
+                )}
+              >
+                {comment.side}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              {comment.text}
+            </p>
+          </div>
+
+          <div className="hidden w-[170px] shrink-0 md:block">
+            <CommentMiniChart
+              confidence={comment.confidence}
+              leftLabel={comment.leftLabel}
+              rightLabel={comment.rightLabel}
+              peak={comment.peak}
+            />
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
