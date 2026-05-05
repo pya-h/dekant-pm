@@ -27,6 +27,8 @@ import { UserRoleEntity } from '../../src/user/entity/user-role.entity';
 import { SettingsService } from '../../src/settings/settings.service';
 import { SettingsController } from '../../src/settings/settings.controller';
 import { SettingEntity } from '../../src/settings/setting.entity';
+import { BookmarkEntity } from '../../src/market/entity/bookmark.entity';
+import { UserEntity } from '../../src/user/entity/user.entity';
 import { mockMarket } from './mock-factories';
 
 export const JWT_SECRET = 'e2e-test-secret-key-at-least-32-chars-long';
@@ -42,6 +44,8 @@ export interface TestApp {
   lpPositionRepo: Record<string, jest.Mock>;
   roleRepo: Record<string, jest.Mock>;
   settingRepo: Record<string, jest.Mock>;
+  bookmarkRepo: Record<string, jest.Mock>;
+  userRepo: Record<string, jest.Mock>;
   getAuthToken: (wallet?: string) => string;
 }
 
@@ -99,6 +103,27 @@ export async function createTestApp(): Promise<TestApp> {
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 
+  const bookmarkRepo: Record<string, jest.Mock> = {
+    find: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      insert: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({}),
+    }),
+  };
+
+  const userRepo: Record<string, jest.Mock> = {
+    findOne: jest.fn().mockResolvedValue(null),
+    create: jest.fn((dto: any) => dto),
+    save: jest.fn((entity: any) =>
+      Promise.resolve({ ...entity, id: entity.id ?? '1' }),
+    ),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
+
   const dataSourceMock = {
     createQueryRunner: jest.fn().mockReturnValue({
       connect: jest.fn(),
@@ -149,6 +174,8 @@ export async function createTestApp(): Promise<TestApp> {
       },
       { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
       { provide: getRepositoryToken(SettingEntity), useValue: settingRepo },
+      { provide: getRepositoryToken(BookmarkEntity), useValue: bookmarkRepo },
+      { provide: getRepositoryToken(UserEntity), useValue: userRepo },
       { provide: DataSource, useValue: dataSourceMock },
       SettingsService,
     ],
@@ -181,6 +208,8 @@ export async function createTestApp(): Promise<TestApp> {
     lpPositionRepo,
     roleRepo,
     settingRepo,
+    bookmarkRepo,
+    userRepo,
     getAuthToken,
   };
 }

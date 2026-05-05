@@ -362,7 +362,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   ) : null;
 
   return (
-    <Card className="relative border-border/40 transition-colors">
+    <Card className="relative border-border/40 transition-colors min-h-[480px]">
       {/* Action buttons: Add Liquidity + Classic Trade */}
       {!isDisabled && (
         <div className="absolute right-3 top-3 flex items-center gap-1">
@@ -483,25 +483,24 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               </div>
             </div>
 
-            {/* Cost preview */}
-            {continuousHasValid && chartMu !== null && (
-              <CostPreview
-                marketId={market.id}
-                side={side}
-                mu={chartMu}
-                sigma={chartSigma}
-                amount={amount}
-                inputUnit={inputUnit}
-                onEstimate={handleEstimate}
-              />
-            )}
-
-            {validationError && (
-              <p className="text-center text-xs text-rose-400">{validationError}</p>
-            )}
-
-            {/* Always-visible market info */}
-            <MarketInfoFields market={market} />
+            {/* Cost preview + validation + market info — contiguous block */}
+            <div className="space-y-3">
+              {continuousHasValid && chartMu !== null && (
+                <CostPreview
+                  marketId={market.id}
+                  side={side}
+                  mu={chartMu}
+                  sigma={chartSigma}
+                  amount={amount}
+                  inputUnit={inputUnit}
+                  onEstimate={handleEstimate}
+                />
+              )}
+              {validationError && (
+                <p className="text-center text-xs text-rose-400">{validationError}</p>
+              )}
+              <MarketInfoFields market={market} />
+            </div>
 
             {/* Submit button */}
             <Button
@@ -540,24 +539,23 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               position={position ?? null}
             />
 
-            {discreteHasValid && params && "mu" in params && (
-              <CostPreview
-                marketId={market.id}
-                side={side}
-                mu={params.mu}
-                sigma={params.sigma}
-                amount={params.amount}
-                inputUnit={params.inputUnit}
-                onEstimate={handleEstimate}
-              />
-            )}
-
-            {validationError && (
-              <p className="text-center text-xs text-rose-400">{validationError}</p>
-            )}
-
-            {/* Always-visible market info */}
-            <MarketInfoFields market={market} />
+            <div className="space-y-3">
+              {discreteHasValid && params && "mu" in params && (
+                <CostPreview
+                  marketId={market.id}
+                  side={side}
+                  mu={params.mu}
+                  sigma={params.sigma}
+                  amount={params.amount}
+                  inputUnit={params.inputUnit}
+                  onEstimate={handleEstimate}
+                />
+              )}
+              {validationError && (
+                <p className="text-center text-xs text-rose-400">{validationError}</p>
+              )}
+              <MarketInfoFields market={market} />
+            </div>
 
             <Button
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
@@ -588,23 +586,22 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               />
             )}
 
-            {discreteHasValid && params && "outcome" in params && (
-              <CostPreview
-                marketId={market.id}
-                side={side}
-                outcome={params.outcome}
-                amount={params.amount}
-                inputUnit={params.inputUnit}
-                onEstimate={handleEstimate}
-              />
-            )}
-
-            {validationError && (
-              <p className="text-center text-xs text-rose-400">{validationError}</p>
-            )}
-
-            {/* Always-visible market info */}
-            <MarketInfoFields market={market} />
+            <div className="space-y-3">
+              {discreteHasValid && params && "outcome" in params && (
+                <CostPreview
+                  marketId={market.id}
+                  side={side}
+                  outcome={params.outcome}
+                  amount={params.amount}
+                  inputUnit={params.inputUnit}
+                  onEstimate={handleEstimate}
+                />
+              )}
+              {validationError && (
+                <p className="text-center text-xs text-rose-400">{validationError}</p>
+              )}
+              <MarketInfoFields market={market} />
+            </div>
 
             <Button
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
