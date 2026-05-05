@@ -2,7 +2,12 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTopMarkets } from "@/hooks/use-top-markets";
+import { useAuth } from "@/hooks/use-auth";
+import { useMarketBookmark } from "@/hooks/use-bookmarks";
 import { DistributionChart } from "@/components/market/distribution-chart";
 import { PriceBar } from "@/components/market/price-bar";
 import { MarketHeaderBar } from "@/components/market/market-header-bar";
@@ -13,8 +18,10 @@ import {
   computeProbabilities,
   type MarketSummary,
 } from "@/lib/types";
+import { api } from "@/lib/api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export function MarketSlideshow() {
   const { data, isLoading } = useTopMarkets();
@@ -103,11 +110,56 @@ function SlideContent({ market }: { market: MarketSummary }) {
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
+  const { publicKey, connected } = useWallet();
+  const { setVisible } = useWalletModal();
+  const walletAddress = publicKey?.toBase58();
+  const { token, authenticate, isAuthenticating } = useAuth();
+  const queryClient = useQueryClient();
+
+  const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
+    market.id,
+    walletAddress,
+    token,
+  );
+  const isBookmarked = bookmarkState?.bookmarked ?? false;
+
+  const toggleBookmarkMutation = useMutation({
+    mutationFn: async (nextBookmarked: boolean) => {
+      if (!connected || !walletAddress) throw new Error("Wallet not connected");
+      let authToken = token;
+      if (!authToken) authToken = await authenticate();
+      if (nextBookmarked) {
+        return api.post<{ bookmarked: boolean }>(`/markets/${market.id}/bookmark`, {}, authToken);
+      }
+      return api.delete<{ bookmarked: boolean }>(`/markets/${market.id}/bookmark`, authToken);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketBookmark", market.id, walletAddress] });
+      queryClient.invalidateQueries({ queryKey: ["bookmarkedMarkets", walletAddress] });
+    },
+  });
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!connected) { setVisible(true); return; }
+    try {
+      await toggleBookmarkMutation.mutateAsync(!isBookmarked);
+      toast.success(!isBookmarked ? "Market bookmarked" : "Bookmark removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Bookmark action failed");
+    }
+  }, [connected, isBookmarked, setVisible, toggleBookmarkMutation]);
+
   return (
     <div className="rounded-xl border border-border/40 bg-card/50 p-5">
       {/* Stats + countdown + action buttons — same as market detail, without faucet */}
       <div className="mb-4">
-        <MarketHeaderBar market={market} />
+        <MarketHeaderBar
+          market={market}
+          isBookmarked={isBookmarked}
+          bookmarkLoading={bookmarkStateLoading || toggleBookmarkMutation.isPending || isAuthenticating}
+          onToggleBookmark={handleToggleBookmark}
+          bookmarkDisabled={toggleBookmarkMutation.isPending}
+        />
       </div>
 
       {/* Chart — clickable to market detail */}

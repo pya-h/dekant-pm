@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SCALE, type Trade } from "@/lib/types";
 import { formatCompactUsdc } from "@/lib/portfolio-utils";
 import { cn } from "@/lib/utils";
+import { ChevronDown } from "lucide-react";
 
 const RECENT_TRADES_COUNT = 10;
 
@@ -17,6 +18,7 @@ interface RecentTradesProps {
 }
 
 export function RecentTrades({ marketId, rangeMin, rangeMax }: RecentTradesProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["recentTrades", marketId],
     queryFn: () =>
@@ -31,25 +33,37 @@ export function RecentTrades({ marketId, rangeMin, rangeMax }: RecentTradesProps
   const trades = useMemo(() => data?.data ?? [], [data]);
 
   return (
-    <Card className="h-full">
+    <Card className={cn("transition-all", !collapsed && "min-h-[420px]")}>
       <CardHeader className="pb-2">
-        <h2 className="text-sm font-semibold">Recent Trades</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Recent Trades</h2>
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+            title={collapsed ? "Expand" : "Collapse"}
+          >
+            <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
+          </button>
+        </div>
       </CardHeader>
-      <CardContent className="px-3 pb-3">
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-5 animate-pulse rounded bg-muted" />
-            ))}
-          </div>
-        ) : trades.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">
-            No trades yet
-          </p>
-        ) : (
-          <TradeList trades={trades} rangeMin={rangeMin} rangeMax={rangeMax} />
-        )}
-      </CardContent>
+      {!collapsed && (
+        <CardContent className="px-3 pb-3">
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-5 animate-pulse rounded bg-muted" />
+              ))}
+            </div>
+          ) : trades.length === 0 ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No trades yet
+            </p>
+          ) : (
+            <TradeList trades={trades} rangeMin={rangeMin} rangeMax={rangeMax} />
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
