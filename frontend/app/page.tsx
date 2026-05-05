@@ -102,7 +102,6 @@ function HomeContent() {
     () => data?.pages.flatMap((page) => page.data) ?? [],
     [data],
   );
-  const total = data?.pages[0]?.total ?? 0;
 
   useEffect(() => {
     if (!hasNextPage || isFetchingNextPage) return;
@@ -248,12 +247,6 @@ function HomeContent() {
                   Load More
                 </Button>
               )}
-            </div>
-          )}
-
-          {!hasNextPage && total > 0 && (
-            <div className="pt-2 text-center text-xs text-muted-foreground">
-              All markets loaded
             </div>
           )}
         </>
