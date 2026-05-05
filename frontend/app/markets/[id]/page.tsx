@@ -157,7 +157,7 @@ export default function MarketDetailPage({
       />
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}
-      <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_260px] xl:grid-cols-[240px_1fr_280px]">
+      <div className="mt-4 grid items-start gap-3 lg:grid-cols-[260px_1fr_300px] xl:grid-cols-[280px_1fr_320px]">
         {/* Left panel — Recent Trades */}
         <div className="hidden lg:block">
           <RecentTrades
@@ -210,9 +210,9 @@ export default function MarketDetailPage({
         <MarketInfoSection market={market} />
       </div>
 
-      {/* ── Comments (dummy for now) ── */}
+      {/* ── Comments & Activity ── */}
       <div className="mt-6">
-        <CommentsSection />
+        <CommentsSection marketId={market.id} marketCreator={market.creator} />
       </div>
 
       {/* ── Related markets by same subject/asset ── */}
@@ -267,12 +267,12 @@ function MarketDetailSkeleton() {
       </div>
 
       {/* 3-column skeleton */}
-      <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_260px] xl:grid-cols-[240px_1fr_280px]">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[260px_1fr_300px] xl:grid-cols-[280px_1fr_320px]">
         <div className="hidden lg:block">
           <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
         </div>
         <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
-        <div className="h-[400px] animate-pulse rounded-lg bg-muted" />
+        <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
       </div>
     </div>
   );

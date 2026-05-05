@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
+import { ConflictException } from '@nestjs/common';
 import { UserService } from './user.service';
+import { UserEntity } from './entity/user.entity';
 import { UserPositionEntity } from './entity/user-position.entity';
 import { LpPositionEntity } from './entity/lp-position.entity';
 import { UserRoleEntity } from './entity/user-role.entity';
@@ -9,6 +12,7 @@ import { MarketEntity } from '../market/entity/market.entity';
 
 describe('UserService', () => {
   let service: UserService;
+  let userRepo: Record<string, jest.Mock>;
   let positionRepo: Record<string, jest.Mock>;
   let lpPositionRepo: Record<string, jest.Mock>;
   let roleRepo: Record<string, jest.Mock>;
@@ -18,7 +22,12 @@ describe('UserService', () => {
   const WALLET = 'WaLLet111111111111111111111111111111111111111';
 
   beforeEach(async () => {
-    positionRepo = { find: jest.fn() };
+    userRepo = {
+      findOne: jest.fn(),
+      create: jest.fn((data) => ({ ...data, id: '1' })),
+      save: jest.fn((entity) => Promise.resolve({ ...entity, id: entity.id ?? '1' })),
+    };
+    positionRepo = { find: jest.fn(), findOne: jest.fn() };
     lpPositionRepo = { find: jest.fn() };
     roleRepo = { find: jest.fn() };
     tradeRepo = { findAndCount: jest.fn() };
@@ -27,16 +36,135 @@ describe('UserService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UserService,
+        { provide: getRepositoryToken(UserEntity), useValue: userRepo },
         { provide: getRepositoryToken(UserPositionEntity), useValue: positionRepo },
         { provide: getRepositoryToken(LpPositionEntity), useValue: lpPositionRepo },
         { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
         { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
         { provide: getRepositoryToken(MarketEntity), useValue: marketRepo },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key: string) => key === 'MAX_FAUCETS_PER_DAY' ? '5' : undefined) },
+        },
       ],
     }).compile();
 
     service = module.get<UserService>(UserService);
   });
+
+  // ── Profile ─────────────────────────────────────────────────────
+
+  describe('findOrCreateUser', () => {
+    it('should return existing user if found', async () => {
+      const existing = { id: '1', walletAddress: WALLET, username: 'test_user' };
+      userRepo.findOne.mockResolvedValue(existing);
+
+      const result = await service.findOrCreateUser(WALLET);
+
+      expect(result).toBe(existing);
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should create new user with random username if not found', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.findOrCreateUser(WALLET);
+
+      expect(userRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          walletAddress: WALLET,
+          faucetsPerDay: 5,
+        }),
+      );
+      expect(result.username).toMatch(/^user_[a-f0-9]{8}$/);
+      expect(userRepo.save).toHaveBeenCalled();
+    });
+  });
+
+  describe('getProfile', () => {
+    it('should return user profile or null', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'abc' };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.getProfile(WALLET);
+      expect(result).toBe(user);
+    });
+
+    it('should return null for non-existing user', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      const result = await service.getProfile(WALLET);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('updateProfile', () => {
+    it('should update username', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'old', email: null, avatar: null };
+      userRepo.findOne
+        .mockResolvedValueOnce(user) // findOrCreateUser
+        .mockResolvedValueOnce(null); // check username taken
+
+      const result = await service.updateProfile(WALLET, { username: 'new_name' });
+
+      expect(result.username).toBe('new_name');
+      expect(userRepo.save).toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException if username is taken', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'old', email: null, avatar: null };
+      const other = { id: '2', walletAddress: 'OTHER', username: 'taken' };
+      userRepo.findOne
+        .mockResolvedValueOnce(user) // findOrCreateUser
+        .mockResolvedValueOnce(other); // username check
+
+      await expect(
+        service.updateProfile(WALLET, { username: 'taken' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should update email', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'u', email: null, avatar: null };
+      userRepo.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null); // email check
+
+      const result = await service.updateProfile(WALLET, { email: 'a@b.com' });
+
+      expect(result.email).toBe('a@b.com');
+    });
+
+    it('should throw ConflictException if email is taken', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'u', email: null, avatar: null };
+      const other = { id: '2', walletAddress: 'OTHER', email: 'taken@b.com' };
+      userRepo.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(other); // email check
+
+      await expect(
+        service.updateProfile(WALLET, { email: 'taken@b.com' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should clear email when set to null', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'u', email: 'old@b.com', avatar: null };
+      userRepo.findOne.mockResolvedValueOnce(user);
+
+      const result = await service.updateProfile(WALLET, { email: null });
+
+      expect(result.email).toBeNull();
+    });
+
+    it('should update avatar', async () => {
+      const user = { id: '1', walletAddress: WALLET, username: 'u', email: null, avatar: null };
+      userRepo.findOne.mockResolvedValueOnce(user);
+
+      const result = await service.updateProfile(WALLET, { avatar: 'https://img.com/a.png' });
+
+      expect(result.avatar).toBe('https://img.com/a.png');
+    });
+  });
+
+  // ── Existing tests ────────────────────────────────────────────
 
   describe('getPositions', () => {
     it('should query positions by wallet address with market relation', async () => {
@@ -161,7 +289,6 @@ describe('UserService', () => {
       await service.getStaleMarkets();
 
       const passedThreshold = qb.andWhere.mock.calls[0][1].threshold as Date;
-      // Should be within 1 second of 7 days ago
       expect(Math.abs(passedThreshold.getTime() - before.getTime())).toBeLessThan(1000);
     });
 

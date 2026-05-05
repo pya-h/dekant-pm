@@ -1,15 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
+import { UserEntity } from './entity/user.entity';
 import { UserPositionEntity } from './entity/user-position.entity';
 import { LpPositionEntity } from './entity/lp-position.entity';
 import { UserRoleEntity } from './entity/user-role.entity';
 import { TradeEntity } from '../market/entity/trade.entity';
 import { MarketEntity } from '../market/entity/market.entity';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class UserService {
+  private readonly defaultFaucetsPerDay: number;
+
   constructor(
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(UserPositionEntity)
     private readonly positionRepo: Repository<UserPositionEntity>,
     @InjectRepository(LpPositionEntity)
@@ -20,7 +28,67 @@ export class UserService {
     private readonly tradeRepo: Repository<TradeEntity>,
     @InjectRepository(MarketEntity)
     private readonly marketRepo: Repository<MarketEntity>,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.defaultFaucetsPerDay = Number(
+      this.configService.get<string>('MAX_FAUCETS_PER_DAY') ?? '3',
+    );
+  }
+
+  /** Get or create user by wallet address. */
+  async findOrCreateUser(walletAddress: string): Promise<UserEntity> {
+    const existing = await this.userRepo.findOne({ where: { walletAddress } });
+    if (existing) return existing;
+
+    const username = 'user_' + randomBytes(4).toString('hex');
+    const user = this.userRepo.create({
+      walletAddress,
+      username,
+      faucetsPerDay: this.defaultFaucetsPerDay,
+    });
+    return this.userRepo.save(user);
+  }
+
+  /** Get user profile by wallet address (returns null if not found). */
+  async getProfile(walletAddress: string): Promise<UserEntity | null> {
+    return this.userRepo.findOne({ where: { walletAddress } });
+  }
+
+  /** Update user profile. Only updates provided fields. */
+  async updateProfile(
+    walletAddress: string,
+    dto: UpdateProfileDto,
+  ): Promise<UserEntity> {
+    const user = await this.findOrCreateUser(walletAddress);
+
+    if (dto.username !== undefined && dto.username !== user.username) {
+      const taken = await this.userRepo.findOne({
+        where: { username: dto.username },
+      });
+      if (taken && taken.walletAddress !== walletAddress) {
+        throw new ConflictException('Username is already taken');
+      }
+      user.username = dto.username;
+    }
+
+    if (dto.email !== undefined && dto.email !== user.email) {
+      if (dto.email !== null && dto.email !== '') {
+        const taken = await this.userRepo.findOne({
+          where: { email: dto.email },
+        });
+        if (taken && taken.walletAddress !== walletAddress) {
+          throw new ConflictException('Email is already taken');
+        }
+      }
+      user.email = dto.email || null;
+    }
+
+    if (dto.avatar !== undefined) {
+      user.avatar = dto.avatar || null;
+    }
+
+    return this.userRepo.save(user);
+  }
 
   async getPositions(
     walletAddress: string,
