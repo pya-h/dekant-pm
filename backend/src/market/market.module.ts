@@ -10,6 +10,7 @@ import { FaucetController } from './faucet.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
+import { UserEntity } from '../user/entity/user.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { UserRoleEntity } from '../user/entity/user-role.entity';
       TradeEntity,
       BookmarkEntity,
       UserRoleEntity,
+      UserEntity,
     ]),
     AuthModule,
     SettingsModule,

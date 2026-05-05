@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useUserPositions } from "@/hooks/use-positions";
 import { useBookmarkedMarkets } from "@/hooks/use-bookmarks";
-import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { MarketCard } from "@/components/market/market-card";
 import {
@@ -33,7 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useState } from "react";
-import { Wallet, TrendingUp, AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Wallet, TrendingUp, AlertCircle, AlertTriangle } from "lucide-react";
 
 type TabKey = "all" | "open" | "settled" | "expired" | "bookmarked";
 
@@ -44,36 +43,13 @@ export default function PortfolioPage() {
 
   const address = publicKey?.toBase58();
   const { data: positions, isLoading, isError, error, refetch } = useUserPositions(address);
-  const { token, authenticate, isAuthenticating, error: authError } = useAuth();
   const {
     data: bookmarkedMarkets,
     isLoading: bookmarkedLoading,
     isError: isBookmarkedError,
     error: bookmarkedError,
     refetch: refetchBookmarked,
-  } = useBookmarkedMarkets(address, token, activeTab === "bookmarked");
-
-  useEffect(() => {
-    if (
-      activeTab !== "bookmarked" ||
-      !connected ||
-      !address ||
-      token ||
-      isAuthenticating ||
-      authError
-    ) {
-      return;
-    }
-    authenticate().catch(() => {});
-  }, [
-    activeTab,
-    connected,
-    address,
-    token,
-    isAuthenticating,
-    authError,
-    authenticate,
-  ]);
+  } = useBookmarkedMarkets(address, activeTab === "bookmarked");
 
   const tabs = useMemo(() => {
     if (!positions) return { all: [], open: [], settled: [], expired: [] };
@@ -184,24 +160,7 @@ export default function PortfolioPage() {
 
           {activeTab === "bookmarked" ? (
             <div className="mt-4">
-              {isAuthenticating && !token ? (
-                <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Signing authentication message...
-                </div>
-              ) : authError && !token ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-400">
-                  Authentication failed: {authError}
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="ml-2 h-auto p-0 text-amber-400 underline"
-                    onClick={() => authenticate().catch(() => {})}
-                  >
-                    Retry
-                  </Button>
-                </div>
-              ) : bookmarkedLoading ? (
+              {bookmarkedLoading ? (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div

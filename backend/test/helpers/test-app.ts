@@ -9,6 +9,7 @@ import { HealthModule } from '../../src/health/health.module';
 import { AuthService } from '../../src/auth/auth.service';
 import { AuthController } from '../../src/auth/auth.controller';
 import { AuthGuard } from '../../src/auth/guard/auth.guard';
+import { OptionalAuthGuard } from '../../src/auth/guard/optional-auth.guard';
 import { RolesGuard } from '../../src/auth/guard/roles.guard';
 import { MarketService } from '../../src/market/market.service';
 import { MarketController } from '../../src/market/market.controller';
@@ -122,6 +123,11 @@ export async function createTestApp(): Promise<TestApp> {
       Promise.resolve({ ...entity, id: entity.id ?? '1' }),
     ),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    }),
   };
 
   const dataSourceMock = {
@@ -158,6 +164,7 @@ export async function createTestApp(): Promise<TestApp> {
     providers: [
       AuthService,
       AuthGuard,
+      OptionalAuthGuard,
       RolesGuard,
       MarketService,
       AmmService,

@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useAdminRole } from "@/hooks/use-admin-role";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { USDC_DECIMALS, type Trade, formatUsdc } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/use-auth";
+
+const PAGE_SIZE = 30;
 
 interface ActivityTabProps {
   marketId?: string;
@@ -20,28 +22,43 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
   const [mine, setMine] = useState(false);
   const { publicKey } = useWallet();
   const walletAddress = publicKey?.toBase58();
-  const { isSuperadmin, isAdmin } = useAdminRole();
-  const canSeeUsernames = isSuperadmin || isAdmin;
+  const { token } = useAuth();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["marketActivity", marketId],
-    queryFn: () =>
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["marketActivity", marketId, token],
+    queryFn: ({ pageParam = 1 }) =>
       api.get<{ data: Trade[]; total: number }>(
         `/markets/${marketId}/history`,
-        { limit: 100 },
+        { page: pageParam, limit: PAGE_SIZE },
+        token ?? undefined,
       ),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const fetched = allPages.reduce((n, p) => n + p.data.length, 0);
+      return fetched < lastPage.total ? allPages.length + 1 : undefined;
+    },
     enabled: !!marketId,
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
 
-  const allTrades = useMemo(() => data?.data ?? [], [data]);
+  const allTrades = useMemo(
+    () => data?.pages.flatMap((p) => p.data) ?? [],
+    [data],
+  );
 
   // Build activity list: trades + synthetic initial liquidity
   const activities = useMemo(() => {
     const items: ActivityItem[] = allTrades.map((t) => ({
       type: t.isBuy ? "buy" : "sell",
       trader: t.trader,
+      username: t.username,
       amount: t.collateralAmount,
       shares: t.tokensTransacted,
       fee: t.feePaid,
@@ -57,6 +74,7 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
       items.push({
         type: "initial_lp",
         trader: marketCreator,
+        username: null,
         amount: null,
         shares: null,
         fee: null,
@@ -76,6 +94,27 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
     if (!mine || !walletAddress) return activities;
     return activities.filter((a) => a.trader === walletAddress);
   }, [activities, mine, walletAddress]);
+
+  // Infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const handleIntersect = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    },
+    [hasNextPage, isFetchingNextPage, fetchNextPage],
+  );
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(handleIntersect, {
+      rootMargin: "100px",
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [handleIntersect]);
 
   if (!marketId) {
     return (
@@ -114,9 +153,10 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
       ) : (
         <div className="divide-y divide-border/20">
           {/* Header */}
-          <div className="grid grid-cols-[80px_1fr_90px_90px_70px_80px] items-center gap-2 px-4 py-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="grid grid-cols-[70px_1fr_80px_80px_80px_60px_70px] items-center gap-1.5 px-4 py-2 text-[10px] uppercase tracking-wide text-muted-foreground">
             <span>Type</span>
-            <span>Trader</span>
+            <span>User</span>
+            <span>Wallet</span>
             <span className="text-right">Amount</span>
             <span className="text-right">Shares</span>
             <span className="text-right">Fee</span>
@@ -127,9 +167,16 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
               key={item.txSignature ?? `lp-${i}`}
               item={item}
               isCurrentUser={item.trader === walletAddress}
-              canSeeUsernames={canSeeUsernames}
             />
           ))}
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef} className="h-1" />
+          {isFetchingNextPage && (
+            <div className="flex items-center justify-center gap-2 py-3">
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Loading more...</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -139,6 +186,7 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
 interface ActivityItem {
   type: "buy" | "sell" | "initial_lp";
   trader: string;
+  username: string | null;
   amount: string | null;
   shares: string | null;
   fee: string | null;
@@ -152,11 +200,9 @@ interface ActivityItem {
 function ActivityRow({
   item,
   isCurrentUser,
-  canSeeUsernames,
 }: {
   item: ActivityItem;
   isCurrentUser: boolean;
-  canSeeUsernames: boolean;
 }) {
   const typeLabel =
     item.type === "buy"
@@ -172,12 +218,17 @@ function ActivityRow({
         ? "text-rose-400"
         : "text-blue-400";
 
-  // Trader display: current user sees own name, admin/superadmin sees wallet prefix, others see "Trader#ID"
-  const traderDisplay = isCurrentUser
+  // Username display: backend already masks for non-privileged callers
+  const usernameDisplay = isCurrentUser
     ? "You"
-    : canSeeUsernames
+    : item.username ?? "—";
+
+  // Wallet display: backend already masks for non-privileged callers
+  const walletDisplay = isCurrentUser
+    ? "You"
+    : item.trader.length > 12
       ? item.trader.slice(0, 4) + "..." + item.trader.slice(-4)
-      : "Trader#" + item.trader.slice(-4);
+      : item.trader;
 
   const amount =
     item.amount != null ? formatUsdc(item.amount) : "—";
@@ -198,10 +249,13 @@ function ActivityRow({
       : "Genesis";
 
   return (
-    <div className="grid grid-cols-[80px_1fr_90px_90px_70px_80px] items-center gap-2 px-4 py-2.5 text-xs">
+    <div className="grid grid-cols-[70px_1fr_80px_80px_80px_60px_70px] items-center gap-1.5 px-4 py-2.5 text-xs">
       <span className={cn("font-medium", typeColor)}>{typeLabel}</span>
+      <span className="truncate text-muted-foreground" title={item.username ?? undefined}>
+        {usernameDisplay}
+      </span>
       <span className="truncate text-muted-foreground" title={item.trader}>
-        {traderDisplay}
+        {walletDisplay}
       </span>
       <span className="text-right tabular-nums">{amount}</span>
       <span className="text-right tabular-nums">{shares}</span>

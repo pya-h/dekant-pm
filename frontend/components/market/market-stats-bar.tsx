@@ -70,9 +70,9 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
 
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2 min-w-0">
-      <div className="text-sm font-bold tabular-nums leading-tight whitespace-nowrap">{value}</div>
-      <div className="text-[10px] text-muted-foreground whitespace-nowrap">{label}</div>
+    <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-2.5 min-w-0">
+      <div className="text-base font-bold tabular-nums leading-tight whitespace-nowrap">{value}</div>
+      <div className="text-[11px] text-muted-foreground whitespace-nowrap">{label}</div>
     </div>
   );
 }

@@ -155,7 +155,7 @@ export default function MarketDetailPage({
       />
 
       {/* ── 3-column layout: left panel | chart | right trading panel ── */}
-      <div className="mt-4 grid items-start gap-5 lg:grid-cols-[280px_1fr_320px] xl:grid-cols-[300px_1fr_340px]">
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[300px_1fr_340px] xl:grid-cols-[320px_1fr_360px]">
         {/* Left panel — Recent Trades */}
         <div className="hidden lg:block">
           <RecentTrades
@@ -265,7 +265,7 @@ function MarketDetailSkeleton() {
       </div>
 
       {/* 3-column skeleton */}
-      <div className="mt-4 grid gap-5 lg:grid-cols-[280px_1fr_320px] xl:grid-cols-[300px_1fr_340px]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[300px_1fr_340px] xl:grid-cols-[320px_1fr_360px]">
         <div className="hidden lg:block">
           <div className="h-[500px] animate-pulse rounded-lg bg-muted" />
         </div>

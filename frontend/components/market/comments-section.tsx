@@ -126,11 +126,13 @@ export function CommentsSection({ marketId, marketCreator }: CommentsSectionProp
         </button>
       </header>
 
-      {tab === "comments" ? (
-        <CommentsContent />
-      ) : (
-        <ActivityTab marketId={marketId} marketCreator={marketCreator} />
-      )}
+      <div className="min-h-[380px] max-h-[480px] overflow-y-auto">
+        {tab === "comments" ? (
+          <CommentsContent />
+        ) : (
+          <ActivityTab marketId={marketId} marketCreator={marketCreator} />
+        )}
+      </div>
     </section>
   );
 }

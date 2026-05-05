@@ -88,11 +88,13 @@ export interface LpPosition {
 }
 
 // Matches TradeEntity with nested market relation.
+// `trader` and `username` may be masked by the backend based on caller role.
 export interface Trade {
   id: string;
   marketId: string;
   market: MarketSummary;
   trader: string;
+  username: string | null;
   isBuy: boolean;
   collateralAmount: string;
   outcomeIndex: number | null;
