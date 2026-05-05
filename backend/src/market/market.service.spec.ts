@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { MarketService } from './market.service';
 import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
@@ -483,6 +487,148 @@ describe('MarketService', () => {
     it('should throw NotFoundException for missing market', async () => {
       marketRepo.findOne.mockResolvedValue(null);
       await expect(service.getOracleData(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateEditableMetadata', () => {
+    it('should allow creator to update category, subject, icon, and tags', async () => {
+      const owner = 'Creator11111111111111111111111111111111111111';
+      marketRepo.findOne.mockResolvedValue(
+        createMockMarket({
+          creator: owner,
+          category: 'crypto',
+          subject: 'SOL',
+          icon: null,
+          tags: ['old'],
+        }),
+      );
+
+      const result = await service.updateEditableMetadata(
+        1,
+        owner,
+        false,
+        {
+          category: ' macro ',
+          subject: ' BTC ',
+          icon: ' https://cdn/icon.png ',
+          tags: [' alpha ', '', 'beta '],
+        },
+      );
+
+      expect(marketRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'macro',
+          subject: 'BTC',
+          icon: 'https://cdn/icon.png',
+          tags: ['alpha', 'beta'],
+        }),
+      );
+      expect(result.category).toBe('macro');
+      expect(result.subject).toBe('BTC');
+      expect(result.icon).toBe('https://cdn/icon.png');
+      expect(result.tags).toEqual(['alpha', 'beta']);
+    });
+
+    it('should allow admin/superadmin to update a market they did not create', async () => {
+      marketRepo.findOne.mockResolvedValue(
+        createMockMarket({
+          creator: 'DifferentCreator111111111111111111111111111111',
+          icon: 'old-icon',
+        }),
+      );
+
+      const result = await service.updateEditableMetadata(
+        1,
+        'Admin1111111111111111111111111111111111111111',
+        true,
+        { icon: null },
+      );
+
+      expect(marketRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ icon: null }),
+      );
+      expect(result.icon).toBeNull();
+    });
+
+    it('should reject non-owner creator when not admin/superadmin', async () => {
+      marketRepo.findOne.mockResolvedValue(
+        createMockMarket({
+          creator: 'Owner111111111111111111111111111111111111111',
+        }),
+      );
+
+      await expect(
+        service.updateEditableMetadata(
+          1,
+          'OtherCreator11111111111111111111111111111111111',
+          false,
+          { category: 'crypto' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject empty patch payload', async () => {
+      marketRepo.findOne.mockResolvedValue(createMockMarket());
+
+      await expect(
+        service.updateEditableMetadata(
+          1,
+          'Creator11111111111111111111111111111111111111',
+          true,
+          {},
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(marketRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should clear icon and tags when empty values are provided', async () => {
+      marketRepo.findOne.mockResolvedValue(
+        createMockMarket({
+          icon: 'old-icon',
+          tags: ['alpha'],
+        }),
+      );
+
+      const result = await service.updateEditableMetadata(
+        1,
+        'Creator11111111111111111111111111111111111111',
+        true,
+        {
+          icon: '   ',
+          tags: [],
+        },
+      );
+
+      expect(marketRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          icon: null,
+          tags: null,
+        }),
+      );
+      expect(result.icon).toBeNull();
+      expect(result.tags).toBeNull();
+    });
+
+    it('should reject empty category/subject strings', async () => {
+      marketRepo.findOne.mockResolvedValue(createMockMarket());
+
+      await expect(
+        service.updateEditableMetadata(
+          1,
+          'Creator11111111111111111111111111111111111111',
+          true,
+          { category: '   ' },
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.updateEditableMetadata(
+          1,
+          'Creator11111111111111111111111111111111111111',
+          true,
+          { subject: '   ' },
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

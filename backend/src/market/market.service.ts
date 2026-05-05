@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketEntity } from './entity/market.entity';
@@ -6,6 +11,7 @@ import { TradeEntity } from './entity/trade.entity';
 import { BookmarkEntity } from './entity/bookmark.entity';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
+import { UpdateMarketMetadataDto } from './dto/update-market-metadata.dto';
 
 const SCALE = 1_000_000_000;
 
@@ -77,6 +83,69 @@ export class MarketService {
       rangeMin: dto.rangeMin != null ? String(dto.rangeMin) : null,
       rangeMax: dto.rangeMax != null ? String(dto.rangeMax) : null,
     });
+
+    return this.marketRepo.save(market);
+  }
+
+  async updateEditableMetadata(
+    id: number,
+    walletAddress: string,
+    canEditAnyMarket: boolean,
+    dto: UpdateMarketMetadataDto,
+  ): Promise<MarketEntity> {
+    const market = await this.findById(id);
+
+    if (!canEditAnyMarket && market.creator !== walletAddress) {
+      throw new ForbiddenException('Only the market creator can modify this market');
+    }
+
+    let hasAnyChange = false;
+
+    if (dto.category !== undefined) {
+      const category = dto.category.trim();
+      if (!category) {
+        throw new BadRequestException('Category cannot be empty');
+      }
+      market.category = category;
+      hasAnyChange = true;
+    }
+
+    if (dto.subject !== undefined) {
+      const subject = dto.subject.trim();
+      if (!subject) {
+        throw new BadRequestException('Subject cannot be empty');
+      }
+      market.subject = subject;
+      hasAnyChange = true;
+    }
+
+    if (dto.icon !== undefined) {
+      if (dto.icon === null) {
+        market.icon = null;
+      } else {
+        const icon = dto.icon.trim();
+        market.icon = icon === '' ? null : icon;
+      }
+      hasAnyChange = true;
+    }
+
+    if (dto.tags !== undefined) {
+      if (dto.tags === null) {
+        market.tags = null;
+      } else {
+        const cleanedTags = dto.tags
+          .map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0);
+        market.tags = cleanedTags.length > 0 ? cleanedTags : null;
+      }
+      hasAnyChange = true;
+    }
+
+    if (!hasAnyChange) {
+      throw new BadRequestException(
+        'At least one editable field must be provided: category, subject, icon, tags',
+      );
+    }
 
     return this.marketRepo.save(market);
   }
