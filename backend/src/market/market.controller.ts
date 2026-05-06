@@ -105,6 +105,21 @@ export class MarketController {
     return this.marketService.getPrices(id);
   }
 
+  @Get(':id/properties')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get extended market properties and stats (creator/admin only)' })
+  @ApiResponse({ status: 200, description: 'Market properties with stats' })
+  @ApiResponse({ status: 403, description: 'Not the creator or admin' })
+  async getProperties(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: Request,
+  ) {
+    const walletAddress = this.getWalletAddress(request);
+    const canEditAnyMarket = await this.canEditAnyMarket(walletAddress);
+    return this.marketService.getMarketProperties(id, walletAddress, canEditAnyMarket);
+  }
+
   @Get(':id/oracle-data')
   @ApiOperation({ summary: 'Get oracle-derived data (sample values for now)' })
   @ApiResponse({ status: 200, description: 'Distribution peak, ranges' })
