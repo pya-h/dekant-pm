@@ -3,14 +3,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class CreateUsersTable1714694400000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "users" (
+      CREATE TABLE IF NOT EXISTS "users" (
         "id"              BIGSERIAL PRIMARY KEY,
         "wallet_address"  VARCHAR(44) NOT NULL UNIQUE,
         "username"        VARCHAR(32) NOT NULL UNIQUE,
         "email"           VARCHAR(255) UNIQUE,
         "avatar"          VARCHAR(512),
-        "faucets_per_day" INT NOT NULL DEFAULT 3,
-        "last_faucet_at"  TIMESTAMP,
         "created_at"      TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"      TIMESTAMP NOT NULL DEFAULT now()
       )

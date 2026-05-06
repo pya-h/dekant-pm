@@ -14,9 +14,6 @@ class EnvironmentVariables {
   @IsNotEmpty({ message: 'SUPERADMIN_ADDRESS is required' })
   SUPERADMIN_ADDRESS!: string;
 
-  @IsString()
-  @IsOptional()
-  MAX_FAUCETS_PER_DAY?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
