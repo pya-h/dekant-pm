@@ -258,8 +258,7 @@ export class MarketService {
       return { probabilities: reserves.map(() => uniform) };
     }
 
-    // p̂_i = x_i² / k² where k = totalMinted (per L2-norm AMM math)
-    const kSq = totalMinted * totalMinted;
+    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
     const probabilities = reserves.map((r) => {
       const x = totalMinted - r;
       return (x * x) / kSq;

@@ -443,8 +443,7 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
-    // Use totalMinted² per L2-norm AMM math: p̂_i = x_i² / k², k = totalMinted
-    const kSq = totalMinted * totalMinted;
+    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
     // Current probability
@@ -524,8 +523,7 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
-    // Use totalMinted² per L2-norm AMM math: p̂_i = x_i² / k², k = totalMinted
-    const kSq = totalMinted * totalMinted;
+    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
     // Current probability
