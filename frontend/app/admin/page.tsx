@@ -138,7 +138,7 @@ export default function AdminPage() {
 
       {/* Tabbed sections */}
       <Tabs defaultValue="roles">
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-visible sm:px-0">
+        <div className="-mx-4 -my-1 overflow-x-auto px-4 py-1 sm:mx-0 sm:my-0 sm:overflow-visible sm:px-0 sm:py-0">
           <TabsList>
             <TabsTrigger value="roles">Roles</TabsTrigger>
             {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}

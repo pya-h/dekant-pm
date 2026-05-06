@@ -273,6 +273,54 @@ describe('Settings (e2e)', () => {
     });
   });
 
+  describe('Non-superadmin rejection (403)', () => {
+    const NON_ADMIN = 'OtherWallet111111111111111111111111111111111';
+
+    it('GET /settings should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .get('/settings')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .expect(403);
+    });
+
+    it('PATCH /settings should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .patch('/settings')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .send({ feeCollectInterval: '6h' })
+        .expect(403);
+    });
+
+    it('POST /settings should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .post('/settings')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .send({ name: 'test', feeCollectInterval: '6h', deadlineCheckInterval: '1m' })
+        .expect(403);
+    });
+
+    it('GET /settings/all should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .get('/settings/all')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .expect(403);
+    });
+
+    it('POST /settings/:id/activate should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .post('/settings/1/activate')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .expect(403);
+    });
+
+    it('DELETE /settings/:id should return 403 for non-superadmin', () => {
+      return request(app.getHttpServer())
+        .delete('/settings/1')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(NON_ADMIN)}`)
+        .expect(403);
+    });
+  });
+
   describe('DELETE /settings/:id', () => {
     it('should require authentication', () => {
       return request(app.getHttpServer())
