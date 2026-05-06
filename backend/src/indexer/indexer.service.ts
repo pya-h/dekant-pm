@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Connection, Logs, PublicKey } from '@solana/web3.js';
+import { Connection, Logs, PublicKey, SystemProgram } from '@solana/web3.js';
 import { BorshCoder } from '@coral-xyz/anchor';
 import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { IDL, PROGRAM_ID } from '../common/idl';
@@ -23,6 +23,7 @@ import { TradeEntity } from '../market/entity/trade.entity';
 import { UserPositionEntity } from '../user/entity/user-position.entity';
 import { LpPositionEntity } from '../user/entity/lp-position.entity';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
+import { UserEntity } from '../user/entity/user.entity';
 import { parseEventsFromLogs, ParsedEvent } from './util/parser';
 
 const MARKET_TYPE_NAMES: Record<number, string> = {
@@ -65,6 +66,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     private readonly lpPositionRepo: Repository<LpPositionEntity>,
     @InjectRepository(UserRoleEntity)
     private readonly userRoleRepo: Repository<UserRoleEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
   async onModuleInit() {
@@ -854,15 +857,62 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async handleRoleAssigned(
     data: Record<string, any>,
   ): Promise<void> {
+    const userAddress = data.user.toString();
+
+    // Reject non-wallet addresses (e.g. token mints, PDAs)
+    if (!(await this.isWalletAddress(userAddress))) {
+      this.logger.warn(
+        `Ignoring RoleAssigned for non-wallet address: ${userAddress}`,
+      );
+      return;
+    }
+
     await this.userRoleRepo.upsert(
       {
-        userAddress: data.user.toString(),
+        userAddress,
         role: Number(data.role),
         assignedBy: data.assigned_by.toString(),
         assignedAt: new Date(Number(data.timestamp) * 1000),
       },
       ['userAddress', 'role'],
     );
+
+    // Ensure a user entity exists for this address
+    await this.ensureUserExists(userAddress);
+  }
+
+  /**
+   * Check whether an on-chain address is a wallet (owned by System Program
+   * or not yet created). Rejects token mints, ATAs, PDAs, etc.
+   */
+  private async isWalletAddress(address: string): Promise<boolean> {
+    try {
+      const pubkey = new PublicKey(address);
+      const info = await this.connection.getAccountInfo(pubkey);
+      // Account doesn't exist yet — valid wallet (unfunded)
+      if (!info) return true;
+      // Only System Program-owned accounts are wallets
+      return info.owner.equals(SystemProgram.programId);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Create user entity if one doesn't exist for this wallet address. */
+  private async ensureUserExists(walletAddress: string): Promise<void> {
+    try {
+      const existing = await this.userRepo.findOne({ where: { walletAddress } });
+      if (existing) return;
+
+      const { randomBytes } = await import('crypto');
+      const username = 'user_' + randomBytes(4).toString('hex');
+      await this.userRepo.save(
+        this.userRepo.create({ walletAddress, username }),
+      );
+    } catch (err) {
+      // Unique constraint race — another process created it first
+      this.logger.debug(`ensureUserExists race for ${walletAddress}: ${err}`);
+    }
   }
 
   private async handleRoleRevoked(

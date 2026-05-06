@@ -7,7 +7,8 @@ import { TradeEntity } from '../market/entity/trade.entity';
 import { UserPositionEntity } from '../user/entity/user-position.entity';
 import { LpPositionEntity } from '../user/entity/lp-position.entity';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
-import { PublicKey } from '@solana/web3.js';
+import { UserEntity } from '../user/entity/user.entity';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 
 // Mock the heavy IDL + BorshCoder to avoid OOM in tests.
 // The real IDL loads @coral-xyz/anchor's BorshCoder which causes unbounded
@@ -40,6 +41,7 @@ describe('IndexerService', () => {
   let userPositionRepo: Record<string, jest.Mock>;
   let lpPositionRepo: Record<string, jest.Mock>;
   let userRoleRepo: Record<string, jest.Mock>;
+  let userRepo: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     connection = {
@@ -97,6 +99,12 @@ describe('IndexerService', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
 
+    userRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((dto: any) => dto),
+      save: jest.fn((entity: any) => Promise.resolve(entity)),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IndexerService,
@@ -107,6 +115,7 @@ describe('IndexerService', () => {
         { provide: getRepositoryToken(UserPositionEntity), useValue: userPositionRepo },
         { provide: getRepositoryToken(LpPositionEntity), useValue: lpPositionRepo },
         { provide: getRepositoryToken(UserRoleEntity), useValue: userRoleRepo },
+        { provide: getRepositoryToken(UserEntity), useValue: userRepo },
       ],
     }).compile();
 
@@ -341,6 +350,91 @@ describe('IndexerService', () => {
       await new Promise((r) => setTimeout(r, 10));
 
       expect(order).toEqual([2]);
+    });
+  });
+
+  describe('handleRoleAssigned', () => {
+    const walletPubkey = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
+
+    beforeEach(async () => {
+      await service.onModuleInit();
+      jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+    });
+
+    it('should accept a wallet address (System Program-owned)', async () => {
+      connection.getAccountInfo.mockResolvedValue({
+        owner: SystemProgram.programId,
+        data: Buffer.alloc(0),
+      });
+
+      await (service as any).handleRoleAssigned({
+        user: walletPubkey,
+        role: 3,
+        assigned_by: walletPubkey,
+        timestamp: { toNumber: () => 1700000000, toString: () => '1700000000' },
+      });
+
+      expect(userRoleRepo.upsert).toHaveBeenCalled();
+    });
+
+    it('should accept a non-existent address (unfunded wallet)', async () => {
+      connection.getAccountInfo.mockResolvedValue(null);
+
+      await (service as any).handleRoleAssigned({
+        user: walletPubkey,
+        role: 3,
+        assigned_by: walletPubkey,
+        timestamp: { toNumber: () => 1700000000, toString: () => '1700000000' },
+      });
+
+      expect(userRoleRepo.upsert).toHaveBeenCalled();
+    });
+
+    it('should reject a token mint address (Token Program-owned)', async () => {
+      const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+      connection.getAccountInfo.mockResolvedValue({
+        owner: TOKEN_PROGRAM_ID,
+        data: Buffer.alloc(0),
+      });
+
+      await (service as any).handleRoleAssigned({
+        user: walletPubkey,
+        role: 3,
+        assigned_by: walletPubkey,
+        timestamp: { toNumber: () => 1700000000, toString: () => '1700000000' },
+      });
+
+      expect(userRoleRepo.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should create user entity when one does not exist', async () => {
+      connection.getAccountInfo.mockResolvedValue(null); // valid wallet
+      userRepo.findOne.mockResolvedValue(null); // no user entity
+
+      await (service as any).handleRoleAssigned({
+        user: walletPubkey,
+        role: 3,
+        assigned_by: walletPubkey,
+        timestamp: { toNumber: () => 1700000000, toString: () => '1700000000' },
+      });
+
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ walletAddress: walletPubkey.toBase58() }),
+      );
+    });
+
+    it('should not duplicate user entity when one already exists', async () => {
+      connection.getAccountInfo.mockResolvedValue(null);
+      userRepo.findOne.mockResolvedValue({ walletAddress: walletPubkey.toBase58() });
+
+      await (service as any).handleRoleAssigned({
+        user: walletPubkey,
+        role: 3,
+        assigned_by: walletPubkey,
+        timestamp: { toNumber: () => 1700000000, toString: () => '1700000000' },
+      });
+
+      expect(userRepo.save).not.toHaveBeenCalled();
     });
   });
 
