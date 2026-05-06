@@ -25,6 +25,7 @@ import { CreateFaucetConfigDto } from './dto/create-faucet-config.dto';
 import { UpdateFaucetConfigDto } from './dto/update-faucet-config.dto';
 
 const NATIVE_TOKEN = 'native';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
@@ -71,6 +72,31 @@ export class FaucetService {
 
   // ── Admin CRUD ──────────────────────────────────────────────────
 
+  /** Resolve display label: explicit label > "SOL" for native > truncated address */
+  private resolveLabel(config: FaucetConfigEntity): string {
+    if (config.label) return config.label;
+    if (config.token === NATIVE_TOKEN) return 'SOL';
+    return config.token.slice(0, 4) + '\u2026' + config.token.slice(-4);
+  }
+
+  /** Convert human-readable amount to raw (lamports/base units) */
+  private toRawAmount(humanAmount: string, decimals: number): bigint {
+    return BigInt(Math.round(parseFloat(humanAmount) * 10 ** decimals));
+  }
+
+  /** Find faucet config by token, with WSOL <-> native fallback */
+  private async findConfigByToken(token: string, enabledOnly = true): Promise<FaucetConfigEntity | null> {
+    const where: Record<string, any> = enabledOnly ? { enabled: true } : {};
+    let config = await this.configRepo.findOne({ where: { token, ...where } });
+    if (!config && token === WSOL_MINT) {
+      config = await this.configRepo.findOne({ where: { token: NATIVE_TOKEN, ...where } });
+    }
+    if (!config && token === NATIVE_TOKEN) {
+      config = await this.configRepo.findOne({ where: { token: WSOL_MINT, ...where } });
+    }
+    return config;
+  }
+
   async getAllConfigs(): Promise<FaucetConfigEntity[]> {
     return this.configRepo.find({ order: { createdAt: 'DESC' } });
   }
@@ -82,7 +108,8 @@ export class FaucetService {
     }
     const config = this.configRepo.create({
       token: dto.token,
-      label: dto.label,
+      label: dto.label || null,
+      decimals: dto.decimals,
       amountPerRequest: dto.amountPerRequest,
       maxRequestsPerDay: dto.maxRequestsPerDay,
       maxDailyAmount: dto.maxDailyAmount ?? null,
@@ -96,7 +123,8 @@ export class FaucetService {
     const config = await this.configRepo.findOne({ where: { id } });
     if (!config) throw new NotFoundException('Faucet config not found');
 
-    if (dto.label !== undefined) config.label = dto.label;
+    if (dto.label !== undefined) config.label = dto.label || null;
+    if (dto.decimals !== undefined) config.decimals = dto.decimals;
     if (dto.amountPerRequest !== undefined) config.amountPerRequest = dto.amountPerRequest;
     if (dto.maxRequestsPerDay !== undefined) config.maxRequestsPerDay = dto.maxRequestsPerDay;
     if (dto.maxDailyAmount !== undefined) config.maxDailyAmount = dto.maxDailyAmount;
@@ -124,7 +152,7 @@ export class FaucetService {
       return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '' };
     }
 
-    const config = await this.configRepo.findOne({ where: { token, enabled: true } });
+    const config = await this.findConfigByToken(token);
     if (!config) {
       return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '' };
     }
@@ -135,7 +163,7 @@ export class FaucetService {
       available: remainingClaims > 0,
       remainingClaims,
       amountPerRequest: config.amountPerRequest,
-      label: config.label,
+      label: this.resolveLabel(config),
     };
   }
 
@@ -175,7 +203,7 @@ export class FaucetService {
       const remainingClaims = Math.max(0, config.maxRequestsPerDay - todayCount);
       return {
         token: config.token,
-        label: config.label,
+        label: this.resolveLabel(config),
         available: remainingClaims > 0,
         remainingClaims,
         amountPerRequest: config.amountPerRequest,
@@ -188,7 +216,7 @@ export class FaucetService {
   async claim(userAddress: string, token: string): Promise<{ txSignature: string; amount: string }> {
     const keypair = this.ensureKeypair();
 
-    const config = await this.configRepo.findOne({ where: { token, enabled: true } });
+    const config = await this.findConfigByToken(token);
     if (!config) {
       throw new BadRequestException(`No faucet available for token "${token}"`);
     }
@@ -199,10 +227,14 @@ export class FaucetService {
       throw new BadRequestException('Daily faucet limit reached for this token');
     }
 
+    const rawAmount = this.toRawAmount(config.amountPerRequest, config.decimals);
+    const rawAmountStr = rawAmount.toString();
+
     // Check daily global limit
     if (config.maxDailyAmount) {
       const dailyTotal = await this.getDailyTotal(config.id);
-      if (BigInt(dailyTotal) + BigInt(config.amountPerRequest) > BigInt(config.maxDailyAmount)) {
+      const rawDailyLimit = this.toRawAmount(config.maxDailyAmount, config.decimals);
+      if (BigInt(dailyTotal) + rawAmount > rawDailyLimit) {
         throw new BadRequestException('Global daily faucet limit reached for this token');
       }
     }
@@ -210,27 +242,28 @@ export class FaucetService {
     // Check total lifetime limit
     if (config.totalAmountSharable) {
       const lifetimeTotal = await this.getLifetimeTotal(config.id);
-      if (BigInt(lifetimeTotal) + BigInt(config.amountPerRequest) > BigInt(config.totalAmountSharable)) {
+      const rawLifetimeLimit = this.toRawAmount(config.totalAmountSharable, config.decimals);
+      if (BigInt(lifetimeTotal) + rawAmount > rawLifetimeLimit) {
         throw new BadRequestException('Total faucet allocation exhausted for this token');
       }
     }
 
-    // Execute transfer
+    // Execute transfer — use config.token to determine native vs SPL
+    const isNative = config.token === NATIVE_TOKEN;
     let txSignature: string;
     try {
-      if (token === NATIVE_TOKEN) {
-        txSignature = await this.transferNative(keypair, userAddress, BigInt(config.amountPerRequest));
+      if (isNative) {
+        txSignature = await this.transferNative(keypair, userAddress, rawAmount);
       } else {
-        txSignature = await this.transferSpl(keypair, userAddress, token, BigInt(config.amountPerRequest));
+        txSignature = await this.transferSpl(keypair, userAddress, config.token, rawAmount);
       }
     } catch (err: any) {
       this.logger.error(`Faucet transfer failed: ${err.message}`, err.stack);
-      // Record failed attempt but don't count against user
       await this.historyRepo.save(
         this.historyRepo.create({
           receiver: userAddress,
           configId: config.id,
-          amount: config.amountPerRequest,
+          amount: rawAmountStr,
           txSignature: 'failed',
           status: 'failed',
         }),
@@ -238,12 +271,12 @@ export class FaucetService {
       throw new ServiceUnavailableException('Faucet service not currently available');
     }
 
-    // Record success
+    // Record success (history stores raw amount for chain accountability)
     await this.historyRepo.save(
       this.historyRepo.create({
         receiver: userAddress,
         configId: config.id,
-        amount: config.amountPerRequest,
+        amount: rawAmountStr,
         txSignature,
         status: 'success',
       }),

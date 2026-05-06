@@ -25,6 +25,7 @@ interface BinaryInputProps {
     } | null,
   ) => void;
   collateralBalance?: number;
+  tokenName?: string | null;
   position?: UserPosition | null;
 }
 
@@ -33,6 +34,7 @@ export function BinaryInput({
   side,
   onParamsChange,
   collateralBalance,
+  tokenName,
   position,
 }: BinaryInputProps) {
   const [selectedOutcome, setSelectedOutcome] = useState(0);
@@ -206,7 +208,7 @@ export function BinaryInput({
               Current: {formatProbability(probabilities[selectedOutcome])}
             </span>
           ) : showBalance ? (
-            <span>Balance: {formatUsdc(collateralBalance!)}</span>
+            <span>Balance: {formatUsdc(collateralBalance!)}{tokenName ? ` ${tokenName}` : ""}</span>
           ) : showAvailable ? (
             <span>
               Available:{" "}
