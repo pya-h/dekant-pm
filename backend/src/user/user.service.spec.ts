@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { ConflictException } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserEntity } from './entity/user.entity';
@@ -42,10 +41,6 @@ describe('UserService', () => {
         { provide: getRepositoryToken(UserRoleEntity), useValue: roleRepo },
         { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
         { provide: getRepositoryToken(MarketEntity), useValue: marketRepo },
-        {
-          provide: ConfigService,
-          useValue: { get: jest.fn((key: string) => key === 'MAX_FAUCETS_PER_DAY' ? '5' : undefined) },
-        },
       ],
     }).compile();
 
@@ -73,7 +68,6 @@ describe('UserService', () => {
       expect(userRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           walletAddress: WALLET,
-          faucetsPerDay: 5,
         }),
       );
       expect(result.username).toMatch(/^user_[a-f0-9]{8}$/);

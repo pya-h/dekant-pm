@@ -1,6 +1,5 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { UserEntity } from './entity/user.entity';
 import { UserPositionEntity } from './entity/user-position.entity';
@@ -13,8 +12,6 @@ import { randomBytes } from 'crypto';
 
 @Injectable()
 export class UserService {
-  private readonly defaultFaucetsPerDay: number;
-
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
@@ -28,12 +25,7 @@ export class UserService {
     private readonly tradeRepo: Repository<TradeEntity>,
     @InjectRepository(MarketEntity)
     private readonly marketRepo: Repository<MarketEntity>,
-    private readonly configService: ConfigService,
-  ) {
-    this.defaultFaucetsPerDay = Number(
-      this.configService.get<string>('MAX_FAUCETS_PER_DAY') ?? '3',
-    );
-  }
+  ) {}
 
   /** Get or create user by wallet address. */
   async findOrCreateUser(walletAddress: string): Promise<UserEntity> {
@@ -44,7 +36,6 @@ export class UserService {
     const user = this.userRepo.create({
       walletAddress,
       username,
-      faucetsPerDay: this.defaultFaucetsPerDay,
     });
     return this.userRepo.save(user);
   }
