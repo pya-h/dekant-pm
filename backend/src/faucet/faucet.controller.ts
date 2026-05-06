@@ -45,7 +45,10 @@ export class FaucetController {
   }
 
   @Get('status/all')
-  @ApiOperation({ summary: 'Get faucet status for all tokens for a user' })
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('superadmin', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get faucet status for all tokens for a user (admin only)' })
   @ApiQuery({ name: 'address', required: true })
   getAllStatuses(@Query('address') address: string) {
     return this.faucetService.getAllStatuses(address);
