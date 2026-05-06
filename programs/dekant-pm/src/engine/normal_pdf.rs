@@ -1,19 +1,84 @@
 /// On-chain Normal PDF bin weight computation.
 ///
-/// Approximates exp(-z²/2) using a degree-4 Taylor polynomial (Horner form).
-/// Accurate to ~0.1% for |z| ≤ 1.5; degrades gracefully for larger |z|.
-/// Tails clamped to 0 for |z| > Z_CUTOFF.
+/// Approximates exp(-z²/2) using a precomputed lookup table with linear
+/// interpolation. Step size 0.5 in t-space gives ~0.78% max relative error.
+/// Guaranteed monotonically decreasing. Tails clamped to 0 for |z| > Z_CUTOFF.
 ///
 use crate::constants::{SCALE, Z_CUTOFF};
 
+/// Lookup table: EXP_TABLE[k] = round(exp(-k/4) * SCALE) for k = 0..2*Z_CUTOFF².
+/// Each entry corresponds to t = k/2 (where t = z²), giving 0.5 step size in t.
+/// Linear interpolation between entries gives ~0.78% max relative error.
+///
+/// Table size must be 2*Z_CUTOFF² + 1. The compile-time assert below enforces this.
+const EXP_TABLE: [u128; 51] = [
+    1_000_000_000, //  0: exp(  0.00)  [t= 0.0]
+      778_800_783, //  1: exp( -0.25)  [t= 0.5]
+      606_530_660, //  2: exp( -0.50)  [t= 1.0]
+      472_366_553, //  3: exp( -0.75)  [t= 1.5]
+      367_879_441, //  4: exp( -1.00)  [t= 2.0]
+      286_504_797, //  5: exp( -1.25)  [t= 2.5]
+      223_130_160, //  6: exp( -1.50)  [t= 3.0]
+      173_773_943, //  7: exp( -1.75)  [t= 3.5]
+      135_335_283, //  8: exp( -2.00)  [t= 4.0]
+      105_399_225, //  9: exp( -2.25)  [t= 4.5]
+       82_084_999, // 10: exp( -2.50)  [t= 5.0]
+       63_927_861, // 11: exp( -2.75)  [t= 5.5]
+       49_787_068, // 12: exp( -3.00)  [t= 6.0]
+       38_774_208, // 13: exp( -3.25)  [t= 6.5]
+       30_197_383, // 14: exp( -3.50)  [t= 7.0]
+       23_517_746, // 15: exp( -3.75)  [t= 7.5]
+       18_315_639, // 16: exp( -4.00)  [t= 8.0]
+       14_264_234, // 17: exp( -4.25)  [t= 8.5]
+       11_108_997, // 18: exp( -4.50)  [t= 9.0]
+        8_651_695, // 19: exp( -4.75)  [t= 9.5]
+        6_737_947, // 20: exp( -5.00)  [t=10.0]
+        5_247_518, // 21: exp( -5.25)  [t=10.5]
+        4_086_771, // 22: exp( -5.50)  [t=11.0]
+        3_182_781, // 23: exp( -5.75)  [t=11.5]
+        2_478_752, // 24: exp( -6.00)  [t=12.0]
+        1_930_454, // 25: exp( -6.25)  [t=12.5]
+        1_503_439, // 26: exp( -6.50)  [t=13.0]
+        1_170_880, // 27: exp( -6.75)  [t=13.5]
+          911_882, // 28: exp( -7.00)  [t=14.0]
+          710_174, // 29: exp( -7.25)  [t=14.5]
+          553_084, // 30: exp( -7.50)  [t=15.0]
+          430_743, // 31: exp( -7.75)  [t=15.5]
+          335_463, // 32: exp( -8.00)  [t=16.0]
+          261_259, // 33: exp( -8.25)  [t=16.5]
+          203_468, // 34: exp( -8.50)  [t=17.0]
+          158_461, // 35: exp( -8.75)  [t=17.5]
+          123_410, // 36: exp( -9.00)  [t=18.0]
+           96_112, // 37: exp( -9.25)  [t=18.5]
+           74_852, // 38: exp( -9.50)  [t=19.0]
+           58_295, // 39: exp( -9.75)  [t=19.5]
+           45_400, // 40: exp(-10.00)  [t=20.0]
+           35_358, // 41: exp(-10.25)  [t=20.5]
+           27_536, // 42: exp(-10.50)  [t=21.0]
+           21_445, // 43: exp(-10.75)  [t=21.5]
+           16_702, // 44: exp(-11.00)  [t=22.0]
+           13_007, // 45: exp(-11.25)  [t=22.5]
+           10_130, // 46: exp(-11.50)  [t=23.0]
+            7_889, // 47: exp(-11.75)  [t=23.5]
+            6_144, // 48: exp(-12.00)  [t=24.0]
+            4_785, // 49: exp(-12.25)  [t=24.5]
+            3_727, // 50: exp(-12.50)  [t=25.0]
+];
+
 /// Approximate exp(-t/2) for t ≥ 0 in fixed-point (SCALE-denominated).
 ///
-/// Uses Taylor series: exp(-t/2) ≈ 1 - t/2 + t²/8 - t³/48 + t⁴/384
-/// in Horner form: ((((t/384 - 1/48) * t + 1/8) * t - 1/2) * t + 1)
+/// Uses a 51-entry lookup table (half-integer values of t from 0 to 25) with
+/// linear interpolation between entries. Guaranteed monotonically decreasing.
 ///
 /// Input: t = z² in SCALE-denominated fixed-point.
-/// Output: exp(-t/2) in SCALE-denominated fixed-point, clamped to [0, SCALE].
+/// Output: exp(-t/2) in SCALE-denominated fixed-point, in [0, SCALE].
 pub fn exp_neg_half_approx(t_scaled: u128) -> u128 {
+    // Compile-time check: table must cover [0, Z_CUTOFF²] at half-step spacing.
+    const _: () = assert!(
+        EXP_TABLE.len() == (Z_CUTOFF * Z_CUTOFF * 2 + 1) as usize,
+        "EXP_TABLE size must equal 2 * Z_CUTOFF^2 + 1"
+    );
+
     if t_scaled == 0 {
         return SCALE;
     }
@@ -24,38 +89,22 @@ pub fn exp_neg_half_approx(t_scaled: u128) -> u128 {
         return 0;
     }
 
-    // Horner evaluation using i128 to handle alternating signs.
-    // exp(-t/2) ≈ 1 - t/2 + t²/8 - t³/48 + t⁴/384
-    // Horner: ((((1/384 * t - 1/48) * t + 1/8) * t - 1/2) * t + 1)
-    //
-    // Coefficients scaled to SCALE:
-    //   c4 =  SCALE / 384  =   2_604_166
-    //   c3 = -SCALE / 48   = -20_833_333
-    //   c2 =  SCALE / 8    = 125_000_000
-    //   c1 = -SCALE / 2    = -500_000_000
-    //   c0 =  SCALE        = 1_000_000_000
-    let t = t_scaled as i128;
-    let s = SCALE as i128;
+    // Table step = SCALE/2. Map t_scaled to table index and fractional part.
+    let half_scale = SCALE / 2;
+    let k = (t_scaled / half_scale) as usize;
+    let frac = t_scaled % half_scale;
 
-    let c4: i128 = s / 384;
-    let c3: i128 = -(s / 48);
-    let c2: i128 = s / 8;
-    let c1: i128 = -(s / 2);
-    let c0: i128 = s;
-
-    let mut r = c4;
-    r = r * t / s + c3;
-    r = r * t / s + c2;
-    r = r * t / s + c1;
-    r = r * t / s + c0;
-
-    if r <= 0 {
-        0
-    } else if r > s {
-        SCALE
-    } else {
-        r as u128
+    // k == 50 only when t_scaled == 25 * SCALE exactly (boundary).
+    if k >= EXP_TABLE.len() - 1 {
+        return EXP_TABLE[EXP_TABLE.len() - 1];
     }
+
+    let val_lo = EXP_TABLE[k];
+    let val_hi = EXP_TABLE[k + 1];
+
+    // Linear interpolation: val_lo - (val_lo - val_hi) * frac / half_scale
+    let diff = val_lo - val_hi;
+    val_lo - diff * frac / half_scale
 }
 
 /// Compute normalized bin weights for a Normal(mu, sigma) distribution
