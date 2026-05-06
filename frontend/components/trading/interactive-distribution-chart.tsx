@@ -50,6 +50,9 @@ export function InteractiveDistributionChart({
   const [yScaleOverride, setYScaleOverride] = useState<number | null>(null);
   const yDragRef = useRef<{ startClientY: number; startMaxP: number } | null>(null);
 
+  // Frozen y-axis base for fixed mode (only user drag should change it)
+  const fixedYBaseRef = useRef<number | null>(null);
+
   // Zoom state
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -107,14 +110,17 @@ export function InteractiveDistributionChart({
     const marketMax = Math.max(...marketProbabilities, 0.001);
     const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
     const posMax = positionWeights.length > 0 ? Math.max(...positionWeights) : 0;
-    if (dynamicScale) {
-      return Math.max(marketMax, traderMax, posMax, 0.001) * 1.1;
-    }
-    // Fixed scale: try to fit trader/position curves too, but never shrink market below ~1/3 of chart
-    const othersMax = Math.max(traderMax, posMax);
-    return Math.max(marketMax * 1.2, Math.min(othersMax * 1.1, marketMax * 3));
-  }, [marketProbabilities, traderWeights, positionWeights, dynamicScale]);
-  const maxP = yScaleOverride ?? computedMaxP;
+    return Math.max(marketMax, traderMax, posMax, 0.001) * 1.1;
+  }, [marketProbabilities, traderWeights, positionWeights]);
+
+  // In fixed mode, freeze the y-axis base so only user drag changes it
+  if (!dynamicScale && fixedYBaseRef.current === null) {
+    fixedYBaseRef.current = computedMaxP;
+  }
+  if (dynamicScale) {
+    fixedYBaseRef.current = null;
+  }
+  const maxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBaseRef.current ?? computedMaxP));
 
   const marketPoints = useMemo(
     () => marketProbabilities.map((p, i) => ({
@@ -463,7 +469,7 @@ export function InteractiveDistributionChart({
           </button>
           <button
             type="button"
-            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); resetZoom(); }}
+            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); fixedYBaseRef.current = null; resetZoom(); }}
             className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
             title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
           >

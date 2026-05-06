@@ -12,7 +12,7 @@ import {
 interface MarketStatsBarProps {
   market: Pick<
     MarketSummary,
-    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax"
+    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax" | "subject"
   >;
 }
 
@@ -60,7 +60,7 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
       <StatCard label="Volume (24h)" value={formatUsdc(market.totalVolume)} />
       {livePrice != null && (
         <StatCard
-          label="$TOKEN Price (live)*"
+          label={`${market.subject} Price (live)*`}
           value={formatStatValue(livePrice)}
         />
       )}

@@ -10,6 +10,8 @@ import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
 import { UserEntity } from '../user/entity/user.entity';
+import { UserPositionEntity } from '../user/entity/user-position.entity';
+import { LpPositionEntity } from '../user/entity/lp-position.entity';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { UserEntity } from '../user/entity/user.entity';
       BookmarkEntity,
       UserRoleEntity,
       UserEntity,
+      UserPositionEntity,
+      LpPositionEntity,
     ]),
     AuthModule,
     SettingsModule,
