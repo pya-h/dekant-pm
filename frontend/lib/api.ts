@@ -77,9 +77,8 @@ class ApiClient {
     body: unknown,
     token?: string,
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
     const controller = new AbortController();

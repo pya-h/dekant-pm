@@ -31,7 +31,7 @@ export function SettingsPresetsModal({
 }: SettingsPresetsModalProps) {
   const [presets, setPresets] = useState<SettingsPreset[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionId, setActionId] = useState<number | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -66,7 +66,7 @@ export function SettingsPresetsModal({
     }
   }, [open, fetchPresets]);
 
-  const handleActivate = async (id: number) => {
+  const handleActivate = async (id: string) => {
     setActionId(id);
     try {
       await api.post<SettingsPreset>(
@@ -84,7 +84,7 @@ export function SettingsPresetsModal({
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     setActionId(id);
     try {
       await api.delete<{ deleted: boolean }>(`/settings/${id}`, token);

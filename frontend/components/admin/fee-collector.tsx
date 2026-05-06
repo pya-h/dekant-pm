@@ -6,7 +6,7 @@ import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProgram } from "@/lib/solana";
-import { useMarkets } from "@/hooks/use-markets";
+import { useAllMarkets } from "@/hooks/use-markets";
 import { executeCollectFees } from "@/lib/admin-transactions";
 import { showTradeSuccess, showTradeError } from "@/components/common/transaction-toast";
 import { MarketStatus } from "@/components/market/market-status";
@@ -19,7 +19,7 @@ export function FeeCollector() {
   const { publicKey } = useWallet();
   const { connection } = useConnection();
   const queryClient = useQueryClient();
-  const { data, isLoading, isError } = useMarkets({ limit: 100 });
+  const { data: allMarkets, isLoading, isError } = useAllMarkets();
 
   const [actionId, setActionId] = useState<string | null>(null);
   const [collectingAll, setCollectingAll] = useState(false);

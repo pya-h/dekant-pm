@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { In, LessThanOrEqual, Repository } from 'typeorm';
 import { MarketEntity } from './entity/market.entity';
 import {
   SettingsService,
@@ -11,6 +11,7 @@ import {
 
 /** On-chain market state constants */
 const STATE_ACTIVE = 0;
+const STATE_PAUSED = 1;
 const STATE_PENDING_RESOLUTION = 2;
 
 @Injectable()
@@ -49,8 +50,8 @@ export class MarketDeadlineService {
   }
 
   /**
-   * Finds Active markets whose deadline has passed and transitions them
-   * to PendingResolution (state=2) in the DB.
+   * Finds Active or Paused markets whose deadline has passed and transitions
+   * them to PendingResolution (state=2) in the DB.
    *
    * The on-chain program enforces the same rule lazily (on next interaction),
    * but this cron ensures the backend/frontend reflects the correct state
@@ -61,7 +62,7 @@ export class MarketDeadlineService {
 
     const expired = await this.marketRepo.find({
       where: {
-        state: STATE_ACTIVE,
+        state: In([STATE_ACTIVE, STATE_PAUSED]),
         deadline: LessThanOrEqual(now),
       },
       select: ['id', 'title', 'deadline'],

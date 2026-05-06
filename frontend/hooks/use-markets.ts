@@ -32,6 +32,26 @@ export function useMarkets(params: UseMarketsParams = {}) {
   });
 }
 
+export function useAllMarkets(enabled = true) {
+  return useQuery({
+    queryKey: ["marketsAll"],
+    queryFn: async () => {
+      const pages: MarketSummary[] = [];
+      let page = 1;
+      const limit = 100;
+      while (true) {
+        const res = await api.get<PaginatedResponse<MarketSummary>>("/markets", { page, limit });
+        pages.push(...res.data);
+        if (pages.length >= res.total) break;
+        page++;
+      }
+      return pages;
+    },
+    staleTime: 15_000,
+    enabled,
+  });
+}
+
 interface UseInfiniteMarketsParams extends MarketFilters {
   limit?: number;
   enabled?: boolean;

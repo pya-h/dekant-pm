@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { SettingsPresetsModal } from "./settings-presets-modal";
 
 export interface SettingsPreset {
-  id: number;
+  id: string;
   name: string;
   isActive: boolean;
   feeCollectInterval: string;
@@ -103,6 +103,17 @@ export function ProtocolSettings({ token }: ProtocolSettingsProps) {
     return (
       <div className="flex items-center justify-center p-12">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+        <p>Failed to load settings.</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={fetchSettings}>
+          Retry
+        </Button>
       </div>
     );
   }
