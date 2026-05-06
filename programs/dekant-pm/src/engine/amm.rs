@@ -75,7 +75,10 @@ pub fn compute_buy(
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
             let x = total_minted.saturating_sub(h as u128);
-            sum_others_x_sq += x * x;
+            let x_sq = x.checked_mul(x)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+            sum_others_x_sq = sum_others_x_sq.checked_add(x_sq)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         }
     }
 
@@ -142,7 +145,10 @@ pub fn compute_sell(
     let mut k_new_sq: u128 = 0;
     for &h in reserves.iter() {
         let x = total_minted.saturating_sub(h as u128);
-        k_new_sq += x * x;
+        let x_sq = x.checked_mul(x)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        k_new_sq = k_new_sq.checked_add(x_sq)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     }
 
     let k_new = isqrt(k_new_sq);
@@ -370,7 +376,10 @@ pub fn compute_collateral_for_target_prob(
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
             let x = total_minted.saturating_sub(h as u128);
-            sum_others_x_sq += x * x;
+            let x_sq = x.checked_mul(x)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+            sum_others_x_sq = sum_others_x_sq.checked_add(x_sq)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         }
     }
     require!(sum_others_x_sq > 0, DekantPmError::InsufficientLiquidity);
@@ -431,7 +440,10 @@ pub fn compute_tokens_for_target_prob(
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
             let x = total_minted.saturating_sub(h as u128);
-            sum_others_x_sq += x * x;
+            let x_sq = x.checked_mul(x)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+            sum_others_x_sq = sum_others_x_sq.checked_add(x_sq)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         }
     }
 

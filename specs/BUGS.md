@@ -66,16 +66,18 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
 - [x] **M4: `estimatedShares` returns null for first LP deposit (totalMinted === 0)** *(fixed 2026-04-02)*
   - **Fix:** Separated `totalMinted === 0` check; now returns `depositBase` (1:1 shares).
 
-- [ ] **M5: `Number()` precision loss on large u128 LP share values**
+- [x] **M5: `Number()` precision loss on large u128 LP share values** *(fixed 2026-05-07)*
   - **Files:** `frontend/components/liquidity/liquidity-panel.tsx:61-62`, `frontend/components/portfolio/lp-position-card.tsx:27`
   - **Impact:** LP shares are u128 on-chain. `Number()` loses precision beyond ~2^53 (~9 × 10^15). Very large LP positions could display incorrect values.
+  - **Fix:** `lp-position-card.tsx` uses `BigInt` for share display; `liquidity-panel.tsx` uses `BigInt` for on-chain BN construction in remove-liquidity.
 
 - [x] **M6: `lastCheckTime` not updated on error — tight retry loop on persistent failures** *(fixed 2026-04-02)*
   - **Fix:** Moved `lastCheckTime = Date.now()` to `finally` block.
 
-- [ ] **M7: TASKS.md B-12 documents wrong role values**
+- [x] **M7: TASKS.md B-12 documents wrong role values** *(fixed 2026-05-07)*
   - **File:** `specs/planning/TASKS.md` (B-12 section)
   - **Impact:** Documents `0 = Admin, 1 = Superadmin` but on-chain enum is `Admin = 1, Oracle = 2, Creator = 3`. Superadmin is env-based, not an on-chain role.
+  - **Fix:** Corrected role documentation to match on-chain enum.
 
 - [x] **M8: Fee collection interval test asserts correct result for wrong reason** *(fixed 2026-04-02)*
   - **Fix:** Set `program` and `authority` on the service instance before testing.
@@ -90,19 +92,23 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
 
 - [x] **L3: No unique constraint on settings `name` column** *(fixed 2026-04-02)*
 
-- [ ] **L4: Frontend settings UI shows form with defaults on fetch error**
+- [x] **L4: Frontend settings UI shows form with defaults on fetch error** *(fixed 2026-05-07)*
   - **Impact:** On network error, a toast fires but the form still renders with default values. User could unknowingly overwrite real settings.
+  - **Fix:** Added `!settings` guard after loading — shows error state with retry button instead of form.
 
-- [ ] **L5: Frontend settings `id` typed as `number`, backend PG column is `bigint`**
+- [x] **L5: Frontend settings `id` typed as `number`, backend PG column is `bigint`** *(fixed 2026-05-07)*
   - **Impact:** Currently safe (small IDs), but would break if IDs exceed `Number.MAX_SAFE_INTEGER`.
+  - **Fix:** Changed `SettingsPreset.id` to `string`; updated `actionId` state and handler params in presets modal.
 
-- [ ] **L6: `Content-Type: application/json` header sent on DELETE with no body**
+- [x] **L6: `Content-Type: application/json` header sent on DELETE with no body** *(fixed 2026-05-07)*
   - **File:** `frontend/lib/api.ts:81`
   - **Impact:** Harmless but technically incorrect per HTTP spec.
+  - **Fix:** Only set `Content-Type` when `body !== undefined`.
 
-- [ ] **L7: Fee collector hard limit of 100 markets, no pagination**
+- [x] **L7: Fee collector hard limit of 100 markets, no pagination** *(fixed 2026-05-07)*
   - **File:** `frontend/components/admin/fee-collector.tsx:22`
   - **Impact:** Markets beyond 100 are invisible to the fee collector UI.
+  - **Fix:** Added `useAllMarkets` hook that fetches all pages; fee collector uses it instead of `useMarkets({ limit: 100 })`.
 
 - [ ] **L8: Admin tab scroll wrapper may clip focus rings on mobile**
   - **Impact:** Minor accessibility concern with `overflow-x-auto`.
@@ -121,9 +127,10 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
   - **File:** `backend/src/amm/dto/amm.dto.ts:127,150`
   - **Fix:** Both `EstimateBuyToPriceDto` and `EstimateSellToPriceDto` now have `@Max(999_999_999)`.
 
-- [ ] **L14: Unchecked u128 arithmetic in discrete `compute_buy` / `compute_sell`**
+- [x] **L14: Unchecked u128 arithmetic in discrete `compute_buy` / `compute_sell`** *(fixed 2026-05-07)*
   - **Files:** `programs/dekant-pm/src/engine/amm.rs:78` (`sum_others_x_sq += x * x`), `amm.rs:145` (`k_new_sq += x * x`)
   - **Impact:** Same class as C3 (BUG-001) but for discrete markets. `x * x` and the accumulating sum are unchecked u128 — wraps silently in release mode. Overflow thresholds: ~$18T (2 outcomes, USDC 6-dec), ~$3.3T (32 outcomes, USDC), ~$330M (32 outcomes, 9-dec token). Trivially reachable with 18-decimal collateral tokens.
+  - **Fix:** Replaced with `checked_mul` / `checked_add` returning `MathOverflow` in `compute_buy`, `compute_sell`, `compute_buy_to_price`, and `compute_sell_to_price`.
 
 ---
 
@@ -139,12 +146,12 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
 
 ## New Findings (2026-05-07 Full Review)
 
-- [ ] **N4: `diff_sq * SCALE` unchecked u128 overflow in `normal_pdf::compute_bin_weights`**
+- [x] **N4: `diff_sq * SCALE` unchecked u128 overflow in `normal_pdf::compute_bin_weights`** *(fixed 2026-05-07)*
   - **File:** `programs/dekant-pm/src/engine/normal_pdf.rs:154`
   - **Impact:** `diff_sq * SCALE` is unchecked. When sigma > ~3.69×10¹⁴ (369K human units), `25 * sigma² * SCALE > u128::MAX`, silently wrapping in release mode and producing wrong bin weights. Realistic for wide-range continuous markets (e.g. range [0, 1M] with sigma ≈ 370K). The on-chain instruction only validates `sigma > 0`, no upper bound.
-  - **Fix:** Use checked arithmetic or promote to U256 for the `diff_sq * SCALE / sigma_sq` computation.
+  - **Fix:** Promoted `diff_sq`, `sigma_sq`, and their product with SCALE to U256 before division.
 
-- [ ] **N5: `closeExpiredMarkets` only transitions Active markets — misses Paused markets past deadline**
+- [x] **N5: `closeExpiredMarkets` only transitions Active markets — misses Paused markets past deadline** *(fixed 2026-05-07)*
   - **File:** `backend/src/market/market-deadline.service.ts:64`
   - **Impact:** Query filters `state: STATE_ACTIVE` only. Paused markets (state 1) that pass their deadline stay stuck in Paused state in the DB. The on-chain program handles this lazily on next interaction, but the frontend shows incorrect state until then.
-  - **Fix:** Change `state: STATE_ACTIVE` to `state: In([STATE_ACTIVE, STATE_PAUSED])`.
+  - **Fix:** Changed `state: STATE_ACTIVE` to `state: In([STATE_ACTIVE, STATE_PAUSED])`. Updated test assertions.
