@@ -121,6 +121,10 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
   - **File:** `backend/src/amm/dto/amm.dto.ts:127,150`
   - **Fix:** Both `EstimateBuyToPriceDto` and `EstimateSellToPriceDto` now have `@Max(999_999_999)`.
 
+- [ ] **L14: Unchecked u128 arithmetic in discrete `compute_buy` / `compute_sell`**
+  - **Files:** `programs/dekant-pm/src/engine/amm.rs:78` (`sum_others_x_sq += x * x`), `amm.rs:145` (`k_new_sq += x * x`)
+  - **Impact:** Same class as C3 (BUG-001) but for discrete markets. `x * x` and the accumulating sum are unchecked u128 — wraps silently in release mode. Overflow thresholds: ~$18T (2 outcomes, USDC 6-dec), ~$3.3T (32 outcomes, USDC), ~$330M (32 outcomes, 9-dec token). Trivially reachable with 18-decimal collateral tokens.
+
 ---
 
 ## New Findings (2026-04-02 Full Review)
@@ -130,3 +134,17 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
 - [x] **N2: Continuous market negative bin index when `resolved < rangeMin`** *(fixed 2026-04-02)*
 
 - [x] **N3: Dark mode select/combobox elements invisible due to missing `color-scheme`** *(fixed 2026-04-02)*
+
+---
+
+## New Findings (2026-05-07 Full Review)
+
+- [ ] **N4: `diff_sq * SCALE` unchecked u128 overflow in `normal_pdf::compute_bin_weights`**
+  - **File:** `programs/dekant-pm/src/engine/normal_pdf.rs:154`
+  - **Impact:** `diff_sq * SCALE` is unchecked. When sigma > ~3.69×10¹⁴ (369K human units), `25 * sigma² * SCALE > u128::MAX`, silently wrapping in release mode and producing wrong bin weights. Realistic for wide-range continuous markets (e.g. range [0, 1M] with sigma ≈ 370K). The on-chain instruction only validates `sigma > 0`, no upper bound.
+  - **Fix:** Use checked arithmetic or promote to U256 for the `diff_sq * SCALE / sigma_sq` computation.
+
+- [ ] **N5: `closeExpiredMarkets` only transitions Active markets — misses Paused markets past deadline**
+  - **File:** `backend/src/market/market-deadline.service.ts:64`
+  - **Impact:** Query filters `state: STATE_ACTIVE` only. Paused markets (state 1) that pass their deadline stay stuck in Paused state in the DB. The on-chain program handles this lazily on next interaction, but the frontend shows incorrect state until then.
+  - **Fix:** Change `state: STATE_ACTIVE` to `state: In([STATE_ACTIVE, STATE_PAUSED])`.
