@@ -110,16 +110,19 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
   - **Impact:** Markets beyond 100 are invisible to the fee collector UI.
   - **Fix:** Added `useAllMarkets` hook that fetches all pages; fee collector uses it instead of `useMarkets({ limit: 100 })`.
 
-- [ ] **L8: Admin tab scroll wrapper may clip focus rings on mobile**
+- [x] **L8: Admin tab scroll wrapper may clip focus rings on mobile** *(fixed 2026-05-07)*
   - **Impact:** Minor accessibility concern with `overflow-x-auto`.
+  - **Fix:** Added `-my-1 py-1` (with `sm:my-0 sm:py-0` reset) to the scroll wrapper, giving focus rings vertical breathing room inside the overflow container.
 
-- [ ] **L9: Missing frontend unit tests for `executeSellDistribution`, `executeBuyToPrice`, `executeSellToPrice`**
+- [x] **L9: Missing frontend unit tests for `executeSellDistribution`, `executeBuyToPrice`, `executeSellToPrice`** *(fixed 2026-05-07)*
   - **Impact:** These transaction builders involve SCALE multiplication and `toBaseUnits` conversion but have no dedicated tests.
+  - **Fix:** Added 6 tests to `frontend/__tests__/lib/transactions.test.ts` covering all three functions with SCALE, base-unit, and fractional-amount assertions.
 
 - [x] **L10: Stray Arabic character in TASKS.md** *(fixed 2026-04-02)*
 
-- [ ] **L11: E2e tests all run as superadmin — no test verifies 403 for non-superadmin on settings**
+- [x] **L11: E2e tests all run as superadmin — no test verifies 403 for non-superadmin on settings** *(fixed 2026-05-07)*
   - **Impact:** Settings endpoints are guarded by `@Roles('superadmin')` but no e2e test verifies rejection.
+  - **Fix:** Added "Non-superadmin rejection (403)" describe block with 6 tests (GET, PATCH, POST, GET /all, POST activate, DELETE) using a non-superadmin wallet token.
 
 - [x] **L12: Expired markets closed one-by-one (no batch UPDATE)** *(fixed 2026-04-02)*
 
