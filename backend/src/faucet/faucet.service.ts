@@ -150,19 +150,37 @@ export class FaucetService {
     if (!this.faucetKeypair) return [];
 
     const configs = await this.configRepo.find({ where: { enabled: true } });
-    const results = await Promise.all(
-      configs.map(async (config) => {
-        const remainingClaims = await this.getRemainingClaims(userAddress, config);
-        return {
-          token: config.token,
-          label: config.label,
-          available: remainingClaims > 0,
-          remainingClaims,
-          amountPerRequest: config.amountPerRequest,
-        };
-      }),
-    );
-    return results;
+    if (configs.length === 0) return [];
+
+    // Batch count today's claims per config in a single query
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const configIds = configs.map((c) => c.id);
+    const counts: { config_id: string; cnt: string }[] = await this.historyRepo
+      .createQueryBuilder('h')
+      .select('h.config_id', 'config_id')
+      .addSelect('COUNT(*)', 'cnt')
+      .where('h.receiver = :userAddress', { userAddress })
+      .andWhere('h.config_id IN (:...configIds)', { configIds })
+      .andWhere('h.status = :status', { status: 'success' })
+      .andWhere('h.created_at >= :startOfDay', { startOfDay })
+      .groupBy('h.config_id')
+      .getRawMany();
+
+    const countMap = new Map(counts.map((r) => [r.config_id, Number(r.cnt)]));
+
+    return configs.map((config) => {
+      const todayCount = countMap.get(config.id) ?? 0;
+      const remainingClaims = Math.max(0, config.maxRequestsPerDay - todayCount);
+      return {
+        token: config.token,
+        label: config.label,
+        available: remainingClaims > 0,
+        remainingClaims,
+        amountPerRequest: config.amountPerRequest,
+      };
+    });
   }
 
   // ── Claim ───────────────────────────────────────────────────────
