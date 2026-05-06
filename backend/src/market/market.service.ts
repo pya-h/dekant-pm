@@ -10,6 +10,8 @@ import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
 import { BookmarkEntity } from './entity/bookmark.entity';
 import { UserEntity } from '../user/entity/user.entity';
+import { UserPositionEntity } from '../user/entity/user-position.entity';
+import { LpPositionEntity } from '../user/entity/lp-position.entity';
 import { CreateMarketDto } from './dto/create-market.dto';
 import { MarketFilterDto } from './dto/market-filter.dto';
 import { UpdateMarketMetadataDto } from './dto/update-market-metadata.dto';
@@ -27,6 +29,10 @@ export class MarketService {
     private readonly bookmarkRepo: Repository<BookmarkEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(UserPositionEntity)
+    private readonly positionRepo: Repository<UserPositionEntity>,
+    @InjectRepository(LpPositionEntity)
+    private readonly lpRepo: Repository<LpPositionEntity>,
   ) {}
 
   async create(dto: CreateMarketDto): Promise<MarketEntity> {
@@ -414,6 +420,71 @@ export class MarketService {
     await this.findById(id);
     await this.bookmarkRepo.delete({ marketId: String(id), userAddress: walletAddress });
     return { bookmarked: false };
+  }
+
+  async getMarketProperties(
+    id: number,
+    walletAddress: string,
+    canEditAnyMarket: boolean,
+  ) {
+    const market = await this.findById(id);
+
+    if (!canEditAnyMarket && market.creator !== walletAddress) {
+      throw new ForbiddenException('Only the market creator or admin can view properties');
+    }
+
+    const marketId = String(id);
+
+    const [totalTrades, totalPositions, totalLps] = await Promise.all([
+      this.tradeRepo.count({ where: { marketId } }),
+      this.positionRepo.count({ where: { marketId } }),
+      this.lpRepo.count({ where: { marketId } }),
+    ]);
+
+    const totalDepositedResult = await this.positionRepo
+      .createQueryBuilder('p')
+      .select('COALESCE(SUM(p.total_deposited), 0)', 'total')
+      .where('p.market_id = :marketId', { marketId })
+      .getRawOne();
+
+    return {
+      market: {
+        id: market.id,
+        pubkey: market.pubkey,
+        marketType: market.marketType,
+        state: market.state,
+        title: market.title,
+        description: market.description,
+        category: market.category,
+        subject: market.subject,
+        icon: market.icon,
+        tags: market.tags,
+        outcomeLabels: market.outcomeLabels,
+        creator: market.creator,
+        oracle: market.oracle,
+        collateralMint: market.collateralMint,
+        deadline: market.deadline,
+        createdAt: market.createdAt,
+        resolvedAt: market.resolvedAt,
+        numOutcomes: market.numOutcomes,
+        rangeMin: market.rangeMin,
+        rangeMax: market.rangeMax,
+        resolvedOutcome: market.resolvedOutcome,
+        resolvedValue: market.resolvedValue,
+      },
+      stats: {
+        totalTrades,
+        totalPositions,
+        totalLps,
+        totalVolume: market.totalVolume,
+        totalTraders: market.totalTraders,
+        totalDeposited: totalDepositedResult?.total ?? '0',
+        protocolFeeAccumulated: market.protocolFeeAccumulated,
+        lpFeeAccumulated: market.lpFeeAccumulated,
+        lpSharesTotal: market.lpSharesTotal,
+        lastTradeAt: market.lastTradeAt,
+      },
+    };
   }
 
   async updateCachedState(
