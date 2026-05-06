@@ -4,7 +4,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
-import * as fs from 'fs';
 
 import { SOLANA_CONNECTION } from '../common/solana.provider';
 import { IDL, PROGRAM_ID } from '../common/idl';
@@ -58,8 +57,8 @@ export class FeeCollectionService implements OnModuleInit {
   }
 
   private initProgram(): void {
-    const keypairPath = process.env.COLLECTOR_KEYPAIR;
-    if (!keypairPath) {
+    const keypairJson = process.env.COLLECTOR_KEYPAIR;
+    if (!keypairJson) {
       this.logger.warn(
         'COLLECTOR_KEYPAIR env not set — automated fee collection disabled',
       );
@@ -67,8 +66,7 @@ export class FeeCollectionService implements OnModuleInit {
     }
 
     try {
-      const resolved = keypairPath.replace(/^~/, process.env.HOME || '');
-      const raw = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+      const raw = JSON.parse(keypairJson);
       this.authority = Keypair.fromSecretKey(Uint8Array.from(raw));
 
       const wallet = new Wallet(this.authority);
