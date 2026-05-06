@@ -110,7 +110,8 @@ export function FaucetManager({ token }: { token: string | null }) {
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ["faucet-configs"],
-    queryFn: () => api.get<FaucetConfig[]>("/faucet/configs"),
+    queryFn: () => api.get<FaucetConfig[]>("/faucet/configs", undefined, effectiveToken ?? undefined),
+    enabled: !!effectiveToken,
   });
 
   const { data: walletTokens } = useWalletTokens(walletAddress);
