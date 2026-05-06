@@ -10,6 +10,7 @@ import { FeeConfig } from "@/components/admin/fee-config";
 import { FeeCollector } from "@/components/admin/fee-collector";
 import { PauseControls } from "@/components/admin/pause-controls";
 import { ProtocolSettings } from "@/components/admin/protocol-settings";
+import { FaucetManager } from "@/components/admin/faucet-manager";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { CreatorDashboard } from "@/components/creator/creator-dashboard";
@@ -143,6 +144,7 @@ export default function AdminPage() {
             {isSuperadmin && <TabsTrigger value="fees">Fees</TabsTrigger>}
             {isSuperadmin && <TabsTrigger value="collect">Collect Fees</TabsTrigger>}
             {isSuperadmin && <TabsTrigger value="settings">Settings</TabsTrigger>}
+            <TabsTrigger value="faucets">Faucets</TabsTrigger>
             <TabsTrigger value="controls">Market Controls</TabsTrigger>
             <TabsTrigger value="creator">Creator</TabsTrigger>
           </TabsList>
@@ -169,6 +171,10 @@ export default function AdminPage() {
             <ProtocolSettings token={token} />
           </TabsContent>
         )}
+
+        <TabsContent value="faucets" className="mt-4">
+          <FaucetManager token={token} />
+        </TabsContent>
 
         <TabsContent value="controls" className="mt-4">
           <PauseControls isSuperadmin={isSuperadmin} />

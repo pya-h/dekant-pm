@@ -27,6 +27,7 @@ interface MarketHeaderBarProps {
   /** Show the Claim Tokens button (market detail only, not slideshow) */
   showFaucet?: boolean;
   faucetAvailable?: number;
+  faucetLoading?: boolean;
   onClaimFaucet?: () => void;
   /** Ref to the chart container for download functionality */
   chartRef?: React.RefObject<HTMLDivElement | null>;
@@ -40,6 +41,7 @@ export function MarketHeaderBar({
   market,
   showFaucet = false,
   faucetAvailable = 0,
+  faucetLoading = false,
   onClaimFaucet,
   chartRef,
   isBookmarked = false,
@@ -121,9 +123,14 @@ export function MarketHeaderBar({
           {showFaucet && faucetAvailable > 0 && (
             <Button
               onClick={onClaimFaucet}
-              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400"
+              disabled={faucetLoading}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
             >
-              Claim Tokens
+              {faucetLoading ? (
+                <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Claiming...</>
+              ) : (
+                `Claim Tokens (${faucetAvailable})`
+              )}
             </Button>
           )}
         </div>

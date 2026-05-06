@@ -11,6 +11,7 @@ import { AmmModule } from "./amm/amm.module";
 import { UserModule } from "./user/user.module";
 import { SettingsModule } from "./settings/settings.module";
 import { FeeCollectionModule } from "./fee-collection/fee-collection.module";
+import { FaucetModule } from "./faucet/faucet.module";
 import { MarketEntity } from "./market/entity/market.entity";
 import { TradeEntity } from "./market/entity/trade.entity";
 import { BookmarkEntity } from "./market/entity/bookmark.entity";
@@ -20,6 +21,8 @@ import { UserRoleEntity } from "./user/entity/user-role.entity";
 import { UserEntity } from "./user/entity/user.entity";
 import { IndexerStateEntity } from "./indexer/entity/indexer-state.entity";
 import { SettingEntity } from "./settings/setting.entity";
+import { FaucetConfigEntity } from "./faucet/entity/faucet-config.entity";
+import { FaucetHistoryEntity } from "./faucet/entity/faucet-history.entity";
 import { LoggerModule } from "nestjs-pino";
 
 const isInProduction = process.env.NODE_ENV === "production";
@@ -64,6 +67,8 @@ const isInProduction = process.env.NODE_ENV === "production";
           UserEntity,
           IndexerStateEntity,
           SettingEntity,
+          FaucetConfigEntity,
+          FaucetHistoryEntity,
         ],
         // DB_SYNCHRONIZE=true auto-creates tables — ONLY safe for dev/Docker init.
         // In production, use migrations instead to avoid accidental schema changes.
@@ -82,6 +87,7 @@ const isInProduction = process.env.NODE_ENV === "production";
     UserModule,
     SettingsModule,
     FeeCollectionModule,
+    FaucetModule,
   ],
 })
 export class AppModule {}

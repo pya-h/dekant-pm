@@ -6,7 +6,6 @@ import { BookmarkEntity } from './entity/bookmark.entity';
 import { MarketService } from './market.service';
 import { MarketDeadlineService } from './market-deadline.service';
 import { MarketController } from './market.controller';
-import { FaucetController } from './faucet.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
@@ -24,7 +23,7 @@ import { UserEntity } from '../user/entity/user.entity';
     AuthModule,
     SettingsModule,
   ],
-  controllers: [MarketController, FaucetController],
+  controllers: [MarketController],
   providers: [MarketService, MarketDeadlineService],
   exports: [MarketService],
 })
