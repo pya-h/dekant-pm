@@ -134,8 +134,6 @@ export interface UserProfile {
   username: string;
   email: string | null;
   avatar: string | null;
-  faucetsPerDay: number;
-  lastFaucetAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
