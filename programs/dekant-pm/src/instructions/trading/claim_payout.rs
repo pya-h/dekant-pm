@@ -81,7 +81,7 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
 
     // ── Redemption fee ───────────────────────────────────────────────
     let redemption_fee_bps = ctx.accounts.protocol_config.redemption_fee_bps;
-    let fee = (gross_payout as u128)
+    let fee = gross_payout
         .checked_mul(redemption_fee_bps as u128)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?
         / 10_000;
