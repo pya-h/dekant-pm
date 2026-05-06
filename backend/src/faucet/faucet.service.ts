@@ -84,6 +84,17 @@ export class FaucetService {
     return BigInt(Math.round(parseFloat(humanAmount) * 10 ** decimals));
   }
 
+  /** Fetch token decimals from chain. Native SOL = 9, SPL = read from mint account byte 44. */
+  private async fetchDecimals(token: string): Promise<number> {
+    if (token === NATIVE_TOKEN) return 9;
+    const mintInfo = await this.connection.getAccountInfo(new PublicKey(token));
+    if (!mintInfo) {
+      throw new BadRequestException(`Mint account not found on-chain: ${token}`);
+    }
+    // SPL Token Mint layout: mintAuthority(36) + supply(8) + decimals(1) = byte 44
+    return mintInfo.data[44];
+  }
+
   /** Find faucet config by token, with WSOL <-> native fallback */
   private async findConfigByToken(token: string, enabledOnly = true): Promise<FaucetConfigEntity | null> {
     const where: Record<string, any> = enabledOnly ? { enabled: true } : {};
@@ -106,10 +117,11 @@ export class FaucetService {
     if (exists) {
       throw new ConflictException(`Faucet config for token "${dto.token}" already exists`);
     }
+    const decimals = await this.fetchDecimals(dto.token);
     const config = this.configRepo.create({
       token: dto.token,
       label: dto.label || null,
-      decimals: dto.decimals,
+      decimals,
       amountPerRequest: dto.amountPerRequest,
       maxRequestsPerDay: dto.maxRequestsPerDay,
       maxDailyAmount: dto.maxDailyAmount || null,
@@ -124,7 +136,6 @@ export class FaucetService {
     if (!config) throw new NotFoundException('Faucet config not found');
 
     if (dto.label !== undefined) config.label = dto.label || null;
-    if (dto.decimals !== undefined) config.decimals = dto.decimals;
     if (dto.amountPerRequest !== undefined) config.amountPerRequest = dto.amountPerRequest;
     if (dto.maxRequestsPerDay !== undefined) config.maxRequestsPerDay = dto.maxRequestsPerDay;
     if (dto.maxDailyAmount !== undefined) config.maxDailyAmount = dto.maxDailyAmount || null;

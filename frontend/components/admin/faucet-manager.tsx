@@ -39,7 +39,6 @@ interface FaucetConfig {
 interface ConfigForm {
   token: string;
   label: string;
-  decimals: number;
   amountPerRequest: string;
   maxRequestsPerDay: number;
   maxDailyAmount: string;
@@ -58,7 +57,6 @@ interface TokenSuggestion {
 const emptyForm: ConfigForm = {
   token: "",
   label: "",
-  decimals: 9,
   amountPerRequest: "",
   maxRequestsPerDay: 3,
   maxDailyAmount: "",
@@ -207,7 +205,6 @@ export function FaucetManager({ token }: { token: string | null }) {
       ...form,
       token: s.mint,
       label: s.symbol || s.name || "",
-      decimals: s.decimals,
     });
     setShowSuggestions(false);
   };
@@ -219,7 +216,6 @@ export function FaucetManager({ token }: { token: string | null }) {
       return api.post("/faucet/configs", {
         token: data.token,
         label: data.label || undefined,
-        decimals: data.decimals,
         amountPerRequest: data.amountPerRequest,
         maxRequestsPerDay: data.maxRequestsPerDay,
         maxDailyAmount: data.maxDailyAmount || undefined,
@@ -232,7 +228,7 @@ export function FaucetManager({ token }: { token: string | null }) {
       queryClient.invalidateQueries({ queryKey: ["faucet-configs"] });
       setDialogOpen(false);
     },
-    onError: (err: any) => toast.error(err?.message ?? "Failed to create config"),
+    onError: (err: Error) => toast.error(err.message || "Failed to create config"),
   });
 
   const updateMutation = useMutation({
@@ -241,7 +237,6 @@ export function FaucetManager({ token }: { token: string | null }) {
       if (!tk) tk = await authenticate();
       return api.patch(`/faucet/configs/${id}`, {
         label: data.label || null,
-        decimals: data.decimals,
         amountPerRequest: data.amountPerRequest || undefined,
         maxRequestsPerDay: data.maxRequestsPerDay,
         maxDailyAmount: data.maxDailyAmount || null,
@@ -254,7 +249,7 @@ export function FaucetManager({ token }: { token: string | null }) {
       queryClient.invalidateQueries({ queryKey: ["faucet-configs"] });
       setDialogOpen(false);
     },
-    onError: (err: any) => toast.error(err?.message ?? "Failed to update config"),
+    onError: (err: Error) => toast.error(err.message || "Failed to update config"),
   });
 
   const deleteMutation = useMutation({
@@ -267,7 +262,7 @@ export function FaucetManager({ token }: { token: string | null }) {
       toast.success("Faucet config deleted");
       queryClient.invalidateQueries({ queryKey: ["faucet-configs"] });
     },
-    onError: (err: any) => toast.error(err?.message ?? "Failed to delete config"),
+    onError: (err: Error) => toast.error(err.message || "Failed to delete config"),
   });
 
   const openCreate = () => {
@@ -282,7 +277,6 @@ export function FaucetManager({ token }: { token: string | null }) {
     setForm({
       token: config.token,
       label: config.label ?? "",
-      decimals: config.decimals,
       amountPerRequest: config.amountPerRequest,
       maxRequestsPerDay: config.maxRequestsPerDay,
       maxDailyAmount: config.maxDailyAmount ?? "",
@@ -483,17 +477,6 @@ export function FaucetManager({ token }: { token: string | null }) {
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
                 placeholder="e.g. SOL, USDC (leave empty to auto-generate)"
               />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Token decimals</label>
-              <Input
-                type="number"
-                min={0}
-                max={18}
-                value={form.decimals}
-                onChange={(e) => setForm({ ...form, decimals: Number(e.target.value) || 0 })}
-              />
-              <p className="mt-0.5 text-[10px] text-muted-foreground">SOL = 9, USDC = 6</p>
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Amount per request (standard units)</label>

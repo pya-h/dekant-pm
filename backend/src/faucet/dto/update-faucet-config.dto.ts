@@ -1,4 +1,4 @@
-import { IsString, IsInt, IsOptional, IsBoolean, Min, Max, MaxLength, Matches, ValidateIf } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsBoolean, Min, MaxLength, Matches, ValidateIf } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Matches a positive decimal number like "1", "0.5", "100.123" */
@@ -10,13 +10,6 @@ export class UpdateFaucetConfigDto {
   @IsString()
   @MaxLength(32)
   label?: string | null;
-
-  @ApiPropertyOptional({ description: 'Token decimals' })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(18)
-  decimals?: number;
 
   @ApiPropertyOptional({ description: 'Amount per request in standard units' })
   @IsOptional()
