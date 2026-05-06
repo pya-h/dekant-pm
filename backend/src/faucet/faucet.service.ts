@@ -9,25 +9,24 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
+import * as fs from 'fs';
 import {
   Connection,
   Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import {
-  getOrCreateAssociatedTokenAccount,
-  createTransferInstruction,
-  getAccount,
-} from '@solana/spl-token';
 import { FaucetConfigEntity } from './entity/faucet-config.entity';
 import { FaucetHistoryEntity } from './entity/faucet-history.entity';
 import { CreateFaucetConfigDto } from './dto/create-faucet-config.dto';
 import { UpdateFaucetConfigDto } from './dto/update-faucet-config.dto';
 
 const NATIVE_TOKEN = 'native';
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
 @Injectable()
 export class FaucetService {
@@ -48,17 +47,18 @@ export class FaucetService {
   }
 
   private loadKeypair() {
-    const raw = this.configService.get<string>('FAUCET_KEYPAIR');
-    if (!raw) {
+    const keypairPath = this.configService.get<string>('FAUCET_KEYPAIR');
+    if (!keypairPath) {
       this.logger.warn('FAUCET_KEYPAIR not set — faucet claims will be unavailable');
       return;
     }
     try {
-      const bytes = JSON.parse(raw) as number[];
-      this.faucetKeypair = Keypair.fromSecretKey(Uint8Array.from(bytes));
+      const resolved = keypairPath.replace(/^~/, process.env.HOME || '');
+      const raw = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+      this.faucetKeypair = Keypair.fromSecretKey(Uint8Array.from(raw));
       this.logger.log(`Faucet wallet loaded: ${this.faucetKeypair.publicKey.toBase58()}`);
     } catch (e) {
-      this.logger.error('Failed to parse FAUCET_KEYPAIR — must be JSON array of bytes');
+      this.logger.error(`Failed to load faucet keypair from file: ${e}`);
     }
   }
 
@@ -139,7 +139,7 @@ export class FaucetService {
     };
   }
 
-  /** Get status for all enabled tokens at once (for frontend to know which markets have faucet) */
+  /** Get status for all enabled tokens at once */
   async getAllStatuses(userAddress: string): Promise<Array<{
     token: string;
     label: string;
@@ -305,37 +305,83 @@ export class FaucetService {
     const mint = new PublicKey(mintAddress);
     const recipient = new PublicKey(to);
 
-    // Get or create source ATA
-    const sourceAta = await getOrCreateAssociatedTokenAccount(
-      this.connection,
-      keypair,
-      mint,
-      keypair.publicKey,
-    );
+    // Derive ATAs
+    const sourceAta = this.getAssociatedTokenAddress(mint, keypair.publicKey);
+    const destAta = this.getAssociatedTokenAddress(mint, recipient);
 
-    // Check balance
-    const sourceAccount = await getAccount(this.connection, sourceAta.address);
-    if (sourceAccount.amount < amount) {
+    // Check source balance
+    const sourceInfo = await this.connection.getAccountInfo(sourceAta);
+    if (!sourceInfo) {
+      throw new Error('Faucet wallet has no token account for this mint');
+    }
+    // SPL Token account data: first 64 bytes are mint + owner, bytes 64-72 are amount (u64 LE)
+    const currentBalance = sourceInfo.data.readBigUInt64LE(64);
+    if (currentBalance < amount) {
       throw new Error(`Insufficient token balance in faucet wallet for mint ${mintAddress}`);
     }
 
-    // Get or create destination ATA
-    const destAta = await getOrCreateAssociatedTokenAccount(
-      this.connection,
-      keypair,
-      mint,
-      recipient,
-    );
+    const tx = new Transaction();
 
-    const tx = new Transaction().add(
-      createTransferInstruction(
-        sourceAta.address,
-        destAta.address,
-        keypair.publicKey,
-        amount,
-      ),
-    );
+    // Create destination ATA if it doesn't exist
+    const destInfo = await this.connection.getAccountInfo(destAta);
+    if (!destInfo) {
+      tx.add(this.createAssociatedTokenAccountInstruction(keypair.publicKey, destAta, recipient, mint));
+    }
+
+    // Add transfer instruction
+    tx.add(this.createSplTransferInstruction(sourceAta, destAta, keypair.publicKey, amount));
 
     return sendAndConfirmTransaction(this.connection, tx, [keypair]);
+  }
+
+  /** Derive the associated token address (PDA) */
+  private getAssociatedTokenAddress(mint: PublicKey, owner: PublicKey): PublicKey {
+    const [address] = PublicKey.findProgramAddressSync(
+      [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    return address;
+  }
+
+  /** Create ATA instruction */
+  private createAssociatedTokenAccountInstruction(
+    payer: PublicKey,
+    ata: PublicKey,
+    owner: PublicKey,
+    mint: PublicKey,
+  ): TransactionInstruction {
+    return new TransactionInstruction({
+      keys: [
+        { pubkey: payer, isSigner: true, isWritable: true },
+        { pubkey: ata, isSigner: false, isWritable: true },
+        { pubkey: owner, isSigner: false, isWritable: false },
+        { pubkey: mint, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+      data: Buffer.alloc(0),
+    });
+  }
+
+  /** SPL Token Transfer instruction (index = 3) */
+  private createSplTransferInstruction(
+    source: PublicKey,
+    destination: PublicKey,
+    authority: PublicKey,
+    amount: bigint,
+  ): TransactionInstruction {
+    const data = Buffer.alloc(9);
+    data.writeUInt8(3, 0); // Transfer instruction index
+    data.writeBigUInt64LE(amount, 1);
+    return new TransactionInstruction({
+      keys: [
+        { pubkey: source, isSigner: false, isWritable: true },
+        { pubkey: destination, isSigner: false, isWritable: true },
+        { pubkey: authority, isSigner: true, isWritable: false },
+      ],
+      programId: TOKEN_PROGRAM_ID,
+      data,
+    });
   }
 }
