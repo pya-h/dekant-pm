@@ -7,7 +7,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMarket } from "@/hooks/use-market";
 import { useUserMarketPosition } from "@/hooks/use-user-position";
-import { useFaucetStatus } from "@/hooks/use-faucet";
+import { useFaucetStatus, useClaimFaucet } from "@/hooks/use-faucet";
 import { useAuth } from "@/hooks/use-auth";
 import { useMarketBookmark } from "@/hooks/use-bookmarks";
 import { MarketHeaderBar } from "@/components/market/market-header-bar";
@@ -59,8 +59,10 @@ export default function MarketDetailPage({
   const handleReset = useCallback(() => { setMu(null); setSigma(null); }, []);
   const chartRef = useRef<HTMLDivElement>(null);
 
-  const { data: faucetData } = useFaucetStatus(walletAddress, "TOKEN");
-  const faucetAvailable = faucetData?.availableClaims ?? 0;
+  const collateralMint = market?.collateralMint ?? "";
+  const { data: faucetData } = useFaucetStatus(walletAddress, collateralMint, !!collateralMint);
+  const faucetAvailable = faucetData?.remainingClaims ?? 0;
+  const claimFaucet = useClaimFaucet(walletAddress);
   const isBookmarked = bookmarkState?.bookmarked ?? false;
 
   // Auth is triggered lazily (on bookmark click), not on page load.
@@ -146,7 +148,13 @@ export default function MarketDetailPage({
         market={market}
         showFaucet={true}
         faucetAvailable={faucetAvailable}
-        onClaimFaucet={() => toast.info("Faucet claim coming soon!")}
+        faucetLoading={claimFaucet.isPending}
+        onClaimFaucet={async () => {
+          if (!connected) { setVisible(true); return; }
+          let authToken = token;
+          if (!authToken) authToken = await authenticate();
+          claimFaucet.mutate({ token: collateralMint, authToken });
+        }}
         chartRef={chartRef}
         isBookmarked={isBookmarked}
         bookmarkLoading={bookmarkStateLoading || toggleBookmarkMutation.isPending || isAuthenticating}
