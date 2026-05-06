@@ -34,6 +34,9 @@ export function mockMarket(
     totalVolume: '0',
     totalTraders: 0,
     lastTradeAt: null,
+    protocolFeeAccumulated: '0',
+    lpFeeAccumulated: '0',
+    lpSharesTotal: '0',
     updatedAt: new Date(),
     ...overrides,
   } as MarketEntity;
