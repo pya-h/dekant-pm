@@ -20,6 +20,7 @@ import { MarketType, MarketState, USDC_DECIMALS, SCALE, formatUsdc, type MarketD
 import { useProgram } from "@/lib/solana";
 import { useUserMarketPosition } from "@/hooks/use-user-position";
 import { useTokenBalance } from "@/hooks/use-token-balance";
+import { useTokenName } from "@/hooks/use-token-name";
 import { BN } from "@coral-xyz/anchor";
 import {
   executeBuy,
@@ -114,6 +115,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
     market.collateralMint,
     address,
   );
+  const { data: tokenName } = useTokenName(market.collateralMint);
 
   const handleParamsChange = useCallback(
     (p: TradeParams | null) => {
@@ -467,7 +469,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
                 {side === "buy" && collateralBalance > 0 ? (
-                  <span>Balance: {formatUsdc(collateralBalance)}</span>
+                  <span>Balance: {formatUsdc(collateralBalance)}{tokenName ? ` ${tokenName}` : ""}</span>
                 ) : (
                   <span />
                 )}
@@ -536,6 +538,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               side={side}
               onParamsChange={handleParamsChange}
               collateralBalance={collateralBalance}
+              tokenName={tokenName}
               position={position ?? null}
             />
 
@@ -574,6 +577,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
                 side={side}
                 onParamsChange={handleParamsChange}
                 collateralBalance={collateralBalance}
+                tokenName={tokenName}
                 position={position ?? null}
               />
             ) : (
@@ -582,6 +586,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
                 side={side}
                 onParamsChange={handleParamsChange}
                 collateralBalance={collateralBalance}
+                tokenName={tokenName}
                 position={position ?? null}
               />
             )}

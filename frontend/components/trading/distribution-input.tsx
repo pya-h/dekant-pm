@@ -26,6 +26,7 @@ interface DistributionInputProps {
     } | null,
   ) => void;
   collateralBalance?: number;
+  tokenName?: string | null;
   position?: UserPosition | null;
 }
 
@@ -34,6 +35,7 @@ export function DistributionInput({
   side = "buy",
   onParamsChange,
   collateralBalance,
+  tokenName,
 }: DistributionInputProps) {
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -198,7 +200,7 @@ export function DistributionInput({
         </div>
         <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
           {side === "buy" && collateralBalance != null ? (
-            <span>Balance: {formatUsdc(collateralBalance)}</span>
+            <span>Balance: {formatUsdc(collateralBalance)}{tokenName ? ` ${tokenName}` : ""}</span>
           ) : (
             <span />
           )}

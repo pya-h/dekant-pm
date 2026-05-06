@@ -1,4 +1,4 @@
-import { IsString, IsInt, IsOptional, IsBoolean, Min, MaxLength } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsBoolean, Min, Max, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateFaucetConfigDto {
@@ -6,9 +6,16 @@ export class UpdateFaucetConfigDto {
   @IsOptional()
   @IsString()
   @MaxLength(32)
-  label?: string;
+  label?: string | null;
 
-  @ApiPropertyOptional({ description: 'Amount per request in smallest unit' })
+  @ApiPropertyOptional({ description: 'Token decimals' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(18)
+  decimals?: number;
+
+  @ApiPropertyOptional({ description: 'Amount per request in standard units' })
   @IsOptional()
   @IsString()
   amountPerRequest?: string;
@@ -19,12 +26,12 @@ export class UpdateFaucetConfigDto {
   @Min(1)
   maxRequestsPerDay?: number;
 
-  @ApiPropertyOptional({ description: 'Max total amount sharable per day (null to remove limit)' })
+  @ApiPropertyOptional({ description: 'Max total amount distributable per day (standard units, null to remove)' })
   @IsOptional()
   @IsString()
   maxDailyAmount?: string | null;
 
-  @ApiPropertyOptional({ description: 'Total amount sharable across all time (null to remove limit)' })
+  @ApiPropertyOptional({ description: 'Total amount distributable across all time (standard units, null to remove)' })
   @IsOptional()
   @IsString()
   totalAmountSharable?: string | null;

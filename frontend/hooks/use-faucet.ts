@@ -4,6 +4,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
+/** WSOL mint — used to map to "native" for faucet lookups */
+const WSOL_MINT = "So11111111111111111111111111111111111111112";
+
 export interface FaucetTokenStatus {
   token: string;
   label: string;
@@ -24,6 +27,10 @@ interface ClaimResult {
   amount: string;
 }
 
+/**
+ * Check faucet availability for a specific token.
+ * Handles WSOL ↔ native mapping automatically.
+ */
 export function useFaucetStatus(
   userAddress: string | undefined,
   token: string,
@@ -31,11 +38,24 @@ export function useFaucetStatus(
 ) {
   return useQuery({
     queryKey: ["faucet-status", userAddress, token],
-    queryFn: () =>
-      api.get<FaucetSingleStatus>(`/faucet/status`, {
+    queryFn: async () => {
+      // Try the exact token first
+      const result = await api.get<FaucetSingleStatus>(`/faucet/status`, {
         address: userAddress,
         token,
-      }),
+      });
+      // If found with remaining claims, return it
+      if (result.remainingClaims > 0) return result;
+      // Fallback: if token is WSOL, also try "native"
+      if (token === WSOL_MINT) {
+        const nativeResult = await api.get<FaucetSingleStatus>(`/faucet/status`, {
+          address: userAddress,
+          token: "native",
+        });
+        if (nativeResult.remainingClaims > 0) return nativeResult;
+      }
+      return result;
+    },
     staleTime: 30_000,
     enabled: enabled && !!userAddress,
   });

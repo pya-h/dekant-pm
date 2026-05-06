@@ -76,6 +76,7 @@ interface MultiOutcomeInputProps {
     } | null,
   ) => void;
   collateralBalance?: number;
+  tokenName?: string | null;
   position?: UserPosition | null;
 }
 
@@ -84,6 +85,7 @@ export function MultiOutcomeInput({
   side,
   onParamsChange,
   collateralBalance,
+  tokenName,
   position,
 }: MultiOutcomeInputProps) {
   const [selectedOutcome, setSelectedOutcome] = useState(0);
@@ -264,7 +266,7 @@ export function MultiOutcomeInput({
               Current: {formatProbability(probabilities[selectedOutcome])}
             </span>
           ) : showBalance ? (
-            <span>Balance: {formatUsdc(collateralBalance!)}</span>
+            <span>Balance: {formatUsdc(collateralBalance!)}{tokenName ? ` ${tokenName}` : ""}</span>
           ) : showAvailable ? (
             <span>
               Available:{" "}

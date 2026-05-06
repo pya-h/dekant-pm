@@ -26,7 +26,8 @@ const METAPLEX_METADATA_PROGRAM_ID = new PublicKey(
 interface FaucetConfig {
   id: string;
   token: string;
-  label: string;
+  label: string | null;
+  decimals: number;
   amountPerRequest: string;
   maxRequestsPerDay: number;
   maxDailyAmount: string | null;
@@ -38,8 +39,9 @@ interface FaucetConfig {
 interface ConfigForm {
   token: string;
   label: string;
+  decimals: number;
   amountPerRequest: string;
-  maxRequestsPerDay: string;
+  maxRequestsPerDay: number;
   maxDailyAmount: string;
   totalAmountSharable: string;
   enabled: boolean;
@@ -56,8 +58,9 @@ interface TokenSuggestion {
 const emptyForm: ConfigForm = {
   token: "",
   label: "",
+  decimals: 9,
   amountPerRequest: "",
-  maxRequestsPerDay: "3",
+  maxRequestsPerDay: 3,
   maxDailyAmount: "",
   totalAmountSharable: "",
   enabled: true,
@@ -204,6 +207,7 @@ export function FaucetManager({ token }: { token: string | null }) {
       ...form,
       token: s.mint,
       label: s.symbol || s.name || "",
+      decimals: s.decimals,
     });
     setShowSuggestions(false);
   };
@@ -214,9 +218,10 @@ export function FaucetManager({ token }: { token: string | null }) {
       if (!tk) tk = await authenticate();
       return api.post("/faucet/configs", {
         token: data.token,
-        label: data.label,
+        label: data.label || undefined,
+        decimals: data.decimals,
         amountPerRequest: data.amountPerRequest,
-        maxRequestsPerDay: Number(data.maxRequestsPerDay),
+        maxRequestsPerDay: data.maxRequestsPerDay,
         maxDailyAmount: data.maxDailyAmount || undefined,
         totalAmountSharable: data.totalAmountSharable || undefined,
         enabled: data.enabled,
@@ -235,9 +240,10 @@ export function FaucetManager({ token }: { token: string | null }) {
       let tk = effectiveToken;
       if (!tk) tk = await authenticate();
       return api.patch(`/faucet/configs/${id}`, {
-        label: data.label || undefined,
+        label: data.label || null,
+        decimals: data.decimals,
         amountPerRequest: data.amountPerRequest || undefined,
-        maxRequestsPerDay: data.maxRequestsPerDay ? Number(data.maxRequestsPerDay) : undefined,
+        maxRequestsPerDay: data.maxRequestsPerDay,
         maxDailyAmount: data.maxDailyAmount || null,
         totalAmountSharable: data.totalAmountSharable || null,
         enabled: data.enabled,
@@ -275,9 +281,10 @@ export function FaucetManager({ token }: { token: string | null }) {
     setEditingId(config.id);
     setForm({
       token: config.token,
-      label: config.label,
+      label: config.label ?? "",
+      decimals: config.decimals,
       amountPerRequest: config.amountPerRequest,
-      maxRequestsPerDay: String(config.maxRequestsPerDay),
+      maxRequestsPerDay: config.maxRequestsPerDay,
       maxDailyAmount: config.maxDailyAmount ?? "",
       totalAmountSharable: config.totalAmountSharable ?? "",
       enabled: config.enabled,
@@ -287,8 +294,12 @@ export function FaucetManager({ token }: { token: string | null }) {
   };
 
   const handleSubmit = () => {
-    if (!form.token || !form.label || !form.amountPerRequest) {
-      toast.error("Token, label, and amount per request are required");
+    if (!form.token || !form.amountPerRequest) {
+      toast.error("Token and amount per request are required");
+      return;
+    }
+    if (isNaN(Number(form.amountPerRequest)) || Number(form.amountPerRequest) <= 0) {
+      toast.error("Amount per request must be a positive number");
       return;
     }
     if (editingId) {
@@ -332,10 +343,7 @@ export function FaucetManager({ token }: { token: string | null }) {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold">
-                    {config.label}
-                    {config.token === "native" && (
-                      <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">(SOL)</span>
-                    )}
+                    {config.label || (config.token === "native" ? "SOL" : config.token.slice(0, 4) + "…" + config.token.slice(-4))}
                   </CardTitle>
                   <div className="flex items-center gap-1">
                     <Button
@@ -351,7 +359,8 @@ export function FaucetManager({ token }: { token: string | null }) {
                       size="icon"
                       className="h-7 w-7 text-destructive"
                       onClick={() => {
-                        if (confirm(`Delete faucet config for "${config.label}"?`)) {
+                        const displayLabel = config.label || config.token;
+                        if (confirm(`Delete faucet config for "${displayLabel}"?`)) {
                           deleteMutation.mutate(config.id);
                         }
                       }}
@@ -468,41 +477,61 @@ export function FaucetManager({ token }: { token: string | null }) {
               )}
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Label</label>
+              <label className="text-xs text-muted-foreground">Label (optional — defaults to token address)</label>
               <Input
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="e.g. SOL, USDC"
+                placeholder="e.g. SOL, USDC (leave empty to auto-generate)"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Amount per request (smallest unit)</label>
+              <label className="text-xs text-muted-foreground">Token decimals</label>
               <Input
+                type="number"
+                min={0}
+                max={18}
+                value={form.decimals}
+                onChange={(e) => setForm({ ...form, decimals: Number(e.target.value) || 0 })}
+              />
+              <p className="mt-0.5 text-[10px] text-muted-foreground">SOL = 9, USDC = 6</p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Amount per request (standard units)</label>
+              <Input
+                type="number"
+                step="any"
+                min="0"
                 value={form.amountPerRequest}
                 onChange={(e) => setForm({ ...form, amountPerRequest: e.target.value })}
-                placeholder="e.g. 1000000000 (= 1 SOL)"
+                placeholder="e.g. 1.5 (= 1.5 SOL)"
               />
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Max requests per user per day</label>
               <Input
                 type="number"
+                min={1}
                 value={form.maxRequestsPerDay}
-                onChange={(e) => setForm({ ...form, maxRequestsPerDay: e.target.value })}
-                placeholder="3"
+                onChange={(e) => setForm({ ...form, maxRequestsPerDay: Number(e.target.value) || 1 })}
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Max daily amount (global, optional)</label>
+              <label className="text-xs text-muted-foreground">Max daily amount (global, optional, standard units)</label>
               <Input
+                type="number"
+                step="any"
+                min="0"
                 value={form.maxDailyAmount}
                 onChange={(e) => setForm({ ...form, maxDailyAmount: e.target.value })}
                 placeholder="Leave empty for no limit"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Total amount sharable (lifetime, optional)</label>
+              <label className="text-xs text-muted-foreground">Total amount sharable (lifetime, optional, standard units)</label>
               <Input
+                type="number"
+                step="any"
+                min="0"
                 value={form.totalAmountSharable}
                 onChange={(e) => setForm({ ...form, totalAmountSharable: e.target.value })}
                 placeholder="Leave empty for no limit"
