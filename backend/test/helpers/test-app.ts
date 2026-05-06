@@ -79,18 +79,37 @@ export async function createTestApp(): Promise<TestApp> {
 
   const tradeRepo: Record<string, jest.Mock> = {
     findAndCount: jest.fn().mockResolvedValue([[], 0]),
+    count: jest.fn().mockResolvedValue(0),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+    }),
   };
 
   const positionRepo: Record<string, jest.Mock> = {
     find: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+    }),
   };
 
   const lpPositionRepo: Record<string, jest.Mock> = {
     find: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+    }),
   };
 
   const roleRepo: Record<string, jest.Mock> = {
     find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(null),
   };
 
   const settingRepo: Record<string, jest.Mock> = {
