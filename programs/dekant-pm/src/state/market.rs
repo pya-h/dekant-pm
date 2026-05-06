@@ -683,11 +683,6 @@ impl MarketType {
     pub fn is_continuous(self) -> bool {
         matches!(self, Self::Continuous)
     }
-
-    /// Whether this market type requires range_min/range_max to be set.
-    pub fn requires_range(self) -> bool {
-        matches!(self, Self::Continuous)
-    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
