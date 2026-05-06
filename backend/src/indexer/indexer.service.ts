@@ -262,6 +262,13 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         commitment: 'confirmed',
       });
 
+      // Batch-load all markets into a pubkey→id map to avoid N+1 queries
+      const allMarkets = await this.marketRepo.find({ select: ['id', 'pubkey'] });
+      const pubkeyToId = new Map<string, string>();
+      for (const m of allMarkets) {
+        pubkeyToId.set(m.pubkey, m.id);
+      }
+
       let count = 0;
       for (const { account } of accounts) {
         try {
@@ -271,11 +278,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
           ) as Record<string, any>;
 
           const marketPubkey = d.market.toString();
-          // Resolve marketId from DB by pubkey
-          const marketEntity = await this.marketRepo.findOne({
-            where: { pubkey: marketPubkey },
-          });
-          if (!marketEntity) continue;
+          const marketId = pubkeyToId.get(marketPubkey);
+          if (!marketId) continue;
 
           const holdings: string[] = [];
           if (d.holdings) {
@@ -286,7 +290,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
           await this.userPositionRepo.upsert(
             {
-              marketId: marketEntity.id,
+              marketId,
               userAddress: d.user.toString(),
               holdings,
               totalDeposited: String(d.total_deposited),
@@ -301,17 +305,23 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Update totalTraders for each market based on synced positions
-      const markets = await this.marketRepo.find({ select: ['id'] });
-      for (const market of markets) {
-        const traderCount = await this.userPositionRepo
+      // Update totalTraders for each market based on synced positions (single query)
+      const traderCounts: { market_id: string; count: string }[] =
+        await this.userPositionRepo
           .createQueryBuilder('p')
-          .select('COUNT(*)', 'count')
-          .where('p.market_id = :id', { id: market.id })
-          .getRawOne();
-        await this.marketRepo.update(market.id, {
-          totalTraders: Number(traderCount?.count ?? 0),
-        });
+          .select('p.market_id', 'market_id')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('p.market_id')
+          .getRawMany();
+
+      if (traderCounts.length > 0) {
+        await Promise.all(
+          traderCounts.map((row) =>
+            this.marketRepo.update(row.market_id, {
+              totalTraders: Number(row.count),
+            }),
+          ),
+        );
       }
 
       this.logger.log(`Position sync complete (${count} positions)`);
@@ -755,6 +765,13 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         commitment: 'confirmed',
       });
 
+      // Batch-load all markets into a pubkey→id map to avoid N+1 queries
+      const allMarkets = await this.marketRepo.find({ select: ['id', 'pubkey'] });
+      const pubkeyToId = new Map<string, string>();
+      for (const m of allMarkets) {
+        pubkeyToId.set(m.pubkey, m.id);
+      }
+
       let count = 0;
       for (const { account } of accounts) {
         try {
@@ -764,14 +781,12 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
           ) as Record<string, any>;
 
           const marketPubkey = d.market.toString();
-          const marketEntity = await this.marketRepo.findOne({
-            where: { pubkey: marketPubkey },
-          });
-          if (!marketEntity) continue;
+          const marketId = pubkeyToId.get(marketPubkey);
+          if (!marketId) continue;
 
           await this.lpPositionRepo.upsert(
             {
-              marketId: marketEntity.id,
+              marketId,
               userAddress: d.user.toString(),
               shares: String(d.shares),
               depositedCollateral: String(d.deposited_collateral),
