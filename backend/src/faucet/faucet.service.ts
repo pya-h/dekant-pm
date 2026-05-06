@@ -65,7 +65,7 @@ export class FaucetService {
 
   private ensureKeypair(): Keypair {
     if (!this.faucetKeypair) {
-      throw new ServiceUnavailableException('Faucet service not currently available');
+      throw new ServiceUnavailableException('Faucet service not available right now');
     }
     return this.faucetKeypair;
   }
@@ -112,8 +112,8 @@ export class FaucetService {
       decimals: dto.decimals,
       amountPerRequest: dto.amountPerRequest,
       maxRequestsPerDay: dto.maxRequestsPerDay,
-      maxDailyAmount: dto.maxDailyAmount ?? null,
-      totalAmountSharable: dto.totalAmountSharable ?? null,
+      maxDailyAmount: dto.maxDailyAmount || null,
+      totalAmountSharable: dto.totalAmountSharable || null,
       enabled: dto.enabled ?? true,
     });
     return this.configRepo.save(config);
@@ -127,8 +127,8 @@ export class FaucetService {
     if (dto.decimals !== undefined) config.decimals = dto.decimals;
     if (dto.amountPerRequest !== undefined) config.amountPerRequest = dto.amountPerRequest;
     if (dto.maxRequestsPerDay !== undefined) config.maxRequestsPerDay = dto.maxRequestsPerDay;
-    if (dto.maxDailyAmount !== undefined) config.maxDailyAmount = dto.maxDailyAmount;
-    if (dto.totalAmountSharable !== undefined) config.totalAmountSharable = dto.totalAmountSharable;
+    if (dto.maxDailyAmount !== undefined) config.maxDailyAmount = dto.maxDailyAmount || null;
+    if (dto.totalAmountSharable !== undefined) config.totalAmountSharable = dto.totalAmountSharable || null;
     if (dto.enabled !== undefined) config.enabled = dto.enabled;
 
     return this.configRepo.save(config);
@@ -138,6 +138,47 @@ export class FaucetService {
     const config = await this.configRepo.findOne({ where: { id } });
     if (!config) throw new NotFoundException('Faucet config not found');
     await this.configRepo.remove(config);
+  }
+
+  // ── Availability check (shared by getStatus & claim) ──────────
+
+  /**
+   * Check all three availability conditions for a user + config:
+   *   1) user daily requests < maxRequestsPerDay
+   *   2) daily total shared (raw) + amountPerRequest <= maxDailyAmount (if set)
+   *   3) lifetime total shared (raw) + amountPerRequest <= totalAmountSharable (if set)
+   */
+  private async checkAvailability(
+    userAddress: string,
+    config: FaucetConfigEntity,
+  ): Promise<{ available: boolean; remainingClaims: number }> {
+    // 1. User daily request count
+    const remainingClaims = await this.getRemainingClaims(userAddress, config);
+    if (remainingClaims <= 0) {
+      return { available: false, remainingClaims: 0 };
+    }
+
+    const rawAmount = this.toRawAmount(config.amountPerRequest, config.decimals);
+
+    // 2. Global daily amount cap
+    if (config.maxDailyAmount) {
+      const dailyTotal = await this.getDailyTotal(config.id);
+      const rawDailyLimit = this.toRawAmount(config.maxDailyAmount, config.decimals);
+      if (BigInt(dailyTotal) + rawAmount > rawDailyLimit) {
+        return { available: false, remainingClaims: 0 };
+      }
+    }
+
+    // 3. Lifetime total cap
+    if (config.totalAmountSharable) {
+      const lifetimeTotal = await this.getLifetimeTotal(config.id);
+      const rawLifetimeLimit = this.toRawAmount(config.totalAmountSharable, config.decimals);
+      if (BigInt(lifetimeTotal) + rawAmount > rawLifetimeLimit) {
+        return { available: false, remainingClaims: 0 };
+      }
+    }
+
+    return { available: true, remainingClaims };
   }
 
   // ── Status check ────────────────────────────────────────────────
@@ -157,10 +198,10 @@ export class FaucetService {
       return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '' };
     }
 
-    const remainingClaims = await this.getRemainingClaims(userAddress, config);
+    const { available, remainingClaims } = await this.checkAvailability(userAddress, config);
 
     return {
-      available: remainingClaims > 0,
+      available,
       remainingClaims,
       amountPerRequest: config.amountPerRequest,
       label: this.resolveLabel(config),
@@ -180,35 +221,20 @@ export class FaucetService {
     const configs = await this.configRepo.find({ where: { enabled: true } });
     if (configs.length === 0) return [];
 
-    // Batch count today's claims per config in a single query
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        const { available, remainingClaims } = await this.checkAvailability(userAddress, config);
+        return {
+          token: config.token,
+          label: this.resolveLabel(config),
+          available,
+          remainingClaims,
+          amountPerRequest: config.amountPerRequest,
+        };
+      }),
+    );
 
-    const configIds = configs.map((c) => c.id);
-    const counts: { config_id: string; cnt: string }[] = await this.historyRepo
-      .createQueryBuilder('h')
-      .select('h.config_id', 'config_id')
-      .addSelect('COUNT(*)', 'cnt')
-      .where('h.receiver = :userAddress', { userAddress })
-      .andWhere('h.config_id IN (:...configIds)', { configIds })
-      .andWhere('h.status = :status', { status: 'success' })
-      .andWhere('h.created_at >= :startOfDay', { startOfDay })
-      .groupBy('h.config_id')
-      .getRawMany();
-
-    const countMap = new Map(counts.map((r) => [r.config_id, Number(r.cnt)]));
-
-    return configs.map((config) => {
-      const todayCount = countMap.get(config.id) ?? 0;
-      const remainingClaims = Math.max(0, config.maxRequestsPerDay - todayCount);
-      return {
-        token: config.token,
-        label: this.resolveLabel(config),
-        available: remainingClaims > 0,
-        remainingClaims,
-        amountPerRequest: config.amountPerRequest,
-      };
-    });
+    return results;
   }
 
   // ── Claim ───────────────────────────────────────────────────────
@@ -218,38 +244,54 @@ export class FaucetService {
 
     const config = await this.findConfigByToken(token);
     if (!config) {
-      throw new BadRequestException(`No faucet available for token "${token}"`);
+      throw new BadRequestException('Faucet not available for you right now!');
     }
 
-    // Check user daily limit
-    const remainingClaims = await this.getRemainingClaims(userAddress, config);
-    if (remainingClaims <= 0) {
-      throw new BadRequestException('Daily faucet limit reached for this token');
+    // Re-validate all conditions (user requests, daily cap, lifetime cap)
+    const { available } = await this.checkAvailability(userAddress, config);
+    if (!available) {
+      throw new BadRequestException('Faucet not available for you right now!');
     }
 
     const rawAmount = this.toRawAmount(config.amountPerRequest, config.decimals);
     const rawAmountStr = rawAmount.toString();
-
-    // Check daily global limit
-    if (config.maxDailyAmount) {
-      const dailyTotal = await this.getDailyTotal(config.id);
-      const rawDailyLimit = this.toRawAmount(config.maxDailyAmount, config.decimals);
-      if (BigInt(dailyTotal) + rawAmount > rawDailyLimit) {
-        throw new BadRequestException('Global daily faucet limit reached for this token');
-      }
-    }
-
-    // Check total lifetime limit
-    if (config.totalAmountSharable) {
-      const lifetimeTotal = await this.getLifetimeTotal(config.id);
-      const rawLifetimeLimit = this.toRawAmount(config.totalAmountSharable, config.decimals);
-      if (BigInt(lifetimeTotal) + rawAmount > rawLifetimeLimit) {
-        throw new BadRequestException('Total faucet allocation exhausted for this token');
-      }
-    }
-
-    // Execute transfer — use config.token to determine native vs SPL
     const isNative = config.token === NATIVE_TOKEN;
+
+    // Pre-check faucet wallet balance before attempting transfer
+    try {
+      if (isNative) {
+        const balance = await this.connection.getBalance(keypair.publicKey);
+        if (BigInt(balance) < rawAmount + BigInt(5000)) {
+          this.logger.error(
+            `Faucet wallet has insufficient SOL: balance=${balance}, needed=${rawAmount + BigInt(5000)}`,
+          );
+          throw new ServiceUnavailableException('Faucet service not available right now');
+        }
+      } else {
+        const sourceAta = this.getAssociatedTokenAddress(new PublicKey(config.token), keypair.publicKey);
+        const sourceInfo = await this.connection.getAccountInfo(sourceAta);
+        if (!sourceInfo) {
+          this.logger.error(
+            `Faucet wallet has no token account for mint ${config.token}`,
+          );
+          throw new ServiceUnavailableException('Faucet service not available right now');
+        }
+        const currentBalance = sourceInfo.data.readBigUInt64LE(64);
+        if (currentBalance < rawAmount) {
+          this.logger.error(
+            `Faucet wallet has insufficient token balance for mint ${config.token}: balance=${currentBalance}, needed=${rawAmount}`,
+          );
+          throw new ServiceUnavailableException('Faucet service not available right now');
+        }
+      }
+    } catch (err) {
+      // Re-throw ServiceUnavailableException as-is
+      if (err instanceof ServiceUnavailableException) throw err;
+      this.logger.error(`Failed to check faucet wallet balance: ${err}`);
+      throw new ServiceUnavailableException('Faucet service not available right now');
+    }
+
+    // Execute transfer
     let txSignature: string;
     try {
       if (isNative) {
@@ -268,7 +310,7 @@ export class FaucetService {
           status: 'failed',
         }),
       );
-      throw new ServiceUnavailableException('Faucet service not currently available');
+      throw new ServiceUnavailableException('Faucet service not available right now');
     }
 
     // Record success (history stores raw amount for chain accountability)
