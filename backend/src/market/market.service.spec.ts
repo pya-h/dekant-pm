@@ -10,6 +10,8 @@ import { MarketEntity } from './entity/market.entity';
 import { TradeEntity } from './entity/trade.entity';
 import { BookmarkEntity } from './entity/bookmark.entity';
 import { UserEntity } from '../user/entity/user.entity';
+import { UserPositionEntity } from '../user/entity/user-position.entity';
+import { LpPositionEntity } from '../user/entity/lp-position.entity';
 
 function createMockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
   return {
@@ -41,6 +43,9 @@ function createMockMarket(overrides: Partial<MarketEntity> = {}): MarketEntity {
     totalVolume: '0',
     totalTraders: 0,
     lastTradeAt: null,
+    protocolFeeAccumulated: '0',
+    lpFeeAccumulated: '0',
+    lpSharesTotal: '0',
     updatedAt: new Date(),
     ...overrides,
   } as MarketEntity;
@@ -52,6 +57,8 @@ describe('MarketService', () => {
   let tradeRepo: Record<string, jest.Mock>;
   let bookmarkRepo: Record<string, jest.Mock>;
   let userRepo: Record<string, jest.Mock>;
+  let positionRepo: Record<string, jest.Mock>;
+  let lpRepo: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     marketRepo = {
@@ -64,6 +71,12 @@ describe('MarketService', () => {
 
     tradeRepo = {
       findAndCount: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+      }),
     };
 
     const bookmarkInsertQb = {
@@ -92,6 +105,24 @@ describe('MarketService', () => {
       }),
     };
 
+    positionRepo = {
+      count: jest.fn().mockResolvedValue(0),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+      }),
+    };
+
+    lpRepo = {
+      count: jest.fn().mockResolvedValue(0),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketService,
@@ -99,6 +130,8 @@ describe('MarketService', () => {
         { provide: getRepositoryToken(TradeEntity), useValue: tradeRepo },
         { provide: getRepositoryToken(BookmarkEntity), useValue: bookmarkRepo },
         { provide: getRepositoryToken(UserEntity), useValue: userRepo },
+        { provide: getRepositoryToken(UserPositionEntity), useValue: positionRepo },
+        { provide: getRepositoryToken(LpPositionEntity), useValue: lpRepo },
       ],
     }).compile();
 
@@ -731,6 +764,74 @@ describe('MarketService', () => {
         userAddress: 'Wallet11111111111111111111111111111111111111',
       });
       expect(result).toEqual({ bookmarked: false });
+    });
+  });
+
+  describe('getMarketProperties', () => {
+    it('should return market data and stats for the creator', async () => {
+      const owner = 'Creator11111111111111111111111111111111111111';
+      const market = createMockMarket({
+        creator: owner,
+        protocolFeeAccumulated: '100',
+        lpFeeAccumulated: '50',
+        lpSharesTotal: '999',
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+      tradeRepo.count.mockResolvedValue(5);
+      positionRepo.count.mockResolvedValue(3);
+      lpRepo.count.mockResolvedValue(2);
+
+      const result = await service.getMarketProperties(1, owner, false);
+
+      expect(result.market.id).toBe('1');
+      expect(result.market.creator).toBe(owner);
+      expect(result.stats.totalTrades).toBe(5);
+      expect(result.stats.totalPositions).toBe(3);
+      expect(result.stats.totalLps).toBe(2);
+      expect(result.stats.totalDeposited).toBe('0');
+      expect(result.stats.protocolFeeAccumulated).toBe('100');
+      expect(result.stats.lpFeeAccumulated).toBe('50');
+      expect(result.stats.lpSharesTotal).toBe('999');
+    });
+
+    it('should allow admin to view any market properties', async () => {
+      const market = createMockMarket({
+        creator: 'OtherCreator111111111111111111111111111111111',
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+      tradeRepo.count.mockResolvedValue(0);
+      positionRepo.count.mockResolvedValue(0);
+      lpRepo.count.mockResolvedValue(0);
+
+      const result = await service.getMarketProperties(
+        1,
+        'Admin1111111111111111111111111111111111111111',
+        true,
+      );
+      expect(result.market.id).toBe('1');
+    });
+
+    it('should reject non-creator non-admin', async () => {
+      const market = createMockMarket({
+        creator: 'Owner111111111111111111111111111111111111111',
+      });
+      marketRepo.findOne.mockResolvedValue(market);
+
+      await expect(
+        service.getMarketProperties(
+          1,
+          'Random1111111111111111111111111111111111111111',
+          false,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException for missing market', async () => {
+      marketRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.getMarketProperties(999, 'Anyone', false),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

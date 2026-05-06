@@ -519,4 +519,142 @@ describe('Markets (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('GET /markets/:id/properties', () => {
+    it('should return 401 without auth token', () => {
+      return request(app.getHttpServer())
+        .get('/markets/1/properties')
+        .expect(401);
+    });
+
+    it('should return properties for the market creator', () => {
+      const creator = 'Creator1111111111111111111111111111111111111';
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket({ creator }),
+      );
+      // Use a token for the creator wallet
+      const token = testApp.getAuthToken(creator);
+
+      return request(app.getHttpServer())
+        .get('/markets/1/properties')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('market');
+          expect(res.body).toHaveProperty('stats');
+          expect(res.body.market).toHaveProperty('id');
+          expect(res.body.market).toHaveProperty('pubkey');
+          expect(res.body.market).toHaveProperty('creator');
+          expect(res.body.market).toHaveProperty('oracle');
+          expect(res.body.market).toHaveProperty('collateralMint');
+          expect(res.body.stats).toHaveProperty('totalTrades');
+          expect(res.body.stats).toHaveProperty('totalPositions');
+          expect(res.body.stats).toHaveProperty('totalLps');
+          expect(res.body.stats).toHaveProperty('totalVolume');
+          expect(res.body.stats).toHaveProperty('totalDeposited');
+        });
+    });
+
+    it('should allow superadmin to view any market properties', () => {
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket({ creator: 'SomeOtherCreator111111111111111111111111111' }),
+      );
+      // Default test token is TEST_SUPERADMIN
+      return request(app.getHttpServer())
+        .get('/markets/1/properties')
+        .set('Authorization', `Bearer ${testApp.getAuthToken()}`)
+        .expect(200);
+    });
+
+    it('should return 403 for non-creator non-admin', () => {
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket({ creator: 'TheActualCreator111111111111111111111111111' }),
+      );
+      testApp.roleRepo.find.mockResolvedValue([]);
+      const randomToken = testApp.getAuthToken('SomeRandomUser111111111111111111111111111111');
+
+      return request(app.getHttpServer())
+        .get('/markets/1/properties')
+        .set('Authorization', `Bearer ${randomToken}`)
+        .expect(403);
+    });
+
+    it('should return 404 for non-existent market', () => {
+      testApp.marketRepo.findOne.mockResolvedValueOnce(null);
+
+      return request(app.getHttpServer())
+        .get('/markets/999/properties')
+        .set('Authorization', `Bearer ${testApp.getAuthToken()}`)
+        .expect(404);
+    });
+  });
+
+  describe('PATCH /markets/:id', () => {
+    it('should return 401 without auth token', () => {
+      return request(app.getHttpServer())
+        .patch('/markets/1')
+        .send({ category: 'crypto' })
+        .expect(401);
+    });
+
+    it('should allow superadmin to update metadata', () => {
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket(),
+      );
+      testApp.marketRepo.save.mockImplementation((entity: any) =>
+        Promise.resolve(entity),
+      );
+
+      return request(app.getHttpServer())
+        .patch('/markets/1')
+        .set('Authorization', `Bearer ${testApp.getAuthToken()}`)
+        .send({ category: 'macro' })
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body.category).toBe('macro');
+        });
+    });
+
+    it('should allow a creator-role user to update their own market', () => {
+      const creator = randomWallet();
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket({ creator }),
+      );
+      testApp.roleRepo.find.mockResolvedValue([{ role: 3 }]); // creator role
+      testApp.marketRepo.save.mockImplementation((entity: any) =>
+        Promise.resolve(entity),
+      );
+
+      return request(app.getHttpServer())
+        .patch('/markets/1')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(creator)}`)
+        .send({ subject: 'ETH' })
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body.subject).toBe('ETH');
+        });
+    });
+
+    it('should return 403 for user without admin or creator role', () => {
+      testApp.roleRepo.find.mockResolvedValue([]);
+
+      return request(app.getHttpServer())
+        .patch('/markets/1')
+        .set('Authorization', `Bearer ${testApp.getAuthToken('Random1111111111111111111111111111111111111111')}`)
+        .send({ category: 'macro' })
+        .expect(403);
+    });
+
+    it('should reject empty patch body', () => {
+      testApp.marketRepo.findOne.mockResolvedValue(
+        mockMarket(),
+      );
+
+      return request(app.getHttpServer())
+        .patch('/markets/1')
+        .set('Authorization', `Bearer ${testApp.getAuthToken()}`)
+        .send({})
+        .expect(400);
+    });
+  });
 });

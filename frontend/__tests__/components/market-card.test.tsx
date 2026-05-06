@@ -8,6 +8,16 @@ import {
   mockResolvedMarket,
 } from "../helpers/mock-data";
 
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    token: null,
+    isAuthenticated: false,
+    isAuthenticating: false,
+    authenticate: vi.fn(),
+    error: null,
+  }),
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -62,5 +72,41 @@ describe("MarketCard", () => {
     const { container } = render(<MarketCard market={mockResolvedMarket} />);
     // Resolved market still has a future deadline in mock data
     expect(container.textContent).toMatch(/Tomorrow/);
+  });
+
+  describe("creator mode", () => {
+    it("renders with isCreator prop without errors", () => {
+      const { container } = render(
+        <MarketCard
+          market={mockBinaryMarket}
+          isCreator
+          onMarketUpdated={vi.fn()}
+        />,
+      );
+      expect(container.textContent).toMatch(/Tomorrow/);
+    });
+
+    it("still links to the market detail page in creator mode", () => {
+      render(
+        <MarketCard
+          market={mockBinaryMarket}
+          isCreator
+          onMarketUpdated={vi.fn()}
+        />,
+      );
+      const link = screen.getByRole("link");
+      expect(link).toHaveAttribute("href", "/markets/1");
+    });
+
+    it("shows liquidity in creator mode", () => {
+      render(
+        <MarketCard
+          market={mockBinaryMarket}
+          isCreator
+          onMarketUpdated={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(/Liquidity/)).toBeInTheDocument();
+    });
   });
 });
