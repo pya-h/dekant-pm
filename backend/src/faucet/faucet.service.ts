@@ -162,11 +162,11 @@ export class FaucetService {
   private async checkAvailability(
     userAddress: string,
     config: FaucetConfigEntity,
-  ): Promise<{ available: boolean; remainingClaims: number }> {
+  ): Promise<{ available: boolean; remainingClaims: number; reason?: string }> {
     // 1. User daily request count
     const remainingClaims = await this.getRemainingClaims(userAddress, config);
     if (remainingClaims <= 0) {
-      return { available: false, remainingClaims: 0 };
+      return { available: false, remainingClaims: 0, reason: 'Daily claim limit reached' };
     }
 
     const rawAmount = this.toRawAmount(config.amountPerRequest, config.decimals);
@@ -176,7 +176,7 @@ export class FaucetService {
       const dailyTotal = await this.getDailyTotal(config.id);
       const rawDailyLimit = this.toRawAmount(config.maxDailyAmount, config.decimals);
       if (BigInt(dailyTotal) + rawAmount > rawDailyLimit) {
-        return { available: false, remainingClaims: 0 };
+        return { available: false, remainingClaims: 0, reason: 'Daily distribution cap reached' };
       }
     }
 
@@ -185,7 +185,7 @@ export class FaucetService {
       const lifetimeTotal = await this.getLifetimeTotal(config.id);
       const rawLifetimeLimit = this.toRawAmount(config.totalAmountSharable, config.decimals);
       if (BigInt(lifetimeTotal) + rawAmount > rawLifetimeLimit) {
-        return { available: false, remainingClaims: 0 };
+        return { available: false, remainingClaims: 0, reason: 'Lifetime distribution cap reached' };
       }
     }
 
@@ -199,23 +199,25 @@ export class FaucetService {
     remainingClaims: number;
     amountPerRequest: string;
     label: string;
+    reason?: string;
   }> {
     if (!this.faucetKeypair) {
-      return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '' };
+      return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '', reason: 'Faucet service unavailable' };
     }
 
     const config = await this.findConfigByToken(token);
     if (!config) {
-      return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '' };
+      return { available: false, remainingClaims: 0, amountPerRequest: '0', label: '', reason: 'Faucet not configured for this token' };
     }
 
-    const { available, remainingClaims } = await this.checkAvailability(userAddress, config);
+    const { available, remainingClaims, reason } = await this.checkAvailability(userAddress, config);
 
     return {
       available,
       remainingClaims,
       amountPerRequest: config.amountPerRequest,
       label: this.resolveLabel(config),
+      ...(reason ? { reason } : {}),
     };
   }
 
@@ -226,6 +228,7 @@ export class FaucetService {
     available: boolean;
     remainingClaims: number;
     amountPerRequest: string;
+    reason?: string;
   }>> {
     if (!this.faucetKeypair) return [];
 
@@ -234,13 +237,142 @@ export class FaucetService {
 
     const results = await Promise.all(
       configs.map(async (config) => {
-        const { available, remainingClaims } = await this.checkAvailability(userAddress, config);
+        const { available, remainingClaims, reason } = await this.checkAvailability(userAddress, config);
         return {
           token: config.token,
           label: this.resolveLabel(config),
           available,
           remainingClaims,
           amountPerRequest: config.amountPerRequest,
+          ...(reason ? { reason } : {}),
+        };
+      }),
+    );
+
+    return results;
+  }
+
+  // ── Admin overview ──────────────────────────────────────────────
+
+  /** Get comprehensive status for all faucet configs (admin use) */
+  async getAdminOverview(): Promise<Array<{
+    id: string;
+    token: string;
+    label: string;
+    decimals: number;
+    amountPerRequest: string;
+    maxRequestsPerDay: number;
+    maxDailyAmount: string | null;
+    totalAmountSharable: string | null;
+    enabled: boolean;
+    walletBalance: string | null;
+    dailyDistributed: string;
+    lifetimeDistributed: string;
+    uniqueUsersToday: number;
+    totalClaimsToday: number;
+    operational: boolean;
+    operationalReason?: string;
+  }>> {
+    const configs = await this.configRepo.find({ order: { createdAt: 'DESC' } });
+    if (configs.length === 0) return [];
+
+    const keypair = this.faucetKeypair;
+
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        const label = this.resolveLabel(config);
+
+        // Daily / lifetime distributed amounts (human-readable)
+        const [dailyRaw, lifetimeRaw] = await Promise.all([
+          this.getDailyTotal(config.id),
+          this.getLifetimeTotal(config.id),
+        ]);
+        const decimals = config.decimals;
+        const dailyDistributed = (Number(dailyRaw) / 10 ** decimals).toString();
+        const lifetimeDistributed = (Number(lifetimeRaw) / 10 ** decimals).toString();
+
+        // Unique users & total claims today
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const [uniqueUsersToday, totalClaimsToday] = await Promise.all([
+          this.historyRepo
+            .createQueryBuilder('h')
+            .select('COUNT(DISTINCT h.receiver)', 'count')
+            .where('h.config_id = :configId', { configId: config.id })
+            .andWhere('h.status = :status', { status: 'success' })
+            .andWhere('h.created_at >= :startOfDay', { startOfDay })
+            .getRawOne()
+            .then((r) => Number(r?.count ?? 0)),
+          this.historyRepo.count({
+            where: {
+              configId: config.id,
+              status: 'success',
+              createdAt: MoreThanOrEqual(startOfDay),
+            },
+          }),
+        ]);
+
+        // Wallet balance
+        let walletBalance: string | null = null;
+        let operational = !!keypair && config.enabled;
+        let operationalReason: string | undefined;
+
+        if (!keypair) {
+          operationalReason = 'Faucet keypair not configured';
+          operational = false;
+        } else if (!config.enabled) {
+          operationalReason = 'Config disabled';
+          operational = false;
+        } else {
+          try {
+            if (config.token === NATIVE_TOKEN) {
+              const bal = await this.connection.getBalance(keypair.publicKey);
+              walletBalance = (bal / 10 ** 9).toString();
+              if (bal < this.toRawAmount(config.amountPerRequest, decimals) + BigInt(5000)) {
+                operational = false;
+                operationalReason = 'Insufficient SOL balance';
+              }
+            } else {
+              const ata = this.getAssociatedTokenAddress(new PublicKey(config.token), keypair.publicKey);
+              const info = await this.connection.getAccountInfo(ata);
+              if (!info) {
+                walletBalance = '0';
+                operational = false;
+                operationalReason = 'No token account in faucet wallet';
+              } else {
+                const raw = info.data.readBigUInt64LE(64);
+                walletBalance = (Number(raw) / 10 ** decimals).toString();
+                if (raw < this.toRawAmount(config.amountPerRequest, decimals)) {
+                  operational = false;
+                  operationalReason = 'Insufficient token balance';
+                }
+              }
+            }
+          } catch {
+            walletBalance = null;
+            operational = false;
+            operationalReason = 'Failed to fetch wallet balance';
+          }
+        }
+
+        return {
+          id: config.id,
+          token: config.token,
+          label,
+          decimals: config.decimals,
+          amountPerRequest: config.amountPerRequest,
+          maxRequestsPerDay: config.maxRequestsPerDay,
+          maxDailyAmount: config.maxDailyAmount,
+          totalAmountSharable: config.totalAmountSharable,
+          enabled: config.enabled,
+          walletBalance,
+          dailyDistributed,
+          lifetimeDistributed,
+          uniqueUsersToday,
+          totalClaimsToday,
+          operational,
+          ...(operationalReason ? { operationalReason } : {}),
         };
       }),
     );
