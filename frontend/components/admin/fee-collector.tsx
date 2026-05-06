@@ -45,7 +45,7 @@ export function FeeCollector() {
       await confirmTx(sig);
       showTradeSuccess(sig, "Fees collected");
       setTimeout(
-        () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
+        () => queryClient.invalidateQueries({ queryKey: ["marketsAll"] }),
         3000,
       );
     } catch (err) {
@@ -56,12 +56,12 @@ export function FeeCollector() {
   };
 
   const handleCollectAll = async () => {
-    if (!program || !publicKey || !data?.data.length) return;
+    if (!program || !publicKey || !allMarkets?.length) return;
     setCollectingAll(true);
 
     try {
       // Pre-filter by backend data (quick local filter)
-      const candidates = data.data.filter(
+      const candidates = allMarkets.filter(
         (m) => Number(m.protocolFeeAccumulated ?? 0) > 0,
       );
       if (candidates.length === 0) {
@@ -114,7 +114,7 @@ export function FeeCollector() {
           `Collected fees from ${succeeded} market${succeeded > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
         );
         setTimeout(
-          () => queryClient.invalidateQueries({ queryKey: ["markets"] }),
+          () => queryClient.invalidateQueries({ queryKey: ["marketsAll"] }),
           3000,
         );
       } else if (failed > 0) {
@@ -144,7 +144,7 @@ export function FeeCollector() {
     );
   }
 
-  const markets = data?.data ?? [];
+  const markets = allMarkets ?? [];
 
   // Show all markets — resolved ones are the primary targets but fees can accumulate on active ones too
   if (markets.length === 0) {
