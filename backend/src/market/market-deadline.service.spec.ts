@@ -110,18 +110,16 @@ describe('MarketDeadlineService', () => {
       expect(qb.execute).toHaveBeenCalled();
     });
 
-    it('should query for state=0 (Active) markets with deadline <= now', async () => {
+    it('should query for Active and Paused markets with deadline <= now', async () => {
       marketRepo.find.mockResolvedValue([]);
       await service.closeExpiredMarkets();
 
-      expect(marketRepo.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            state: 0,
-          }),
-          select: ['id', 'title', 'deadline'],
-        }),
-      );
+      const findCall = marketRepo.find.mock.calls[0][0];
+      expect(findCall.select).toEqual(['id', 'title', 'deadline']);
+      // state should be In([0, 1]) — TypeORM In() operator
+      expect(findCall.where.state).toBeDefined();
+      expect(findCall.where.state._type).toBe('in');
+      expect(findCall.where.state._value).toEqual([0, 1]);
     });
 
     it('should handle a single expired market', async () => {

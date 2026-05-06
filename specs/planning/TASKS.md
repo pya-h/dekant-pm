@@ -1124,7 +1124,7 @@ DEVELOPER REVIEW (human-led, after all implementation)
 **Context — current state:**
 - `AuthGuard` exists: verifies JWT, attaches `walletAddress` to `request` — but performs zero role checks
 - `user_roles` table exists with `userAddress` + `role` columns, populated by the indexer from on-chain `AssignRole` events
-- Role values: `0` = Admin, `1` = Superadmin (matches on-chain enum)
+- On-chain role values: `1` = Admin, `2` = Oracle, `3` = Creator. Superadmin is env-based (`SUPERADMIN_ADDRESS`), not an on-chain role.
 - No `RolesGuard`, no `@Roles()` decorator, no role-checking middleware exists anywhere
 - **Health** (`GET /health`), **market reads** (`GET /markets/*`), **user reads** (`GET /users/*`), **AMM estimates** (`GET /amm/*`), and **auth** (`POST /auth/*`) are correctly public
 

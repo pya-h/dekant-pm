@@ -24,9 +24,9 @@ interface LpPositionCardProps {
 
 export function LpPositionCard({ position }: LpPositionCardProps) {
   const { market } = position;
-  const shares = Number(position.shares);
+  const shares = BigInt(position.shares);
   const deposited = Number(position.depositedCollateral);
-  const hasShares = shares > 0;
+  const hasShares = shares > 0n;
 
   return (
     <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
@@ -83,8 +83,11 @@ export function LpPositionCard({ position }: LpPositionCardProps) {
   );
 }
 
-function formatLpShares(raw: number): string {
-  const n = raw / 10 ** USDC_DECIMALS;
+function formatLpShares(raw: bigint): string {
+  const divisor = BigInt(10 ** USDC_DECIMALS);
+  const whole = raw / divisor;
+  const frac = Number(raw % divisor) / Number(divisor);
+  const n = Number(whole) + frac;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toFixed(2);
