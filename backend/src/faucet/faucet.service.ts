@@ -9,7 +9,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
-import * as fs from 'fs';
 import {
   Connection,
   Keypair,
@@ -48,18 +47,17 @@ export class FaucetService {
   }
 
   private loadKeypair() {
-    const keypairPath = this.configService.get<string>('FAUCET_KEYPAIR');
-    if (!keypairPath) {
+    const keypairJson = this.configService.get<string>('FAUCET_KEYPAIR');
+    if (!keypairJson) {
       this.logger.warn('FAUCET_KEYPAIR not set — faucet claims will be unavailable');
       return;
     }
     try {
-      const resolved = keypairPath.replace(/^~/, process.env.HOME || '');
-      const raw = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+      const raw = JSON.parse(keypairJson);
       this.faucetKeypair = Keypair.fromSecretKey(Uint8Array.from(raw));
       this.logger.log(`Faucet wallet loaded: ${this.faucetKeypair.publicKey.toBase58()}`);
     } catch (e) {
-      this.logger.error(`Failed to load faucet keypair from file: ${e}`);
+      this.logger.error(`Failed to parse FAUCET_KEYPAIR: ${e}`);
     }
   }
 
