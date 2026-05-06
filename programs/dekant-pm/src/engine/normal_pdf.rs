@@ -5,6 +5,7 @@
 /// Guaranteed monotonically decreasing. Tails clamped to 0 for |z| > Z_CUTOFF.
 ///
 use crate::constants::{SCALE, Z_CUTOFF};
+use ethnum::U256;
 
 /// Lookup table: EXP_TABLE[k] = round(exp(-k/4) * SCALE) for k = 0..2*Z_CUTOFF².
 /// Each entry corresponds to t = k/2 (where t = z²), giving 0.5 step size in t.
@@ -148,10 +149,11 @@ pub fn compute_bin_weights(
             continue;
         }
 
-        // Safe: |diff| ≤ 5*sigma, so diff² ≤ 25*sigma², fits in u128.
-        let diff_sq = (diff * diff) as u128;
-        let sigma_sq = (sigma_i128 * sigma_i128) as u128;
-        let z_sq_scaled = diff_sq * SCALE / sigma_sq;
+        // |diff| ≤ 5*sigma after tail cutoff, so diff² ≤ 25*sigma².
+        // Use U256 for the full computation to avoid u128 overflow at large sigma.
+        let diff_sq = U256::from(diff.unsigned_abs()) * U256::from(diff.unsigned_abs());
+        let sigma_sq = U256::from(sigma as u128) * U256::from(sigma as u128);
+        let z_sq_scaled = (diff_sq * U256::from(SCALE) / sigma_sq).as_u128();
 
         let w = exp_neg_half_approx(z_sq_scaled);
         raw_weights.push(w);
