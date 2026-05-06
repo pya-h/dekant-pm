@@ -52,7 +52,10 @@ export class FaucetController {
   }
 
   @Get('configs')
-  @ApiOperation({ summary: 'List all faucet configs (public — shows available tokens)' })
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('superadmin', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List all faucet configs (admin only)' })
   getConfigs() {
     return this.faucetService.getAllConfigs();
   }
@@ -67,7 +70,7 @@ export class FaucetController {
   @ApiResponse({ status: 400, description: 'Limit reached or invalid token' })
   @ApiResponse({ status: 503, description: 'Faucet service unavailable' })
   claim(@Req() req: Request, @Body() dto: ClaimFaucetDto) {
-    const userAddress = (req as any).user?.walletAddress;
+    const userAddress = (req as any).walletAddress as string;
     return this.faucetService.claim(userAddress, dto.token);
   }
 
