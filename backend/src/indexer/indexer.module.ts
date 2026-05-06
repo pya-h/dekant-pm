@@ -7,6 +7,7 @@ import { TradeEntity } from '../market/entity/trade.entity';
 import { UserPositionEntity } from '../user/entity/user-position.entity';
 import { LpPositionEntity } from '../user/entity/lp-position.entity';
 import { UserRoleEntity } from '../user/entity/user-role.entity';
+import { UserEntity } from '../user/entity/user.entity';
 import { SolanaConnectionProvider } from '../common/solana.provider';
 
 @Module({
@@ -18,6 +19,7 @@ import { SolanaConnectionProvider } from '../common/solana.provider';
       UserPositionEntity,
       LpPositionEntity,
       UserRoleEntity,
+      UserEntity,
     ]),
   ],
   providers: [SolanaConnectionProvider, IndexerService],
