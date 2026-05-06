@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useWalletTokens } from "@/hooks/use-wallet-tokens";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,8 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Trash2, Droplets } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Droplets, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+
+const METAPLEX_METADATA_PROGRAM_ID = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+);
 
 interface FaucetConfig {
   id: string;
@@ -38,6 +45,14 @@ interface ConfigForm {
   enabled: boolean;
 }
 
+interface TokenSuggestion {
+  mint: string;
+  symbol: string;
+  name: string;
+  uiAmount: number;
+  decimals: number;
+}
+
 const emptyForm: ConfigForm = {
   token: "",
   label: "",
@@ -48,19 +63,149 @@ const emptyForm: ConfigForm = {
   enabled: true,
 };
 
+/** Parse token name and symbol from Metaplex metadata account data */
+function parseMetaplexMetadata(data: Buffer): { name: string; symbol: string } | null {
+  try {
+    // key(1) + update_authority(32) + mint(32) = 65 bytes offset to name
+    let offset = 65;
+    if (data.length < offset + 4) return null;
+
+    const nameLen = data.readUInt32LE(offset);
+    offset += 4;
+    if (data.length < offset + nameLen) return null;
+    const name = data.subarray(offset, offset + nameLen).toString("utf-8").replace(/\0/g, "").trim();
+    offset += nameLen;
+
+    if (data.length < offset + 4) return null;
+    const symbolLen = data.readUInt32LE(offset);
+    offset += 4;
+    if (data.length < offset + symbolLen) return null;
+    const symbol = data.subarray(offset, offset + symbolLen).toString("utf-8").replace(/\0/g, "").trim();
+
+    return { name, symbol };
+  } catch {
+    return null;
+  }
+}
+
+function getMetadataPda(mint: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("metadata"),
+      METAPLEX_METADATA_PROGRAM_ID.toBuffer(),
+      mint.toBuffer(),
+    ],
+    METAPLEX_METADATA_PROGRAM_ID,
+  );
+  return pda;
+}
+
 export function FaucetManager({ token }: { token: string | null }) {
   const queryClient = useQueryClient();
   const { token: authToken, authenticate } = useAuth();
+  const { publicKey } = useWallet();
+  const { connection } = useConnection();
   const effectiveToken = token || authToken;
+  const walletAddress = publicKey?.toBase58();
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ["faucet-configs"],
     queryFn: () => api.get<FaucetConfig[]>("/faucet/configs"),
   });
 
+  const { data: walletTokens } = useWalletTokens(walletAddress);
+
+  // Fetch metadata for all wallet tokens
+  const { data: tokenSuggestions } = useQuery<TokenSuggestion[]>({
+    queryKey: ["faucet-token-suggestions", walletAddress, walletTokens?.map((t) => t.mint).join(",")],
+    queryFn: async () => {
+      if (!walletTokens?.length) return [];
+
+      const metadataPdas = walletTokens.map((t) =>
+        getMetadataPda(new PublicKey(t.mint)),
+      );
+
+      const accounts = await connection.getMultipleAccountsInfo(metadataPdas);
+
+      return walletTokens.map((t, i) => {
+        const metaAccount = accounts[i];
+        let symbol = "";
+        let name = "";
+        if (metaAccount?.data) {
+          const parsed = parseMetaplexMetadata(Buffer.from(metaAccount.data));
+          if (parsed) {
+            symbol = parsed.symbol;
+            name = parsed.name;
+          }
+        }
+        return {
+          mint: t.mint,
+          symbol,
+          name,
+          uiAmount: t.uiAmount,
+          decimals: t.decimals,
+        };
+      });
+    },
+    enabled: !!walletTokens?.length,
+    staleTime: 60_000,
+  });
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ConfigForm>(emptyForm);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const tokenInputRef = useRef<HTMLInputElement>(null);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(e.target as Node) &&
+        tokenInputRef.current &&
+        !tokenInputRef.current.contains(e.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const filteredSuggestions = useMemo(() => {
+    const suggestions: TokenSuggestion[] = [];
+    // Add native SOL option
+    suggestions.push({
+      mint: "native",
+      symbol: "SOL",
+      name: "Native SOL",
+      uiAmount: -1, // will be fetched separately or shown without balance
+      decimals: 9,
+    });
+    if (tokenSuggestions) {
+      suggestions.push(...tokenSuggestions);
+    }
+    // Filter by form.token input
+    const query = form.token.toLowerCase();
+    if (!query) return suggestions;
+    return suggestions.filter(
+      (s) =>
+        s.mint.toLowerCase().includes(query) ||
+        s.symbol.toLowerCase().includes(query) ||
+        s.name.toLowerCase().includes(query),
+    );
+  }, [tokenSuggestions, form.token]);
+
+  const selectSuggestion = (s: TokenSuggestion) => {
+    setForm({
+      ...form,
+      token: s.mint,
+      label: s.symbol || s.name || "",
+    });
+    setShowSuggestions(false);
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: ConfigForm) => {
@@ -121,6 +266,7 @@ export function FaucetManager({ token }: { token: string | null }) {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setShowSuggestions(false);
     setDialogOpen(true);
   };
 
@@ -135,6 +281,7 @@ export function FaucetManager({ token }: { token: string | null }) {
       totalAmountSharable: config.totalAmountSharable ?? "",
       enabled: config.enabled,
     });
+    setShowSuggestions(false);
     setDialogOpen(true);
   };
 
@@ -259,14 +406,65 @@ export function FaucetManager({ token }: { token: string | null }) {
             <DialogTitle>{editingId ? "Edit Faucet Config" : "Add Faucet Config"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
+            {/* Token field with suggestions */}
+            <div className="relative">
               <label className="text-xs text-muted-foreground">Token (mint address or &quot;native&quot;)</label>
-              <Input
-                value={form.token}
-                onChange={(e) => setForm({ ...form, token: e.target.value })}
-                placeholder="native or mint address"
-                disabled={!!editingId}
-              />
+              <div className="relative">
+                <Input
+                  ref={tokenInputRef}
+                  value={form.token}
+                  onChange={(e) => {
+                    setForm({ ...form, token: e.target.value });
+                    if (!editingId) setShowSuggestions(true);
+                  }}
+                  onFocus={() => { if (!editingId) setShowSuggestions(true); }}
+                  placeholder="native or mint address"
+                  disabled={!!editingId}
+                />
+                {!editingId && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowSuggestions(!showSuggestions)}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {showSuggestions && !editingId && filteredSuggestions.length > 0 && (
+                <div
+                  ref={suggestionsRef}
+                  className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
+                >
+                  {filteredSuggestions.map((s) => (
+                    <button
+                      key={s.mint}
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+                      onClick={() => selectSuggestion(s)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {s.symbol && (
+                            <span className="font-semibold text-foreground">{s.symbol}</span>
+                          )}
+                          {s.name && s.name !== s.symbol && (
+                            <span className="text-muted-foreground text-xs truncate">{s.name}</span>
+                          )}
+                        </div>
+                        <div className="font-mono text-[10px] text-muted-foreground truncate">
+                          {s.mint === "native" ? "Native SOL transfer" : s.mint}
+                        </div>
+                      </div>
+                      {s.uiAmount >= 0 && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {s.uiAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Label</label>
