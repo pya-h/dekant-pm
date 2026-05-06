@@ -54,6 +54,15 @@ export class FaucetController {
     return this.faucetService.getAllStatuses(address);
   }
 
+  @Get('admin/overview')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles('superadmin', 'admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get comprehensive faucet status overview (admin)' })
+  getAdminOverview() {
+    return this.faucetService.getAdminOverview();
+  }
+
   @Get('configs')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('superadmin', 'admin')

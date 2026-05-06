@@ -16,7 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Trash2, Droplets, ChevronDown } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Loader2, Plus, Pencil, Trash2, Droplets, ChevronDown, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 const METAPLEX_METADATA_PROGRAM_ID = new PublicKey(
@@ -52,6 +53,25 @@ interface TokenSuggestion {
   name: string;
   uiAmount: number;
   decimals: number;
+}
+
+interface FaucetAdminStatus {
+  id: string;
+  token: string;
+  label: string;
+  decimals: number;
+  amountPerRequest: string;
+  maxRequestsPerDay: number;
+  maxDailyAmount: string | null;
+  totalAmountSharable: string | null;
+  enabled: boolean;
+  walletBalance: string | null;
+  dailyDistributed: string;
+  lifetimeDistributed: string;
+  uniqueUsersToday: number;
+  totalClaimsToday: number;
+  operational: boolean;
+  operationalReason?: string;
 }
 
 const emptyForm: ConfigForm = {
@@ -305,6 +325,14 @@ export function FaucetManager({ token }: { token: string | null }) {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // ── Admin overview query ──
+  const { data: overview, isLoading: overviewLoading, refetch: refetchOverview } = useQuery({
+    queryKey: ["faucet-admin-overview"],
+    queryFn: () => api.get<FaucetAdminStatus[]>("/faucet/admin/overview", undefined, effectiveToken ?? undefined),
+    enabled: !!effectiveToken,
+    refetchInterval: 30_000,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -315,93 +343,193 @@ export function FaucetManager({ token }: { token: string | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Droplets className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Faucet Configurations</h2>
-        </div>
-        <Button onClick={openCreate} size="sm" className="gap-1.5">
-          <Plus className="h-3.5 w-3.5" />
-          Add Token
-        </Button>
+      <div className="flex items-center gap-2 mb-2">
+        <Droplets className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-semibold">Faucet Management</h2>
       </div>
 
-      {!configs?.length ? (
-        <div className="rounded-lg border border-border/40 bg-muted/10 p-8 text-center text-sm text-muted-foreground">
-          No faucet configs yet. Add a token to enable faucet for users.
-        </div>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {configs.map((config) => (
-            <Card key={config.id} className={!config.enabled ? "opacity-50" : ""}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold">
-                    {config.label || (config.token === "native" ? "SOL" : config.token.slice(0, 4) + "…" + config.token.slice(-4))}
-                  </CardTitle>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => openEdit(config)}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() => {
-                        const displayLabel = config.label || config.token;
-                        if (confirm(`Delete faucet config for "${displayLabel}"?`)) {
-                          deleteMutation.mutate(config.id);
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-1 text-xs text-muted-foreground">
-                <div className="flex justify-between">
-                  <span>Token:</span>
-                  <span className="font-mono truncate max-w-[140px]" title={config.token}>
-                    {config.token === "native" ? "Native SOL" : config.token}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Per request:</span>
-                  <span>{config.amountPerRequest}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Max/day (user):</span>
-                  <span>{config.maxRequestsPerDay}</span>
-                </div>
-                {config.maxDailyAmount && (
-                  <div className="flex justify-between">
-                    <span>Daily cap (global):</span>
-                    <span>{config.maxDailyAmount}</span>
-                  </div>
-                )}
-                {config.totalAmountSharable && (
-                  <div className="flex justify-between">
-                    <span>Total cap:</span>
-                    <span>{config.totalAmountSharable}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span>Status:</span>
-                  <span className={config.enabled ? "text-emerald-400" : "text-rose-400"}>
-                    {config.enabled ? "Active" : "Disabled"}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+      <Tabs defaultValue="configs">
+        <TabsList>
+          <TabsTrigger value="configs">Configs</TabsTrigger>
+          <TabsTrigger value="status">Status</TabsTrigger>
+        </TabsList>
+
+        {/* ── Configs Tab ── */}
+        <TabsContent value="configs" className="space-y-4 mt-4">
+          <div className="flex justify-end">
+            <Button onClick={openCreate} size="sm" className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
+              Add Token
+            </Button>
+          </div>
+
+          {!configs?.length ? (
+            <div className="rounded-lg border border-border/40 bg-muted/10 p-8 text-center text-sm text-muted-foreground">
+              No faucet configs yet. Add a token to enable faucet for users.
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {configs.map((config) => (
+                <Card key={config.id} className={!config.enabled ? "opacity-50" : ""}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-semibold">
+                        {config.label || (config.token === "native" ? "SOL" : config.token.slice(0, 4) + "…" + config.token.slice(-4))}
+                      </CardTitle>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => openEdit(config)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() => {
+                            const displayLabel = config.label || config.token;
+                            if (confirm(`Delete faucet config for "${displayLabel}"?`)) {
+                              deleteMutation.mutate(config.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>Token:</span>
+                      <span className="font-mono truncate max-w-[140px]" title={config.token}>
+                        {config.token === "native" ? "Native SOL" : config.token}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Per request:</span>
+                      <span>{config.amountPerRequest}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Max/day (user):</span>
+                      <span>{config.maxRequestsPerDay}</span>
+                    </div>
+                    {config.maxDailyAmount && (
+                      <div className="flex justify-between">
+                        <span>Daily cap (global):</span>
+                        <span>{config.maxDailyAmount}</span>
+                      </div>
+                    )}
+                    {config.totalAmountSharable && (
+                      <div className="flex justify-between">
+                        <span>Total cap:</span>
+                        <span>{config.totalAmountSharable}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span>Status:</span>
+                      <span className={config.enabled ? "text-emerald-400" : "text-rose-400"}>
+                        {config.enabled ? "Active" : "Disabled"}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Status Tab ── */}
+        <TabsContent value="status" className="space-y-4 mt-4">
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => refetchOverview()}
+              disabled={overviewLoading}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${overviewLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+
+          {overviewLoading && !overview ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !overview?.length ? (
+            <div className="rounded-lg border border-border/40 bg-muted/10 p-8 text-center text-sm text-muted-foreground">
+              No faucet configs found.
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {overview.map((s) => (
+                <Card key={s.id} className={!s.enabled ? "opacity-50" : ""}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                        {s.label}
+                        {s.operational ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : (
+                          <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                        )}
+                      </CardTitle>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+                        {s.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-1.5 text-xs text-muted-foreground">
+                    {s.operationalReason && (
+                      <div className="flex items-center gap-1.5 text-amber-400 text-[11px]">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        <span>{s.operationalReason}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span>Wallet balance:</span>
+                      <span className="font-mono">
+                        {s.walletBalance !== null ? `${Number(s.walletBalance).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${s.label}` : "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Per request:</span>
+                      <span>{s.amountPerRequest} {s.label}</span>
+                    </div>
+                    <div className="h-px bg-border/40 my-1" />
+                    <div className="flex justify-between">
+                      <span>Today&apos;s claims:</span>
+                      <span>{s.totalClaimsToday}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Unique users today:</span>
+                      <span>{s.uniqueUsersToday}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Distributed today:</span>
+                      <span className="font-mono">
+                        {Number(s.dailyDistributed).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        {s.maxDailyAmount ? ` / ${s.maxDailyAmount}` : ""}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Distributed (lifetime):</span>
+                      <span className="font-mono">
+                        {Number(s.lifetimeDistributed).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        {s.totalAmountSharable ? ` / ${s.totalAmountSharable}` : ""}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
