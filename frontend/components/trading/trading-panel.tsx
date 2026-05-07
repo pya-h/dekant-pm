@@ -6,7 +6,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw, Droplets } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,6 @@ import {
   showTradeError,
 } from "@/components/common/transaction-toast";
 import { cn } from "@/lib/utils";
-import { LiquidityPanel } from "@/components/liquidity/liquidity-panel";
 
 type TradeParams =
   | { outcome: number; amount: string; inputUnit: "collateral" | "shares" | "target" }
@@ -365,18 +364,10 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
   return (
     <Card data-tutorial="trading-panel" className="relative border-border/40 transition-colors min-h-[480px]">
-      {/* Action buttons: Add Liquidity + Classic Trade */}
-      {!isDisabled && (
+      {/* Action buttons: Classic Trade */}
+      {!isDisabled && hasDistParams && (
         <div className="absolute right-3 top-3 flex items-center gap-1">
-          <LiquidityPanel
-            market={market}
-            trigger={
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Add Liquidity">
-                <Droplets className="h-3.5 w-3.5" />
-              </Button>
-            }
-          />
-          {hasDistParams && <ClassicTradeModal market={market} />}
+          <ClassicTradeModal market={market} />
         </div>
       )}
 
