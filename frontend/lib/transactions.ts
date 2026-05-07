@@ -118,7 +118,7 @@ export async function executeBuyDistribution(
       systemProgram: SystemProgram.programId,
     })
     .preInstructions([
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
     ])
     .rpc({ skipPreflight: true, maxRetries: 3 });
 }
@@ -256,7 +256,7 @@ export async function executeSellDistribution(
     })
     .accountsPartial(accounts)
     .preInstructions([
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
     ])
     .rpc({ skipPreflight: true, maxRetries: 3 });
 }
