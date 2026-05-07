@@ -96,7 +96,7 @@ export function MarketCard({ market, isCreator, onMarketUpdated }: MarketCardPro
 
 function MarketCardInner({ market }: { market: MarketSummary }) {
   const deadline = new Date(market.deadline);
-  const label = deadlineLabel(deadline);
+  const label = `${market.subject} - End of ${MONTH_FULL_NAMES[deadline.getMonth()]}`;
   const countdown = deadlineCountdown(deadline);
 
   // Liquidity: sum of all reserves (collateral locked in the AMM)
@@ -155,29 +155,10 @@ function TimeUnit({ value, label }: { value: number; label: string }) {
   );
 }
 
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function deadlineLabel(deadline: Date): string {
-  const now = new Date();
-  const diff = deadline.getTime() - now.getTime();
-  if (diff <= 0) return "Expired";
-
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
-  const daysDiff = Math.floor((deadlineDay.getTime() - today.getTime()) / 86_400_000);
-
-  if (daysDiff === 0) return "Today";
-  if (daysDiff === 1) return "Tomorrow";
-  // "Next Monday", "Next Friday", etc. (2-6 days away)
-  if (daysDiff <= 6) return `Next ${DAY_NAMES[deadline.getDay()]}`;
-  // Within same year: "Jan 06"
-  const month = MONTH_NAMES[deadline.getMonth()];
-  const day = String(deadline.getDate()).padStart(2, "0");
-  if (deadline.getFullYear() === now.getFullYear()) return `${month} ${day}`;
-  // Different year: "Jan 06, 2027"
-  return `${month} ${day}, ${deadline.getFullYear()}`;
-}
+const MONTH_FULL_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 function deadlineCountdown(deadline: Date): { days: number; hours: number; minutes: number } | null {
   const diff = deadline.getTime() - Date.now();
