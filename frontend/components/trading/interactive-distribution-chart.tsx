@@ -19,10 +19,16 @@ interface InteractiveDistributionChartProps {
   height?: number;
 }
 
-const CHART_PADDING = { top: 16, right: 24, bottom: 32, left: 48 };
+const CHART_PADDING = { top: 20, right: 24, bottom: 36, left: 54 };
 const VIEW_W = 700;
 const DEFAULT_HEIGHT = 300;
-const HANDLE_RADIUS = 6;
+const HANDLE_RADIUS = 7;
+const TICK_SIZE = 4;
+
+// Curve colors as constants for consistency
+const COLOR_MARKET = "rgb(120 130 150)";
+const COLOR_TRADER = "rgb(59 130 246)";
+const COLOR_POSITION = "rgb(190 175 55)";
 
 export function InteractiveDistributionChart({
   market,
@@ -37,6 +43,7 @@ export function InteractiveDistributionChart({
   const gradientMarketId = useId();
   const gradientUserId = useId();
   const gradientPositionId = useId();
+  const sigmaFillId = useId();
   const clipId = useId();
   const [dragMode, setDragMode] = useState<"none" | "mu" | "sigma-left" | "sigma-right" | "y-scale">("none");
   const [hiddenCurves, setHiddenCurves] = useState<Set<"market" | "trader" | "position">>(new Set());
@@ -109,7 +116,7 @@ export function InteractiveDistributionChart({
     const marketMax = Math.max(...marketProbabilities, 0.001);
     const traderMax = traderWeights.length > 0 ? Math.max(...traderWeights) : 0;
     const posMax = positionWeights.length > 0 ? Math.max(...positionWeights) : 0;
-    return Math.max(marketMax, traderMax, posMax, 0.001) * 1.1;
+    return Math.max(marketMax, traderMax, posMax, 0.001) * 1.15;
   }, [marketProbabilities, traderWeights, positionWeights]);
 
   // In fixed mode, freeze the y-axis base so only user drag changes it.
@@ -125,6 +132,18 @@ export function InteractiveDistributionChart({
   }, [dynamicScale, fixedYBase, computedMaxP]);
 
   const maxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBase ?? computedMaxP));
+
+  // Generate nice Y-axis ticks (e.g. 0%, 10%, 20%, … or 0%, 5%, 10%, …)
+  const yTicks = useMemo(() => {
+    const nice = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1];
+    const target = maxP / 10; // aim for ~10 grid lines
+    const step = nice.find((s) => s >= target) ?? nice[nice.length - 1];
+    const ticks: number[] = [];
+    for (let v = step; v < maxP; v += step) {
+      ticks.push(v);
+    }
+    return ticks;
+  }, [maxP]);
 
   const marketPoints = useMemo(
     () => marketProbabilities.map((p, i) => ({
@@ -454,14 +473,14 @@ export function InteractiveDistributionChart({
   return (
     <div className="relative w-full">
       {/* Y-axis controls — above chart, left-aligned */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center gap-2 mb-1.5 pl-1">
         <button
           type="button"
           onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); setFixedYBase(null); resetZoom(); }}
-          className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
+          className={`flex h-5 w-5 cursor-pointer items-center justify-center rounded border border-border/30 bg-muted/20 transition-colors hover:bg-muted/40 hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground/50"}`}
           title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
         >
-          <svg width="12" height="10" viewBox="0 0 14 10">
+          <svg width="10" height="9" viewBox="0 0 14 10">
             <path d="M1 9 L1 1 M1 1 L3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             {dynamicScale && (
               <path d="M6 5 L8 3 L10 6 L13 2" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
@@ -471,7 +490,7 @@ export function InteractiveDistributionChart({
         <button
           type="button"
           onClick={() => setPref("chartYUnit", yUnit === "pct" ? "price" : "pct")}
-          className="text-[10px] text-muted-foreground/60 cursor-pointer transition-colors hover:text-foreground/80 underline decoration-dotted underline-offset-2"
+          className="text-[10px] leading-none text-muted-foreground/50 cursor-pointer transition-colors hover:text-foreground/70 underline decoration-dotted decoration-muted-foreground/30 underline-offset-2"
           title={yUnit === "pct" ? "Switch to price view" : "Switch to probability view"}
         >
           {yUnit === "pct" ? "Probability" : "Price"}
@@ -491,16 +510,21 @@ export function InteractiveDistributionChart({
       >
         <defs>
           <linearGradient id={gradientMarketId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(85 95 110)" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="rgb(85 95 110)" stopOpacity={0.05} />
+            <stop offset="0%" stopColor={COLOR_MARKET} stopOpacity={0.25} />
+            <stop offset="100%" stopColor={COLOR_MARKET} stopOpacity={0.02} />
           </linearGradient>
           <linearGradient id={gradientUserId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity={0.05} />
+            <stop offset="0%" stopColor={COLOR_TRADER} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={COLOR_TRADER} stopOpacity={0.03} />
           </linearGradient>
           <linearGradient id={gradientPositionId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(190 175 55)" stopOpacity={0.45} />
-            <stop offset="100%" stopColor="rgb(190 175 55)" stopOpacity={0.08} />
+            <stop offset="0%" stopColor={COLOR_POSITION} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={COLOR_POSITION} stopOpacity={0.04} />
+          </linearGradient>
+          {/* Sigma region fill gradient (vertical) */}
+          <linearGradient id={sigmaFillId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={COLOR_TRADER} stopOpacity={0.1} />
+            <stop offset="100%" stopColor={COLOR_TRADER} stopOpacity={0.02} />
           </linearGradient>
           <clipPath id={clipId}>
             <rect x={CHART_PADDING.left} y={CHART_PADDING.top} width={plotW} height={plotH} />
@@ -511,39 +535,93 @@ export function InteractiveDistributionChart({
         {zoom > 1.01 && (
           <text
             x={VIEW_W - CHART_PADDING.right}
-            y={CHART_PADDING.top - 2}
+            y={CHART_PADDING.top - 4}
             textAnchor="end"
             className="fill-muted-foreground"
-            fontSize={9}
-            opacity={0.6}
+            fontSize={8}
+            opacity={0.5}
           >
-            {zoom.toFixed(1)}× — 2×click or scroll to reset
+            {zoom.toFixed(1)}x — double-click to reset
           </text>
         )}
 
+        {/* Y-axis line */}
+        <line
+          x1={CHART_PADDING.left} x2={CHART_PADDING.left}
+          y1={CHART_PADDING.top} y2={baseline}
+          stroke="currentColor" strokeOpacity={0.1} strokeWidth={0.5}
+        />
+
         {/* Grid lines + Y-axis labels */}
-        {[0.25, 0.5, 0.75].map((frac) => (
-          <g key={frac}>
-            <line
-              x1={CHART_PADDING.left}
-              x2={VIEW_W - CHART_PADDING.right}
-              y1={CHART_PADDING.top + plotH * (1 - frac)}
-              y2={CHART_PADDING.top + plotH * (1 - frac)}
-              stroke="currentColor"
-              strokeOpacity={0.06}
-              strokeWidth={0.5}
+        {yTicks.map((val) => {
+          const frac = val / maxP;
+          const y = CHART_PADDING.top + plotH * (1 - frac);
+          return (
+            <g key={val}>
+              <line
+                x1={CHART_PADDING.left}
+                x2={VIEW_W - CHART_PADDING.right}
+                y1={y} y2={y}
+                stroke="currentColor"
+                strokeOpacity={0.07}
+                strokeWidth={0.5}
+              />
+              {/* Tick mark */}
+              <line
+                x1={CHART_PADDING.left - TICK_SIZE} x2={CHART_PADDING.left}
+                y1={y} y2={y}
+                stroke="currentColor"
+                strokeOpacity={0.15}
+                strokeWidth={0.5}
+              />
+              <text
+                x={CHART_PADDING.left - TICK_SIZE - 4}
+                y={y + 3}
+                textAnchor="end"
+                className="fill-muted-foreground/60"
+                fontSize={9}
+              >
+                {yUnit === "pct" ? formatPct(val) : formatPrice(val)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Baseline (0%) */}
+        <line
+          x1={CHART_PADDING.left}
+          x2={VIEW_W - CHART_PADDING.right}
+          y1={baseline} y2={baseline}
+          stroke="currentColor" strokeOpacity={0.12} strokeWidth={0.5}
+        />
+        {/* Baseline tick + label */}
+        <line
+          x1={CHART_PADDING.left - TICK_SIZE} x2={CHART_PADDING.left}
+          y1={baseline} y2={baseline}
+          stroke="currentColor" strokeOpacity={0.15} strokeWidth={0.5}
+        />
+        <text
+          x={CHART_PADDING.left - TICK_SIZE - 4}
+          y={baseline + 3}
+          textAnchor="end"
+          className="fill-muted-foreground/60"
+          fontSize={9}
+        >
+          {yUnit === "pct" ? "0%" : "$0"}
+        </text>
+
+        {/* Sigma shaded region between ±1σ bounds */}
+        {mu !== null && leftBoundX != null && rightBoundX != null && (
+          <g clipPath={`url(#${clipId})`}>
+            <rect
+              x={leftBoundX}
+              y={CHART_PADDING.top}
+              width={rightBoundX - leftBoundX}
+              height={plotH}
+              fill={`url(#${sigmaFillId})`}
             />
-            <text
-              x={CHART_PADDING.left - 6}
-              y={CHART_PADDING.top + plotH * (1 - frac) + 3.5}
-              textAnchor="end"
-              className="fill-muted-foreground"
-              fontSize={9}
-            >
-              {yUnit === "pct" ? formatPct(maxP * frac) : formatPrice(maxP * frac)}
-            </text>
           </g>
-        ))}
+        )}
 
         {/* Curves clipped to plot area — hovered curve drawn last (on top) */}
         <g clipPath={`url(#${clipId})`}>
@@ -557,7 +635,7 @@ export function InteractiveDistributionChart({
                     <path
                       d={positionLinePath}
                       fill="none"
-                      stroke="rgb(190 175 55)"
+                      stroke={COLOR_POSITION}
                       strokeWidth={isHovered ? 2.5 : 1.5}
                       strokeLinejoin="round"
                       strokeLinecap="round"
@@ -572,8 +650,8 @@ export function InteractiveDistributionChart({
                     <path
                       d={marketLinePath}
                       fill="none"
-                      stroke="rgb(85 95 110)"
-                      strokeWidth={isHovered ? 2.5 : 2}
+                      stroke={COLOR_MARKET}
+                      strokeWidth={isHovered ? 2.5 : 1.8}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       style={{ transition: "stroke-width 0.15s ease" }}
@@ -587,7 +665,7 @@ export function InteractiveDistributionChart({
                     <path
                       d={traderLinePath}
                       fill="none"
-                      stroke="rgb(59 130 246)"
+                      stroke={COLOR_TRADER}
                       strokeWidth={isHovered ? 2.5 : 2}
                       strokeLinejoin="round"
                       strokeLinecap="round"
@@ -607,95 +685,96 @@ export function InteractiveDistributionChart({
             <line
               x1={leftBoundX} x2={leftBoundX}
               y1={CHART_PADDING.top} y2={baseline}
-              stroke="rgb(59 130 246)" strokeWidth={1}
-              strokeDasharray="5 4" strokeOpacity={0.6}
+              stroke={COLOR_TRADER} strokeWidth={0.8}
+              strokeDasharray="4 4" strokeOpacity={0.45}
             />
             <line
               x1={rightBoundX} x2={rightBoundX}
               y1={CHART_PADDING.top} y2={baseline}
-              stroke="rgb(59 130 246)" strokeWidth={1}
-              strokeDasharray="5 4" strokeOpacity={0.6}
+              stroke={COLOR_TRADER} strokeWidth={0.8}
+              strokeDasharray="4 4" strokeOpacity={0.45}
             />
 
-            {/* Drag handles (circles at sigma boundaries) */}
-            <circle
-              cx={leftBoundX} cy={baseline - plotH * 0.5}
-              r={HANDLE_RADIUS}
-              fill="rgb(59 130 246)" fillOpacity={0.3}
-              stroke="rgb(59 130 246)" strokeWidth={1.5}
-              className="pointer-events-none"
-            />
-            <circle
-              cx={rightBoundX} cy={baseline - plotH * 0.5}
-              r={HANDLE_RADIUS}
-              fill="rgb(59 130 246)" fillOpacity={0.3}
-              stroke="rgb(59 130 246)" strokeWidth={1.5}
-              className="pointer-events-none"
-            />
-
-            {/* Sigma boundary value labels */}
-            <text
-              x={leftBoundX} y={baseline - plotH * 0.5 - 12}
-              textAnchor="middle"
-              className="fill-blue-400"
-              fontSize={11} fontWeight={600}
-            >
-              {formatChartValue(leftBoundValue!)}
-            </text>
-            <text
-              x={rightBoundX} y={baseline - plotH * 0.5 - 12}
-              textAnchor="middle"
-              className="fill-blue-400"
-              fontSize={11} fontWeight={600}
-            >
-              {formatChartValue(rightBoundValue!)}
-            </text>
+            {/* Drag handles — outer ring + filled center */}
+            {[
+              { cx: leftBoundX, label: leftBoundValue },
+              { cx: rightBoundX, label: rightBoundValue },
+            ].map(({ cx, label }, i) => (
+              <g key={i}>
+                <circle
+                  cx={cx} cy={baseline - plotH * 0.5}
+                  r={HANDLE_RADIUS + 2}
+                  fill={COLOR_TRADER} fillOpacity={0.08}
+                  className="pointer-events-none"
+                />
+                <circle
+                  cx={cx} cy={baseline - plotH * 0.5}
+                  r={HANDLE_RADIUS}
+                  fill="rgb(30 35 50)" fillOpacity={0.9}
+                  stroke={COLOR_TRADER} strokeWidth={1.5}
+                  className="pointer-events-none"
+                />
+                <circle
+                  cx={cx} cy={baseline - plotH * 0.5}
+                  r={2.5}
+                  fill={COLOR_TRADER} fillOpacity={0.7}
+                  className="pointer-events-none"
+                />
+                {/* Sigma boundary value label */}
+                <text
+                  x={cx} y={baseline - plotH * 0.5 - 14}
+                  textAnchor="middle"
+                  className="fill-blue-400/80"
+                  fontSize={10} fontWeight={600}
+                >
+                  {formatChartValue(label!)}
+                </text>
+              </g>
+            ))}
           </>
         )}
 
         {/* Mu marker */}
         {mu !== null && muX != null && (
-          <>
-            <line
-              x1={muX} x2={muX}
-              y1={CHART_PADDING.top} y2={baseline}
-              stroke="rgb(59 130 246)" strokeWidth={1.5}
-              strokeDasharray="4 3" strokeOpacity={0.7}
-            />
-          </>
+          <line
+            x1={muX} x2={muX}
+            y1={CHART_PADDING.top} y2={baseline}
+            stroke={COLOR_TRADER} strokeWidth={1.2}
+            strokeDasharray="3 3" strokeOpacity={0.6}
+          />
         )}
 
         {/* "Drag to change the curve peak" hint */}
         {mu !== null && muX != null && (
           <text
-            x={muX} y={baseline - 8}
+            x={muX} y={baseline - 6}
             textAnchor="middle"
-            className="fill-muted-foreground"
-            fontSize={9} opacity={0.5}
+            className="fill-muted-foreground/40"
+            fontSize={8}
           >
             Drag to change the curve peak
           </text>
         )}
 
-        {/* Baseline */}
-        <line
-          x1={CHART_PADDING.left}
-          x2={VIEW_W - CHART_PADDING.right}
-          y1={baseline} y2={baseline}
-          stroke="currentColor" strokeOpacity={0.15} strokeWidth={0.5}
-        />
-
-        {/* X-axis labels */}
+        {/* X-axis tick marks + labels */}
         {ticks.map(({ value, x }, i) => (
-          <text
-            key={i}
-            x={x} y={height - 6}
-            textAnchor="middle"
-            className="fill-muted-foreground"
-            fontSize={11}
-          >
-            {formatChartValue(value)}
-          </text>
+          <g key={i}>
+            <line
+              x1={x} x2={x}
+              y1={baseline} y2={baseline + TICK_SIZE}
+              stroke="currentColor"
+              strokeOpacity={0.15}
+              strokeWidth={0.5}
+            />
+            <text
+              x={x} y={baseline + TICK_SIZE + 12}
+              textAnchor="middle"
+              className="fill-muted-foreground/60"
+              fontSize={10}
+            >
+              {formatChartValue(value)}
+            </text>
+          </g>
         ))}
 
         {/* Click hint (only when no mu set) */}
@@ -703,8 +782,8 @@ export function InteractiveDistributionChart({
           <text
             x={VIEW_W / 2} y={height / 2}
             textAnchor="middle"
-            className="fill-muted-foreground"
-            fontSize={13} opacity={0.5}
+            className="fill-muted-foreground/40"
+            fontSize={12}
           >
             Click on the chart to place your prediction
           </text>
@@ -739,54 +818,72 @@ export function InteractiveDistributionChart({
       </div>
 
       {/* Legend (clickable to toggle curves) */}
-      <div className="mt-1 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
-        <button
-          type="button"
-          className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("market") ? "opacity-40 line-through" : ""}`}
+      <div className="mt-2 flex items-center justify-center gap-3 text-[10px]">
+        <LegendItem
+          color={COLOR_MARKET}
+          label="Market"
+          hidden={hiddenCurves.has("market")}
           onClick={() => toggleCurve("market")}
-          title={hiddenCurves.has("market") ? "Show Market curve" : "Hide Market curve"}
-        >
-          <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(85 95 110)" }} />
-          Market
-        </button>
+        />
         {mu !== null && (
-          <button
-            type="button"
-            className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("trader") ? "opacity-40 line-through" : ""}`}
+          <LegendItem
+            color={COLOR_TRADER}
+            label="Your prediction"
+            hidden={hiddenCurves.has("trader")}
             onClick={() => toggleCurve("trader")}
-            title={hiddenCurves.has("trader") ? "Show Your prediction curve" : "Hide Your prediction curve"}
-          >
-            <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
-            Your prediction
-          </button>
+          />
         )}
         {positionPoints.length > 0 && (
-          <button
-            type="button"
-            className={`flex items-center gap-1.5 cursor-pointer transition-opacity ${hiddenCurves.has("position") ? "opacity-40 line-through" : ""}`}
+          <LegendItem
+            color={COLOR_POSITION}
+            label="Your position"
+            hidden={hiddenCurves.has("position")}
             onClick={() => toggleCurve("position")}
-            title={hiddenCurves.has("position") ? "Show Your position curve" : "Hide Your position curve"}
-          >
-            <span className="inline-block h-0.5 w-4 rounded" style={{ backgroundColor: "rgb(190 175 55)" }} />
-            Your position
-          </button>
+          />
         )}
       </div>
 
       {/* Mu/Sigma display below chart */}
       {mu !== null && (
-        <div className="mt-2 flex items-center justify-center gap-6 text-xs text-muted-foreground">
+        <div className="mt-1.5 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
           <span>
-            Center: <span className="font-semibold text-foreground tabular-nums">{formatChartValue(mu)}</span>
+            Center: <span className="font-medium text-foreground/90 tabular-nums">{formatChartValue(mu)}</span>
           </span>
+          <span className="text-border">|</span>
           <span>
-            Spread (±1σ): <span className="font-semibold text-foreground tabular-nums">{formatChartValue(sigma)}</span>
+            Spread (±1σ): <span className="font-medium text-foreground/90 tabular-nums">{formatChartValue(sigma)}</span>
           </span>
         </div>
       )}
     </div>
   );
 }
+
+// ── Legend item ──────────────────────────────────────────────────────
+
+function LegendItem({ color, label, hidden, onClick }: {
+  color: string;
+  label: string;
+  hidden: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex items-center gap-1.5 cursor-pointer rounded-full px-2 py-0.5 transition-all border border-transparent hover:border-border/30 hover:bg-muted/30 ${hidden ? "opacity-35" : "text-muted-foreground/70"}`}
+      onClick={onClick}
+      title={hidden ? `Show ${label}` : `Hide ${label}`}
+    >
+      <span
+        className={`inline-block h-[3px] w-3.5 rounded-full ${hidden ? "opacity-50" : ""}`}
+        style={{ backgroundColor: color }}
+      />
+      <span className={hidden ? "line-through" : ""}>{label}</span>
+    </button>
+  );
+}
+
+// ── Path builders ───────────────────────────────────────────────────
 
 function buildAreaPath(points: { x: number; y: number }[], baseline: number): string {
   if (points.length === 0) return "";
@@ -803,7 +900,7 @@ function buildPolylinePath(points: { x: number; y: number }[]): string {
   return "M " + points.map((pt) => `${pt.x} ${pt.y}`).join(" L ");
 }
 
-/** Catmull-Rom spline → cubic Bezier SVG path (smooth line through all points) */
+/** Catmull-Rom spline -> cubic Bezier SVG path (smooth line through all points) */
 function buildSmoothLinePath(points: { x: number; y: number }[]): string {
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
@@ -847,4 +944,3 @@ function interpolateY(points: { x: number; y: number }[], x: number): number | n
   }
   return null;
 }
-
