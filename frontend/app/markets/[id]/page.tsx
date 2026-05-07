@@ -32,11 +32,11 @@ import { useTutorial } from "@/hooks/use-tutorial";
 import { TutorialOverlay, type TutorialStep } from "@/components/common/tutorial-overlay";
 
 const TUTORIAL_STEPS: TutorialStep[] = [
-  { target: "claim-tokens", title: "Claim initial tokens", placement: "bottom" },
-  { target: "chart-first-click", title: "Select first range on chart", placement: "bottom", spotlight: false },
+  { target: "claim-tokens", title: "Claim faucet tokens", placement: "bottom" },
+  { target: "chart-first-click", title: "Start creating your curve by clicking & dragging on the chart", placement: "bottom", spotlight: false },
   { target: "chart-second-click", title: "The other handle adjusts automatically to match. The wider the range, the less confident you are!", placement: "bottom", spotlight: false },
   { target: "chart-peak", title: "Adjust peak", placement: "right" },
-  { target: "open-position", title: "Place position from here", placement: "top" },
+  { target: "trading-panel", title: "Open and manage your positions here", placement: "left" },
 ];
 
 export default function MarketDetailPage({
@@ -53,7 +53,7 @@ export default function MarketDetailPage({
   const walletAddress = publicKey?.toBase58();
   const { token, authenticate, isAuthenticating } = useAuth();
   const { data: position } = useUserMarketPosition(walletAddress, id);
-  const tutorial = useTutorial(token, connected);
+  const tutorial = useTutorial(walletAddress);
   const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
     id,
     walletAddress,

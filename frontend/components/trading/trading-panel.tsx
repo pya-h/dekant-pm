@@ -506,7 +506,6 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
             {/* Submit button */}
             <Button
-              data-tutorial="open-position"
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}

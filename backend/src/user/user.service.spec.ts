@@ -160,6 +160,25 @@ describe('UserService', () => {
 
   // ── Tutorial ─────────────────────────────────────────────────
 
+  describe('getTutorialStep', () => {
+    it('should return tutorialStepSeen from existing user', async () => {
+      userRepo.findOne.mockResolvedValue({ tutorialStepSeen: 3 });
+
+      const result = await service.getTutorialStep(WALLET);
+
+      expect(result).toEqual({ tutorialStepSeen: 3 });
+    });
+
+    it('should return 0 when user does not exist', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getTutorialStep(WALLET);
+
+      expect(result).toEqual({ tutorialStepSeen: 0 });
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('advanceTutorial', () => {
     it('should advance from 0 to 1', async () => {
       const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 0 };

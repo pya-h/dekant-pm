@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useProfile } from "./use-profile";
+import { useState, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export const TUTORIAL_TOTAL_STEPS = 5;
@@ -10,88 +9,81 @@ export const TUTORIAL_TOTAL_STEPS = 5;
 /**
  * Database-driven tutorial hook.
  *
- * Reads tutorial progress from `profile.tutorialStepSeen` (backend DB).
- * On each step advance, calls PATCH /profile/tutorial to persist progress
- * if the user is already authenticated. Never forces wallet signature.
+ * Uses public `/users/:address/tutorial` endpoints — no JWT required.
+ * Reads tutorial progress on mount, persists each advance fire-and-forget.
+ * Works immediately when the wallet is connected, no signing needed.
  */
-export function useTutorial(
-  token: string | null,
-  walletConnected: boolean,
-) {
-  const { data: profile } = useProfile(token);
+export function useTutorial(walletAddress: string | undefined) {
   const queryClient = useQueryClient();
 
-  const [currentStep, setCurrentStep] = useState<number | null>(null);
+  const { data: tutorialData } = useQuery({
+    queryKey: ["tutorial", walletAddress],
+    queryFn: () =>
+      api.get<{ tutorialStepSeen: number }>(
+        `/users/${walletAddress}/tutorial`,
+      ),
+    enabled: !!walletAddress,
+  });
+
   const [dismissed, setDismissed] = useState(false);
-  // Guard to prevent profile re-sync from overriding optimistic local state
-  // during the brief window between advance() and the profile refetch completing.
-  const advancingRef = useRef(false);
-  const tokenRef = useRef(token);
-  tokenRef.current = token;
+  // undefined = no local override (use DB value); null = completed; number = active step
+  const [localStep, setLocalStep] = useState<number | null | undefined>(undefined);
 
-  // Sync from profile (database is the source of truth)
-  useEffect(() => {
-    if (dismissed || advancingRef.current) return;
+  // Reset local state when wallet changes (adjust-during-render pattern)
+  const [prevWallet, setPrevWallet] = useState(walletAddress);
+  if (walletAddress !== prevWallet) {
+    setPrevWallet(walletAddress);
+    setLocalStep(undefined);
+    setDismissed(false);
+  }
 
-    if (!walletConnected) {
-      setCurrentStep(null);
-      return;
+  // Derive the step from DB data (no effect needed)
+  const dbStep = useMemo((): number | null => {
+    if (!walletAddress) return null;
+    if (tutorialData) {
+      const step = tutorialData.tutorialStepSeen;
+      return step >= TUTORIAL_TOTAL_STEPS ? null : step;
     }
+    return 0;
+  }, [walletAddress, tutorialData]);
 
-    if (profile) {
-      // Authenticated — use DB value
-      const step = profile.tutorialStepSeen;
-      setCurrentStep(step >= TUTORIAL_TOTAL_STEPS ? null : step);
-    } else if (!token) {
-      // Not yet authenticated — show tutorial from step 0 so new users
-      // see the onboarding.
-      setCurrentStep(0);
-    }
-  }, [profile, token, walletConnected, dismissed]);
+  // Local override wins when set, otherwise fall back to DB-derived step
+  const currentStep = dismissed || !walletAddress
+    ? null
+    : (localStep !== undefined ? localStep : dbStep);
 
   const persistStep = useCallback(
-    async (step: number) => {
-      const authToken = tokenRef.current;
-      if (!authToken) {
-        // Not authenticated — skip persistence, tutorial advances locally only
-        advancingRef.current = false;
-        return;
-      }
-      try {
-        await api.patch<{ tutorialStepSeen: number }>(
-          "/profile/tutorial",
+    (step: number) => {
+      if (!walletAddress) return;
+      api
+        .patch<{ tutorialStepSeen: number }>(
+          `/users/${walletAddress}/tutorial`,
           { step },
-          authToken,
-        );
-        queryClient.invalidateQueries({ queryKey: ["profile"] });
-      } catch {
-        // Non-critical — UI already advanced optimistically
-      } finally {
-        advancingRef.current = false;
-      }
+        )
+        .then(() =>
+          queryClient.invalidateQueries({ queryKey: ["tutorial", walletAddress] }),
+        )
+        .catch(() => {});
     },
-    [queryClient],
+    [queryClient, walletAddress],
   );
 
-  const advance = useCallback(async () => {
+  const advance = useCallback(() => {
     if (currentStep === null) return;
-    advancingRef.current = true;
     const nextStep = currentStep + 1;
-    setCurrentStep(nextStep >= TUTORIAL_TOTAL_STEPS ? null : nextStep);
-    await persistStep(nextStep);
+    setLocalStep(nextStep >= TUTORIAL_TOTAL_STEPS ? null : nextStep);
+    persistStep(nextStep);
   }, [currentStep, persistStep]);
 
   const goBack = useCallback(() => {
     if (currentStep === null || currentStep <= 0) return;
-    setCurrentStep(currentStep - 1);
-    // Don't persist going back — backend only stores max step seen
+    setLocalStep(currentStep - 1);
   }, [currentStep]);
 
-  const dismiss = useCallback(async () => {
-    setCurrentStep(null);
+  const dismiss = useCallback(() => {
+    setLocalStep(null);
     setDismissed(true);
-    advancingRef.current = true;
-    await persistStep(TUTORIAL_TOTAL_STEPS);
+    persistStep(TUTORIAL_TOTAL_STEPS);
   }, [persistStep]);
 
   const isActive = currentStep !== null && !dismissed;

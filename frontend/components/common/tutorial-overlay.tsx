@@ -71,12 +71,15 @@ export function TutorialOverlay({
 
   // Crossfade step text when currentStep changes
   useEffect(() => {
-    setTextVisible(false);
-    const timer = setTimeout(() => {
+    const hideTimer = setTimeout(() => setTextVisible(false), 0);
+    const showTimer = setTimeout(() => {
       setStepKey(currentStep);
       setTextVisible(true);
     }, 150);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(hideTimer);
+      clearTimeout(showTimer);
+    };
   }, [currentStep]);
 
   // Measure target element (viewport-relative for fixed positioning, clamped to viewport)
@@ -146,7 +149,7 @@ export function TutorialOverlay({
 
     if (!targetRect) {
       animatedRectRef.current = null;
-      setDisplayRect(null);
+      animFrameRef.current = requestAnimationFrame(() => setDisplayRect(null));
       return;
     }
 

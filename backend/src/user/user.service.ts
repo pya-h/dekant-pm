@@ -81,6 +81,14 @@ export class UserService {
     return this.userRepo.save(user);
   }
 
+  /** Get tutorial step seen (returns 0 if user doesn't exist yet). */
+  async getTutorialStep(
+    walletAddress: string,
+  ): Promise<{ tutorialStepSeen: number }> {
+    const user = await this.userRepo.findOne({ where: { walletAddress } });
+    return { tutorialStepSeen: user?.tutorialStepSeen ?? 0 };
+  }
+
   /** Advance tutorial step seen (only forward, never backward). */
   async advanceTutorial(
     walletAddress: string,
