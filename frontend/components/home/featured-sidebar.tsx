@@ -75,15 +75,15 @@ function TrendingTopics() {
             href={topic.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 group"
+            className="flex items-center gap-3 group text-primary"
           >
             <span className="w-4 text-sm font-bold text-muted-foreground tabular-nums">
               {i + 1}
             </span>
-            <span className="flex-1 truncate text-sm group-hover:text-primary transition-colors">
+            <span className="flex-1 truncate text-sm underline decoration-primary/30 underline-offset-4 group-hover:decoration-primary transition-colors">
               {topic.name}
             </span>
-            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
           </a>
         ))}
       </div>
