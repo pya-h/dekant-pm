@@ -97,7 +97,7 @@ export function Navbar() {
             placeholder="Search markets..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 pl-9 bg-muted/40 border-border/40"
+            className="h-9 rounded-xl pl-9 bg-muted/30 border-border/30"
           />
         </form>
 
