@@ -81,6 +81,23 @@ export class UserService {
     return this.userRepo.save(user);
   }
 
+  /** Advance tutorial step seen (only forward, never backward). */
+  async advanceTutorial(
+    walletAddress: string,
+    step: number,
+  ): Promise<{ tutorialStepSeen: number }> {
+    const user = await this.findOrCreateUser(walletAddress);
+    if (typeof step !== 'number' || step < 0) {
+      return { tutorialStepSeen: user.tutorialStepSeen };
+    }
+    // Only advance forward, never go backward
+    if (step > user.tutorialStepSeen) {
+      user.tutorialStepSeen = step;
+      await this.userRepo.save(user);
+    }
+    return { tutorialStepSeen: user.tutorialStepSeen };
+  }
+
   async getPositions(
     walletAddress: string,
   ): Promise<UserPositionEntity[]> {

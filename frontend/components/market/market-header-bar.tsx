@@ -122,6 +122,7 @@ export function MarketHeaderBar({
           {/* Faucet button (market detail only) */}
           {showFaucet && faucetAvailable > 0 && (
             <Button
+              data-tutorial="claim-tokens"
               onClick={onClaimFaucet}
               disabled={faucetLoading}
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"

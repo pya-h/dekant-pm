@@ -27,6 +27,9 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 512, nullable: true })
   avatar!: string | null;
 
+  @Column({ type: 'smallint', name: 'tutorial_step_seen', default: 0 })
+  tutorialStepSeen!: number;
+
   @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
   createdAt!: Date;
 

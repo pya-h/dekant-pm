@@ -364,7 +364,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   ) : null;
 
   return (
-    <Card className="relative border-border/40 transition-colors min-h-[480px]">
+    <Card data-tutorial="trading-panel" className="relative border-border/40 transition-colors min-h-[480px]">
       {/* Action buttons: Add Liquidity + Classic Trade */}
       {!isDisabled && (
         <div className="absolute right-3 top-3 flex items-center gap-1">
@@ -506,6 +506,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
             {/* Submit button */}
             <Button
+              data-tutorial="open-position"
               className="w-full bg-amber-500 text-black font-semibold hover:bg-amber-400 transition-all"
               disabled={(!hasValidParams && connected) || loading || !!validationError || needsEstimate}
               onClick={handleSubmit}
