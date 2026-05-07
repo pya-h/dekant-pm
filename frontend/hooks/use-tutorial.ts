@@ -1,71 +1,81 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useProfile } from "./use-profile";
 import { api } from "@/lib/api";
 
 export const TUTORIAL_TOTAL_STEPS = 5;
-const LS_KEY = "dekant_tutorial_step";
 
-function getLocalStep(): number {
-  if (typeof window === "undefined") return 0;
-  const v = localStorage.getItem(LS_KEY);
-  return v ? parseInt(v, 10) || 0 : 0;
-}
-
-function setLocalStep(step: number) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(LS_KEY, String(step));
-}
-
-export function useTutorial(token: string | null) {
+/**
+ * Database-driven tutorial hook.
+ *
+ * Reads tutorial progress from `profile.tutorialStepSeen` (backend DB).
+ * On each step advance, calls PATCH /profile/tutorial to persist progress
+ * if the user is already authenticated. Never forces wallet signature.
+ */
+export function useTutorial(
+  token: string | null,
+  walletConnected: boolean,
+) {
   const { data: profile } = useProfile(token);
+  const queryClient = useQueryClient();
+
   const [currentStep, setCurrentStep] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const initializedRef = useRef(false);
+  // Guard to prevent profile re-sync from overriding optimistic local state
+  // during the brief window between advance() and the profile refetch completing.
+  const advancingRef = useRef(false);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
 
-  // Initialize from localStorage immediately, then sync from backend profile
+  // Sync from profile (database is the source of truth)
   useEffect(() => {
-    if (dismissed) return;
+    if (dismissed || advancingRef.current) return;
 
-    // Determine the highest step seen
-    const localStep = getLocalStep();
-    const backendStep = profile?.tutorialStepSeen ?? 0;
-    const maxStep = Math.max(localStep, backendStep);
-
-    if (maxStep >= TUTORIAL_TOTAL_STEPS) {
+    if (!walletConnected) {
       setCurrentStep(null);
-      setLocalStep(TUTORIAL_TOTAL_STEPS);
       return;
     }
 
-    // Only set from backend/localStorage on initial load, not on every profile re-fetch
-    if (!initializedRef.current || (profile && backendStep > localStep)) {
-      setCurrentStep(maxStep);
-      setLocalStep(maxStep);
-      initializedRef.current = true;
+    if (profile) {
+      // Authenticated — use DB value
+      const step = profile.tutorialStepSeen;
+      setCurrentStep(step >= TUTORIAL_TOTAL_STEPS ? null : step);
+    } else if (!token) {
+      // Not yet authenticated — show tutorial from step 0 so new users
+      // see the onboarding.
+      setCurrentStep(0);
     }
-  }, [profile, dismissed]);
+  }, [profile, token, walletConnected, dismissed]);
 
   const persistStep = useCallback(
     async (step: number) => {
-      setLocalStep(step);
-      if (!token) return;
+      const authToken = tokenRef.current;
+      if (!authToken) {
+        // Not authenticated — skip persistence, tutorial advances locally only
+        advancingRef.current = false;
+        return;
+      }
       try {
         await api.patch<{ tutorialStepSeen: number }>(
           "/profile/tutorial",
           { step },
-          token,
+          authToken,
         );
+        queryClient.invalidateQueries({ queryKey: ["profile"] });
       } catch {
-        // Non-critical
+        // Non-critical — UI already advanced optimistically
+      } finally {
+        advancingRef.current = false;
       }
     },
-    [token],
+    [queryClient],
   );
 
   const advance = useCallback(async () => {
     if (currentStep === null) return;
+    advancingRef.current = true;
     const nextStep = currentStep + 1;
     setCurrentStep(nextStep >= TUTORIAL_TOTAL_STEPS ? null : nextStep);
     await persistStep(nextStep);
@@ -80,6 +90,7 @@ export function useTutorial(token: string | null) {
   const dismiss = useCallback(async () => {
     setCurrentStep(null);
     setDismissed(true);
+    advancingRef.current = true;
     await persistStep(TUTORIAL_TOTAL_STEPS);
   }, [persistStep]);
 

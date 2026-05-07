@@ -254,6 +254,104 @@ describe('Users & Admin (e2e)', () => {
     });
   });
 
+  // ── Profile & Tutorial ────────────────────────────────────────
+
+  describe('GET /profile', () => {
+    it('should require authentication', () => {
+      return request(app.getHttpServer()).get('/profile').expect(401);
+    });
+
+    it('should return user profile when authenticated', () => {
+      const wallet = 'TestWallet1111111111111111111111111111111111';
+      testApp.userRepo.findOne.mockResolvedValueOnce({
+        id: '1',
+        walletAddress: wallet,
+        username: 'test_user',
+        email: null,
+        avatar: null,
+        tutorialStepSeen: 0,
+      });
+      return request(app.getHttpServer())
+        .get('/profile')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('walletAddress', wallet);
+          expect(res.body).toHaveProperty('tutorialStepSeen');
+        });
+    });
+  });
+
+  describe('PATCH /profile/tutorial', () => {
+    it('should require authentication', () => {
+      return request(app.getHttpServer())
+        .patch('/profile/tutorial')
+        .send({ step: 1 })
+        .expect(401);
+    });
+
+    it('should advance tutorial step', () => {
+      const wallet = randomWallet();
+      const user = {
+        id: '1',
+        walletAddress: wallet,
+        username: 'u',
+        tutorialStepSeen: 0,
+      };
+      // findOrCreateUser calls findOne then save
+      testApp.userRepo.findOne.mockResolvedValueOnce(user);
+
+      return request(app.getHttpServer())
+        .patch('/profile/tutorial')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .send({ step: 2 })
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('tutorialStepSeen', 2);
+        });
+    });
+
+    it('should not go backward', () => {
+      const wallet = randomWallet();
+      const user = {
+        id: '1',
+        walletAddress: wallet,
+        username: 'u',
+        tutorialStepSeen: 3,
+      };
+      testApp.userRepo.findOne.mockResolvedValueOnce(user);
+
+      return request(app.getHttpServer())
+        .patch('/profile/tutorial')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .send({ step: 1 })
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('tutorialStepSeen', 3);
+        });
+    });
+
+    it('should handle dismiss (step = total)', () => {
+      const wallet = randomWallet();
+      const user = {
+        id: '1',
+        walletAddress: wallet,
+        username: 'u',
+        tutorialStepSeen: 2,
+      };
+      testApp.userRepo.findOne.mockResolvedValueOnce(user);
+
+      return request(app.getHttpServer())
+        .patch('/profile/tutorial')
+        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .send({ step: 5 })
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('tutorialStepSeen', 5);
+        });
+    });
+  });
+
   describe('GET /admin/markets/stale', () => {
     it('should require authentication', () => {
       return request(app.getHttpServer())

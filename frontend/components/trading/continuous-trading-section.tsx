@@ -22,7 +22,7 @@ export function ContinuousTradingSection({
   positionHoldings,
 }: ContinuousTradingSectionProps) {
   return (
-    <Card data-tutorial="chart">
+    <Card>
       <CardContent className="pt-6">
         <InteractiveDistributionChart
           market={market}

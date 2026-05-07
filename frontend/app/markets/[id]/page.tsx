@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useCallback, useMemo, useRef } from "react";
+import { use, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -28,14 +28,14 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useTutorial, TUTORIAL_TOTAL_STEPS } from "@/hooks/use-tutorial";
+import { useTutorial } from "@/hooks/use-tutorial";
 import { TutorialOverlay, type TutorialStep } from "@/components/common/tutorial-overlay";
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   { target: "claim-tokens", title: "Claim initial tokens", placement: "bottom" },
-  { target: "chart", title: "Select first range on chart", placement: "left" },
-  { target: "chart", title: "Select second range on chart", placement: "right" },
-  { target: "chart", title: "Adjust confidence", placement: "right" },
+  { target: "chart-first-click", title: "Select first range on chart", placement: "bottom", spotlight: false },
+  { target: "chart-second-click", title: "The other handle adjusts automatically to match. The wider the range, the less confident you are!", placement: "bottom", spotlight: false },
+  { target: "chart-peak", title: "Adjust peak", placement: "right" },
   { target: "open-position", title: "Place position from here", placement: "top" },
 ];
 
@@ -53,7 +53,7 @@ export default function MarketDetailPage({
   const walletAddress = publicKey?.toBase58();
   const { token, authenticate, isAuthenticating } = useAuth();
   const { data: position } = useUserMarketPosition(walletAddress, id);
-  const tutorial = useTutorial(token);
+  const tutorial = useTutorial(token, connected);
   const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
     id,
     walletAddress,
@@ -75,6 +75,18 @@ export default function MarketDetailPage({
   const faucetAvailable = faucetData?.remainingClaims ?? 0;
   const claimFaucet = useClaimFaucet(walletAddress);
   const isBookmarked = bookmarkState?.bookmarked ?? false;
+
+  // Auto-set mu when tutorial is on chart steps so the distribution curve is visible.
+  // Uses requestAnimationFrame to avoid synchronous setState inside effect body.
+  useEffect(() => {
+    if (!tutorial.isActive || tutorial.currentStep === null || tutorial.currentStep < 1) return;
+    if (mu !== null) return;
+    if (!market) return;
+    const rMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
+    const rMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
+    const raf = requestAnimationFrame(() => setMu((rMin + rMax) / 2));
+    return () => cancelAnimationFrame(raf);
+  }, [tutorial.isActive, tutorial.currentStep, mu, market]);
 
   // Auth is triggered lazily (on bookmark click), not on page load.
   // This avoids forcing admins to sign on every market detail visit.
@@ -167,6 +179,7 @@ export default function MarketDetailPage({
           claimFaucet.mutate({ token: collateralMint, authToken });
         }}
         chartRef={chartRef}
+        tutorialActive={tutorial.isActive}
         isBookmarked={isBookmarked}
         bookmarkLoading={bookmarkStateLoading || toggleBookmarkMutation.isPending || isAuthenticating}
         onToggleBookmark={handleToggleBookmark}
