@@ -134,6 +134,7 @@ export interface UserProfile {
   username: string;
   email: string | null;
   avatar: string | null;
+  tutorialStepSeen: number;
   createdAt: string;
   updatedAt: string;
 }

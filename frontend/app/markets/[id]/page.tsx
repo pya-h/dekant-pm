@@ -28,6 +28,16 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useTutorial, TUTORIAL_TOTAL_STEPS } from "@/hooks/use-tutorial";
+import { TutorialOverlay, type TutorialStep } from "@/components/common/tutorial-overlay";
+
+const TUTORIAL_STEPS: TutorialStep[] = [
+  { target: "claim-tokens", title: "Claim initial tokens", placement: "bottom" },
+  { target: "chart", title: "Select first range on chart", placement: "left" },
+  { target: "chart", title: "Select second range on chart", placement: "right" },
+  { target: "chart", title: "Adjust confidence", placement: "right" },
+  { target: "open-position", title: "Place position from here", placement: "top" },
+];
 
 export default function MarketDetailPage({
   params,
@@ -43,6 +53,7 @@ export default function MarketDetailPage({
   const walletAddress = publicKey?.toBase58();
   const { token, authenticate, isAuthenticating } = useAuth();
   const { data: position } = useUserMarketPosition(walletAddress, id);
+  const tutorial = useTutorial(token);
   const { data: bookmarkState, isLoading: bookmarkStateLoading } = useMarketBookmark(
     id,
     walletAddress,
@@ -225,6 +236,17 @@ export default function MarketDetailPage({
       <div className="mt-8">
         <RelatedMarketsRow market={market} />
       </div>
+
+      {/* ── Tutorial overlay for continuous markets ── */}
+      {isContinuous && tutorial.isActive && tutorial.currentStep !== null && (
+        <TutorialOverlay
+          steps={TUTORIAL_STEPS}
+          currentStep={tutorial.currentStep}
+          onAdvance={tutorial.advance}
+          onGoBack={tutorial.goBack}
+          onDismiss={tutorial.dismiss}
+        />
+      )}
     </div>
   );
 }
