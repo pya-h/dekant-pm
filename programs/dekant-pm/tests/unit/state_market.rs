@@ -1244,3 +1244,43 @@ fn test_compute_lp_resolved_payout_rejects_excess_shares() {
     let result = m.compute_lp_resolved_payout(1_000_001);
     assert!(result.is_err());
 }
+
+// ── implied_probability extreme values ──────────────────────────────
+
+#[test]
+fn test_implied_probability_one_outcome_at_100_percent() {
+    // When one outcome has reserve = 0, its position = total_minted,
+    // so its probability = total_minted² * SCALE / total_minted² = SCALE (100%).
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.reserves = vec![0, m.total_minted as u64];
+    // outcome 0: x = total_minted - 0 = total_minted, prob = SCALE
+    let p0 = m.implied_probability(0).unwrap();
+    assert_eq!(p0, SCALE);
+    // outcome 1: x = total_minted - total_minted = 0, prob = 0
+    let p1 = m.implied_probability(1).unwrap();
+    assert_eq!(p1, 0);
+}
+
+#[test]
+fn test_implied_probability_large_total_minted() {
+    // Test with large total_minted to verify no overflow in the computation.
+    // x² * SCALE must fit u128. Max x ≈ total_minted, so total_minted² * SCALE < u128::MAX.
+    // u128::MAX / SCALE ≈ 3.4e29, sqrt ≈ 1.84e14.
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.total_minted = 100_000_000_000_000; // 10^14 (safely under 1.84e14 limit)
+    let x_per = dekant_pm::engine::sqrt::isqrt(
+        m.total_minted * m.total_minted / 2,
+    );
+    let reserve = (m.total_minted - x_per) as u64;
+    m.reserves = vec![reserve; 2];
+
+    let p0 = m.implied_probability(0).unwrap();
+    let p1 = m.implied_probability(1).unwrap();
+    // Both should be approximately 500M (50%).
+    let diff0 = p0.abs_diff(500_000_000);
+    let diff1 = p1.abs_diff(500_000_000);
+    assert!(diff0 < 5_000, "p0={p0}, diff={diff0}");
+    assert!(diff1 < 5_000, "p1={p1}, diff={diff1}");
+}
