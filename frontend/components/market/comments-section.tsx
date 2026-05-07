@@ -95,23 +95,11 @@ interface CommentsSectionProps {
 }
 
 export function CommentsSection({ marketId, marketCreator }: CommentsSectionProps) {
-  const [tab, setTab] = useState<"comments" | "activity">("comments");
+  const [tab, setTab] = useState<"comments" | "activity">("activity");
 
   return (
     <section className="overflow-hidden rounded-xl border border-border/40 bg-card/35 backdrop-blur-sm">
       <header className="flex items-center border-b border-border/30">
-        <button
-          onClick={() => setTab("comments")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
-            tab === "comments"
-              ? "border-b-2 border-primary text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <MessageSquare className="h-4 w-4" />
-          Comments
-        </button>
         <button
           onClick={() => setTab("activity")}
           className={cn(
@@ -123,6 +111,18 @@ export function CommentsSection({ marketId, marketCreator }: CommentsSectionProp
         >
           <Activity className="h-4 w-4" />
           Activity
+        </button>
+        <button
+          onClick={() => setTab("comments")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+            tab === "comments"
+              ? "border-b-2 border-primary text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Comments
         </button>
       </header>
 
