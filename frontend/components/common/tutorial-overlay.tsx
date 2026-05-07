@@ -79,7 +79,7 @@ export function TutorialOverlay({
     return () => clearTimeout(timer);
   }, [currentStep]);
 
-  // Measure target element (viewport-relative for fixed positioning)
+  // Measure target element (viewport-relative for fixed positioning, clamped to viewport)
   const measureTarget = useCallback(() => {
     if (!targetSelector) {
       setTargetRect(null);
@@ -91,25 +91,45 @@ export function TutorialOverlay({
       return;
     }
     const rect = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Clamp to viewport so spotlight never extends off-screen
+    const top = Math.max(0, rect.top);
+    const left = Math.max(0, rect.left);
+    const right = Math.min(vw, rect.right);
+    const bottom = Math.min(vh, rect.bottom);
+
     setTargetRect({
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height,
+      top,
+      left,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
     });
   }, [targetSelector]);
 
-  // Measure on mount, scroll, and resize
+  // Measure on mount, scroll, resize, and element layout changes
   useEffect(() => {
     if (!step) return;
-    measureTarget();
+    // Delay initial measurement to let layout settle after render
+    const initTimer = setTimeout(measureTarget, 50);
     window.addEventListener("scroll", measureTarget, true);
     window.addEventListener("resize", measureTarget);
+
+    // Observe target element size changes (responsive reflows)
+    let ro: ResizeObserver | undefined;
+    const el = document.querySelector(`[data-tutorial="${targetSelector}"]`);
+    if (el) {
+      ro = new ResizeObserver(measureTarget);
+      ro.observe(el);
+    }
     return () => {
+      clearTimeout(initTimer);
       window.removeEventListener("scroll", measureTarget, true);
       window.removeEventListener("resize", measureTarget);
+      ro?.disconnect();
     };
-  }, [measureTarget, step]);
+  }, [measureTarget, step, targetSelector]);
 
   // Scroll target into view
   useEffect(() => {
@@ -151,7 +171,7 @@ export function TutorialOverlay({
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [targetRect]);
 
-  // Position popover (viewport-relative, fixed positioning)
+  // Position popover (viewport-relative, fixed positioning, with fallback placement)
   useEffect(() => {
     if (!step || !popoverRef.current) return;
 
@@ -160,36 +180,50 @@ export function TutorialOverlay({
     const ph = popover.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-
-    let top = 0;
-    let left = 0;
+    const margin = 12;
 
     if (!targetRect) {
-      top = vh / 2 - ph / 2;
-      left = vw / 2 - pw / 2;
-    } else {
-      if (placement === "bottom") {
-        top = targetRect.top + targetRect.height + PADDING + POPOVER_GAP;
-        left = targetRect.left + targetRect.width / 2 - pw / 2;
-      } else if (placement === "top") {
-        top = targetRect.top - ph - PADDING - POPOVER_GAP;
-        left = targetRect.left + targetRect.width / 2 - pw / 2;
-      } else if (placement === "right") {
-        top = targetRect.top + targetRect.height / 2 - ph / 2;
-        left = targetRect.left + targetRect.width + PADDING + POPOVER_GAP;
-      } else if (placement === "left") {
-        top = targetRect.top + targetRect.height / 2 - ph / 2;
-        left = targetRect.left - pw - PADDING - POPOVER_GAP;
-      }
+      setPopoverPos({ top: vh / 2 - ph / 2, left: vw / 2 - pw / 2 });
+      return;
     }
 
-    // Clamp to viewport
-    if (left < 12) left = 12;
-    if (left + pw > vw - 12) left = vw - pw - 12;
-    if (top < 12) top = 12;
-    if (top + ph > vh - 12) top = vh - ph - 12;
+    // Calculate position for a given placement
+    const calc = (p: string) => {
+      let t = 0, l = 0;
+      if (p === "bottom") {
+        t = targetRect.top + targetRect.height + PADDING + POPOVER_GAP;
+        l = targetRect.left + targetRect.width / 2 - pw / 2;
+      } else if (p === "top") {
+        t = targetRect.top - ph - PADDING - POPOVER_GAP;
+        l = targetRect.left + targetRect.width / 2 - pw / 2;
+      } else if (p === "right") {
+        t = targetRect.top + targetRect.height / 2 - ph / 2;
+        l = targetRect.left + targetRect.width + PADDING + POPOVER_GAP;
+      } else {
+        t = targetRect.top + targetRect.height / 2 - ph / 2;
+        l = targetRect.left - pw - PADDING - POPOVER_GAP;
+      }
+      return { top: t, left: l };
+    };
 
-    setPopoverPos({ top, left });
+    // Check if a position fits within viewport
+    const fits = (pos: { top: number; left: number }) =>
+      pos.top >= margin && pos.top + ph <= vh - margin &&
+      pos.left >= margin && pos.left + pw <= vw - margin;
+
+    // Try preferred placement first, then fallbacks
+    const fallbacks: string[] = [placement, "bottom", "top", "right", "left"];
+    let best = calc(placement);
+    for (const fb of fallbacks) {
+      const pos = calc(fb);
+      if (fits(pos)) { best = pos; break; }
+    }
+
+    // Final clamp to viewport
+    best.left = Math.max(margin, Math.min(vw - pw - margin, best.left));
+    best.top = Math.max(margin, Math.min(vh - ph - margin, best.top));
+
+    setPopoverPos(best);
   }, [targetRect, placement, step, currentStep]);
 
   // Keyboard navigation
