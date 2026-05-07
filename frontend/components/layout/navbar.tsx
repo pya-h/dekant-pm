@@ -79,7 +79,7 @@ export function Navbar() {
   }, [publicKey]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-lg">
+    <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg">
       <nav className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
         {/* Logo */}
         <Link
@@ -97,7 +97,7 @@ export function Navbar() {
             placeholder="Search markets..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 rounded-xl pl-9 bg-muted/30 border-border/30"
+            className="h-9 rounded-xl pl-9 bg-card border-border"
           />
         </form>
 
@@ -180,7 +180,7 @@ export function Navbar() {
 
       {/* Mobile nav drawer */}
       {mobileOpen && (
-        <div className="border-t border-border/40 bg-background/95 backdrop-blur-lg md:hidden animate-in slide-in-from-top-2 fade-in-0 duration-200">
+        <div className="border-t border-border bg-background/95 backdrop-blur-lg md:hidden animate-in slide-in-from-top-2 fade-in-0 duration-200">
           <ul className="mx-auto max-w-7xl space-y-1 px-4 py-3">
             {allLinks.map(({ href, label }) => {
               const isActive =

@@ -10,7 +10,7 @@ export function FeaturedSection() {
       <MarketSlideshow />
 
       {/* Sidebar */}
-      <aside className="hidden lg:block rounded-xl border border-border/20 bg-card/40 p-4">
+      <aside className="hidden lg:block rounded-xl border border-border bg-card p-4">
         <FeaturedSidebar />
       </aside>
     </section>

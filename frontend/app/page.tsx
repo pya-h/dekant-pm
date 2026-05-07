@@ -62,8 +62,8 @@ export default function Home() {
 function HomePageSkeleton() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="h-64 animate-pulse rounded-xl border bg-card/40" />
-      <div className="h-8 w-32 animate-pulse rounded bg-card/40" />
+      <div className="h-64 animate-pulse rounded-xl border bg-card" />
+      <div className="h-8 w-32 animate-pulse rounded bg-card" />
       <MarketGridSkeleton />
     </div>
   );
@@ -263,7 +263,7 @@ function MarketGridSkeleton() {
       {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
-          className="h-44 animate-pulse rounded-xl border bg-card/40"
+          className="h-44 animate-pulse rounded-xl border bg-card"
           style={{ animationDelay: `${i * 80}ms`, animationFillMode: "backwards" }}
         />
       ))}
