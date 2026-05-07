@@ -1470,11 +1470,9 @@ fn test_scale_reserves_u64_boundary_no_truncation() {
 }
 
 #[test]
-fn test_scale_reserves_u64_truncation_occurs() {
-    // Demonstrate BUG N6: when scaled reserve > u64::MAX, `as u64` truncates silently.
-    // The checked_mul catches overflow when reserve * numerator > u128::MAX,
-    // but truncation occurs when reserve * numerator / denominator fits u128
-    // but exceeds u64::MAX.
+fn test_scale_reserves_u64_overflow_returns_error() {
+    // BUG N6 fix: when scaled reserve > u64::MAX, scale_reserves must return
+    // MathOverflow instead of silently truncating via `as u64`.
     //
     // Setup: use small numerator/denominator ratio (3/1) with moderate reserve
     // so that reserve * numerator fits u128 but the result exceeds u64::MAX.
@@ -1493,10 +1491,27 @@ fn test_scale_reserves_u64_truncation_occurs() {
     assert!(expected > u64::MAX as u128, "would overflow u64");
 
     let result = scale_reserves(&mut reserves, numerator, denominator);
-    // Currently succeeds (the bug): `as u64` truncates silently.
-    assert!(result.is_ok(), "currently does not error (known bug N6)");
-    // The stored value is truncated:
-    assert_ne!(reserves[0] as u128, expected);
+    // After fix: must return error (MathOverflow).
+    assert!(result.is_err(), "scale_reserves must reject u64 overflow");
+    // Reserves must remain unchanged (no partial mutation).
+    assert_eq!(reserves[0], initial);
+}
+
+#[test]
+fn test_scale_reserves_just_below_u64_max_succeeds() {
+    // Ensure values that fit in u64 still work correctly.
+    let initial: u64 = u64::MAX / 3; // ~6.1e18
+    let mut reserves = vec![initial];
+    let numerator: u128 = 2;
+    let denominator: u128 = 1;
+
+    // result = initial * 2 ≈ 1.2e19 < u64::MAX (~1.8e19)
+    let expected = initial as u128 * numerator / denominator;
+    assert!(expected <= u64::MAX as u128, "should fit u64");
+
+    let result = scale_reserves(&mut reserves, numerator, denominator);
+    assert!(result.is_ok());
+    assert_eq!(reserves[0] as u128, expected);
 }
 
 // ── Distribution sell with non-uniform weights ──────────────────────
