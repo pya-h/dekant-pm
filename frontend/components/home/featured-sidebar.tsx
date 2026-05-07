@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
-const MARKET_SIGNALS = [
+const MARKET_SIGNALS: Array<{ title: string; description: string; time: string }> = [
   // {
   //   title: "Whale Entry Detected",
   //   description: "$12.4M position opened on BTC Q2 distribution tail",
