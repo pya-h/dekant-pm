@@ -108,4 +108,7 @@ export class MarketEntity {
 
   @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
   updatedAt!: Date;
+
+  @Column({ type: 'boolean', default: false })
+  archived!: boolean;
 }
