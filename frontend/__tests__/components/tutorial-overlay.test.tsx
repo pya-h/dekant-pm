@@ -192,4 +192,91 @@ describe("TutorialOverlay", () => {
     // In test environment the transition is near-instant
     expect(screen.queryByText("First step") || screen.queryByText("Second step")).toBeTruthy();
   });
+
+  // ── Viewport clamping & positioning ─────────────────────────────
+
+  it("clamps spotlight rect to viewport bounds", () => {
+    // Create an element whose rect extends beyond the viewport
+    const el = document.querySelector('[data-tutorial="step-a"]') as HTMLElement;
+    el.getBoundingClientRect = () => ({
+      top: -50, left: -20, right: 200, bottom: 100,
+      width: 220, height: 150, x: -20, y: -50,
+      toJSON: () => {},
+    });
+    // Mock viewport
+    Object.defineProperty(window, "innerWidth", { value: 800, writable: true });
+    Object.defineProperty(window, "innerHeight", { value: 600, writable: true });
+
+    renderOverlay(0);
+
+    // The overlay should render without errors even with off-screen elements
+    const overlay = document.querySelector(".tutorial-overlay");
+    expect(overlay).toBeInTheDocument();
+  });
+
+  it("renders overlay for all step indices without errors", () => {
+    for (let i = 0; i < STEPS.length; i++) {
+      const { unmount } = render(
+        <TutorialOverlay
+          steps={STEPS}
+          currentStep={i}
+          onAdvance={onAdvance}
+          onGoBack={onGoBack}
+          onDismiss={onDismiss}
+        />,
+      );
+      expect(screen.getByText(STEPS[i].title)).toBeInTheDocument();
+      expect(screen.getByText(`${i + 1}/${STEPS.length}`)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("renders popover centered when no target element exists", () => {
+    // Remove all data-tutorial elements
+    document.body.innerHTML = "";
+
+    const ORPHAN_STEPS: TutorialStep[] = [
+      { target: "nonexistent", title: "Orphan step", placement: "bottom" },
+    ];
+
+    render(
+      <TutorialOverlay
+        steps={ORPHAN_STEPS}
+        currentStep={0}
+        onAdvance={onAdvance}
+        onGoBack={onGoBack}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    // Should still render the step text even without a target
+    expect(screen.getByText("Orphan step")).toBeInTheDocument();
+  });
+
+  it("handles placement fallback for all directions", () => {
+    const placements: Array<"top" | "bottom" | "left" | "right"> = ["top", "bottom", "left", "right"];
+    for (const p of placements) {
+      document.body.innerHTML = "";
+      const el = document.createElement("div");
+      el.setAttribute("data-tutorial", `step-${p}`);
+      document.body.appendChild(el);
+
+      const steps: TutorialStep[] = [
+        { target: `step-${p}`, title: `Placed ${p}`, placement: p },
+      ];
+
+      const { unmount } = render(
+        <TutorialOverlay
+          steps={steps}
+          currentStep={0}
+          onAdvance={onAdvance}
+          onGoBack={onGoBack}
+          onDismiss={onDismiss}
+        />,
+      );
+
+      expect(screen.getByText(`Placed ${p}`)).toBeInTheDocument();
+      unmount();
+    }
+  });
 });

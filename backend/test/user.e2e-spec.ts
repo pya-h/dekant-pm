@@ -282,15 +282,45 @@ describe('Users & Admin (e2e)', () => {
     });
   });
 
-  describe('PATCH /profile/tutorial', () => {
-    it('should require authentication', () => {
+  describe('GET /users/:address/tutorial', () => {
+    it('should return tutorialStepSeen for existing user', () => {
+      const wallet = randomWallet();
+      testApp.userRepo.findOne.mockResolvedValueOnce({
+        tutorialStepSeen: 3,
+      });
+
       return request(app.getHttpServer())
-        .patch('/profile/tutorial')
-        .send({ step: 1 })
-        .expect(401);
+        .get(`/users/${wallet}/tutorial`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('tutorialStepSeen', 3);
+        });
     });
 
-    it('should advance tutorial step', () => {
+    it('should return 0 for unknown wallet', () => {
+      const wallet = randomWallet();
+      testApp.userRepo.findOne.mockResolvedValueOnce(null);
+
+      return request(app.getHttpServer())
+        .get(`/users/${wallet}/tutorial`)
+        .expect(200)
+        .expect((res: any) => {
+          expect(res.body).toHaveProperty('tutorialStepSeen', 0);
+        });
+    });
+
+    it('should not require authentication', () => {
+      const wallet = randomWallet();
+      testApp.userRepo.findOne.mockResolvedValueOnce(null);
+
+      return request(app.getHttpServer())
+        .get(`/users/${wallet}/tutorial`)
+        .expect(200);
+    });
+  });
+
+  describe('PATCH /users/:address/tutorial', () => {
+    it('should advance tutorial step without auth', () => {
       const wallet = randomWallet();
       const user = {
         id: '1',
@@ -298,12 +328,10 @@ describe('Users & Admin (e2e)', () => {
         username: 'u',
         tutorialStepSeen: 0,
       };
-      // findOrCreateUser calls findOne then save
       testApp.userRepo.findOne.mockResolvedValueOnce(user);
 
       return request(app.getHttpServer())
-        .patch('/profile/tutorial')
-        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .patch(`/users/${wallet}/tutorial`)
         .send({ step: 2 })
         .expect(200)
         .expect((res: any) => {
@@ -322,8 +350,7 @@ describe('Users & Admin (e2e)', () => {
       testApp.userRepo.findOne.mockResolvedValueOnce(user);
 
       return request(app.getHttpServer())
-        .patch('/profile/tutorial')
-        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .patch(`/users/${wallet}/tutorial`)
         .send({ step: 1 })
         .expect(200)
         .expect((res: any) => {
@@ -342,8 +369,7 @@ describe('Users & Admin (e2e)', () => {
       testApp.userRepo.findOne.mockResolvedValueOnce(user);
 
       return request(app.getHttpServer())
-        .patch('/profile/tutorial')
-        .set('Authorization', `Bearer ${testApp.getAuthToken(wallet)}`)
+        .patch(`/users/${wallet}/tutorial`)
         .send({ step: 5 })
         .expect(200)
         .expect((res: any) => {

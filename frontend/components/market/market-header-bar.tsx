@@ -24,7 +24,7 @@ import {
 
 interface MarketHeaderBarProps {
   market: MarketSummary;
-  /** Show the Claim Tokens button (market detail only, not slideshow) */
+  /** Show the Claim Faucet button (market detail only, not slideshow) */
   showFaucet?: boolean;
   faucetAvailable?: number;
   faucetLoading?: boolean;
@@ -91,7 +91,7 @@ export function MarketHeaderBar({
 
   return (
     <div className="space-y-3">
-      {/* Row 1: Icon + Title on left | Countdown + Claim Tokens on right */}
+      {/* Row 1: Icon + Title on left | Countdown + Claim Faucet on right */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex items-center gap-3 min-w-0">
           <MarketAssetIcon
@@ -133,9 +133,9 @@ export function MarketHeaderBar({
               {faucetLoading ? (
                 <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Claiming...</>
               ) : faucetAvailable > 0 ? (
-                `Claim Tokens (${faucetAvailable})`
+                `Claim Faucet (${faucetAvailable})`
               ) : (
-                "Claim Tokens"
+                "Claim Faucet"
               )}
             </Button>
           )}

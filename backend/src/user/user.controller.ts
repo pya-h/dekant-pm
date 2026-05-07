@@ -79,6 +79,25 @@ export class UserController {
     validateAddress(address);
     return this.userService.getLpPositions(address);
   }
+
+  @Get(':address/tutorial')
+  @ApiOperation({ summary: 'Get tutorial step seen for a wallet' })
+  @ApiResponse({ status: 200, description: 'Tutorial step' })
+  getTutorialStep(@Param('address') address: string) {
+    validateAddress(address);
+    return this.userService.getTutorialStep(address);
+  }
+
+  @Patch(':address/tutorial')
+  @ApiOperation({ summary: 'Advance tutorial step seen' })
+  @ApiResponse({ status: 200, description: 'Updated tutorial step' })
+  advanceTutorial(
+    @Param('address') address: string,
+    @Body() body: { step: number },
+  ) {
+    validateAddress(address);
+    return this.userService.advanceTutorial(address, body.step);
+  }
 }
 
 @ApiTags('profile')
@@ -107,16 +126,6 @@ export class ProfileController {
     return this.userService.updateProfile(walletAddress, dto);
   }
 
-  @Patch('tutorial')
-  @ApiOperation({ summary: 'Advance tutorial step seen' })
-  @ApiResponse({ status: 200, description: 'Updated tutorial step' })
-  async advanceTutorial(
-    @Req() req: Request,
-    @Body() body: { step: number },
-  ) {
-    const walletAddress = (req as any).walletAddress as string;
-    return this.userService.advanceTutorial(walletAddress, body.step);
-  }
 }
 
 @ApiTags('admin')
