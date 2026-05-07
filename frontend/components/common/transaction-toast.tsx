@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { AnchorError } from "@coral-xyz/anchor";
+import { SendTransactionError } from "@solana/web3.js";
 import { env } from "@/lib/env";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -27,6 +28,36 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Math
   MathOverflow: "Calculation overflow — try a smaller amount",
   InvariantViolation: "AMM invariant violated — try a different amount",
+};
+
+// Map on-chain error code numbers to code names (must match DekantPmError enum order).
+const ERROR_CODE_BY_NUM: Record<number, string> = {
+  // Authorization (6000–6003)
+  // 6000: Unauthorized, 6001: InvalidRole, 6002: RoleAlreadyAssigned, 6003: AdminCannotAssignAdmin
+  // Market Lifecycle (6004–6010)
+  6004: "MarketNotActive",
+  6005: "MarketClosed",
+  6008: "MarketPaused",
+  6010: "MarketNotResolved",
+  // Trading (6017–6026)
+  6017: "InsufficientBalance",
+  6018: "InsufficientLiquidity",
+  6019: "InsufficientHoldings",
+  6020: "TradeTooSmall",
+  6021: "InvalidSigma",
+  6022: "WrongMarketType",
+  6023: "InvalidProbability",
+  6024: "TargetAlreadyMet",
+  6025: "MaxCollateralExceeded",
+  6026: "MinCollateralNotMet",
+  // Settlement (6027–6028)
+  6027: "AlreadyClaimed",
+  6028: "NothingToClaim",
+  // Math (6029–6030)
+  6029: "InvariantViolation",
+  6030: "MathOverflow",
+  // Fees (6034)
+  6034: "NoFeesToCollect",
 };
 
 function getSolscanUrl(signature: string): string {
@@ -80,10 +111,21 @@ export function showTradeError(error: unknown) {
     return;
   }
 
-  // 4. Transaction simulation failure — try to extract program error code
-  const anchorCode = extractAnchorCodeFromLogs(error);
-  if (anchorCode && ERROR_MESSAGES[anchorCode]) {
-    toast.error(ERROR_MESSAGES[anchorCode]);
+  // 4. SendTransactionError — extract logs, signature, and program error
+  const txInfo = extractTxInfo(error);
+  if (txInfo) {
+    const { message, signature } = txInfo;
+    if (signature) {
+      toast.error(message, {
+        description: `${signature.slice(0, 8)}...${signature.slice(-8)}`,
+        action: {
+          label: "View tx",
+          onClick: () => window.open(getSolscanUrl(signature), "_blank"),
+        },
+      });
+    } else {
+      toast.error(message);
+    }
     return;
   }
 
@@ -101,7 +143,6 @@ export function showTradeError(error: unknown) {
 
   // 7. Generic Error with a message
   if (error instanceof Error) {
-    // Truncate very long error messages (e.g. full simulation logs)
     const msg = error.message || "Transaction failed";
     toast.error(msg.length > 120 ? msg.slice(0, 120) + "…" : msg);
     return;
@@ -109,6 +150,117 @@ export function showTradeError(error: unknown) {
 
   // 8. Fallback
   toast.error("Transaction failed — please try again");
+}
+
+/** Extract useful info from transaction errors, including the Anchor/web3.js compat bug. */
+function extractTxInfo(
+  error: unknown,
+): { message: string; signature: string | null } | null {
+  if (!error || typeof error !== "object") return null;
+
+  // Try to get logs from the error (SendTransactionError, or any error with .logs)
+  const logs = getLogs(error);
+  const anchorCode = logs ? extractAnchorCodeFromLogsList(logs) : null;
+
+  // Try to extract signature from the error
+  let signature: string | null = null;
+  if ("signature" in error && typeof (error as { signature: unknown }).signature === "string") {
+    signature = (error as { signature: string }).signature;
+  }
+
+  // Anchor 0.32.1 / web3.js 1.98.x compat bug: SendTransactionError constructed
+  // with wrong args produces "Unknown action 'undefined'". The original error info
+  // (signature, logs) is lost. Also handle ConfirmError pattern.
+  const msg = getErrorMessage(error);
+
+  if (msg.includes("Unknown action")) {
+    // Broken SendTransactionError — all useful info is lost.
+    // Try to find a program error code from logs if they survived.
+    if (anchorCode && ERROR_MESSAGES[anchorCode]) {
+      return { message: ERROR_MESSAGES[anchorCode], signature };
+    }
+    return {
+      message: "Transaction failed on-chain — try reducing spread or amount",
+      signature,
+    };
+  }
+
+  // ConfirmError pattern: "Raw transaction <sig> failed ({...})"
+  const confirmMatch = msg.match(
+    /Raw transaction\s+([1-9A-HJ-NP-Za-km-z]{32,88})\s+failed\s*\((.+)\)/,
+  );
+  if (confirmMatch) {
+    signature = confirmMatch[1];
+    const statusJson = confirmMatch[2];
+
+    // Try to extract Custom error code from status JSON
+    const customMatch = statusJson.match(/"Custom"\s*:\s*(\d+)/);
+    if (customMatch) {
+      const errorNum = parseInt(customMatch[1], 10);
+      const codeName = ERROR_CODE_BY_NUM[errorNum];
+      if (codeName && ERROR_MESSAGES[codeName]) {
+        return { message: ERROR_MESSAGES[codeName], signature };
+      }
+    }
+
+    // Check for compute budget exceeded
+    if (statusJson.includes("ComputationalBudgetExceeded") || statusJson.includes("ProgramFailedToComplete")) {
+      return {
+        message: "Transaction ran out of compute — try reducing spread",
+        signature,
+      };
+    }
+
+    if (anchorCode && ERROR_MESSAGES[anchorCode]) {
+      return { message: ERROR_MESSAGES[anchorCode], signature };
+    }
+
+    return { message: "Transaction failed on-chain", signature };
+  }
+
+  // SendTransactionError with proper constructor (web3.js native throw)
+  if (error instanceof SendTransactionError) {
+    if (anchorCode && ERROR_MESSAGES[anchorCode]) {
+      return { message: ERROR_MESSAGES[anchorCode], signature };
+    }
+    const txMsg =
+      "transactionMessage" in error
+        ? String((error as unknown as Record<string, unknown>).transactionMessage)
+        : "";
+    if (txMsg.includes("exceeded")) {
+      return {
+        message: "Transaction ran out of compute — try reducing spread",
+        signature,
+      };
+    }
+    return {
+      message: txMsg
+        ? txMsg.length > 120
+          ? txMsg.slice(0, 120) + "…"
+          : txMsg
+        : "Transaction failed on-chain",
+      signature,
+    };
+  }
+
+  // Non-SendTransactionError but has logs — try to extract Anchor code
+  if (anchorCode && ERROR_MESSAGES[anchorCode]) {
+    return { message: ERROR_MESSAGES[anchorCode], signature };
+  }
+
+  // Check for compute budget in generic error messages
+  if (
+    msg.includes("exceeded") ||
+    msg.includes("Computational budget") ||
+    msg.includes("ProgramFailedToComplete")
+  ) {
+    return {
+      message: "Transaction ran out of compute — try reducing spread",
+      signature,
+    };
+  }
+
+  return null;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -169,27 +321,20 @@ function isNetworkError(error: unknown): boolean {
   );
 }
 
-/** Try to extract an Anchor error code from SendTransactionError logs. */
-function extractAnchorCodeFromLogs(error: unknown): string | null {
-  const logs = getLogs(error);
-  if (!logs || logs.length === 0) return null;
-
-  // Anchor logs errors as: "Program log: AnchorError ... Error Code: SomeCode."
+/** Extract Anchor error code name from a list of program logs. */
+function extractAnchorCodeFromLogsList(logs: string[]): string | null {
   for (const log of logs) {
     const codeMatch = log.match(/Error Code:\s*(\w+)/);
     if (codeMatch) return codeMatch[1];
   }
 
-  // Also check for custom program error hex codes
-  const msg = getErrorMessage(error);
-  const hexMatch = msg.match(/custom program error:\s*0x([0-9a-fA-F]+)/);
-  if (hexMatch) {
-    const errorNum = parseInt(hexMatch[1], 16);
-    // Anchor error codes start at 6000 (0x1770)
-    if (errorNum >= 6000) {
-      const anchorOffset = errorNum - 6000;
-      const codes = Object.keys(ERROR_MESSAGES);
-      if (anchorOffset < codes.length) return codes[anchorOffset];
+  // Check for custom program error hex codes in logs
+  for (const log of logs) {
+    const hexMatch = log.match(/custom program error:\s*0x([0-9a-fA-F]+)/i);
+    if (hexMatch) {
+      const errorNum = parseInt(hexMatch[1], 16);
+      const codeName = ERROR_CODE_BY_NUM[errorNum];
+      if (codeName) return codeName;
     }
   }
 
@@ -198,13 +343,20 @@ function extractAnchorCodeFromLogs(error: unknown): string | null {
 
 function getLogs(error: unknown): string[] | null {
   if (!error || typeof error !== "object") return null;
-  // SendTransactionError has .logs
+  // SendTransactionError has .logs or .transactionLogs
   if ("logs" in error && Array.isArray((error as { logs: unknown }).logs)) {
     return (error as { logs: string[] }).logs;
   }
+  if (
+    "transactionLogs" in error &&
+    Array.isArray((error as { transactionLogs: unknown }).transactionLogs)
+  ) {
+    return (error as { transactionLogs: string[] }).transactionLogs;
+  }
   // Some errors nest it in .simulationResponse
   if ("simulationResponse" in error) {
-    const sim = (error as { simulationResponse: { logs?: string[] } }).simulationResponse;
+    const sim = (error as { simulationResponse: { logs?: string[] } })
+      .simulationResponse;
     if (sim?.logs && Array.isArray(sim.logs)) return sim.logs;
   }
   return null;

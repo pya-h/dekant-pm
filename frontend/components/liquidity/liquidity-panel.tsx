@@ -150,7 +150,7 @@ export function LiquidityPanel({ market, trigger }: LiquidityPanelProps) {
         // Convert percentage to shares using BigInt to avoid precision loss
         const rawShares = BigInt(userLp?.shares ?? "0");
         const sharesToBurn = new BN(
-          (rawShares * BigInt(Math.round(numAmount * 100)) / 10000n).toString(),
+          (rawShares * BigInt(Math.round(numAmount * 100)) / BigInt(10000)).toString(),
         );
         signature = await executeRemoveLiquidity(
           program,

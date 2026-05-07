@@ -26,7 +26,7 @@ export function LpPositionCard({ position }: LpPositionCardProps) {
   const { market } = position;
   const shares = BigInt(position.shares);
   const deposited = Number(position.depositedCollateral);
-  const hasShares = shares > 0n;
+  const hasShares = shares > BigInt(0);
 
   return (
     <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
