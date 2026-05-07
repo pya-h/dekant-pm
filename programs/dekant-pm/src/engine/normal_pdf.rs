@@ -137,6 +137,10 @@ pub fn compute_bin_weights(
     let mut raw_weights: Vec<u128> = Vec::with_capacity(num_bins as usize);
     let mut total: u128 = 0;
 
+    // Hoist invariants outside the loop to reduce compute cost.
+    let sigma_sq = U256::from(sigma as u128) * U256::from(sigma as u128);
+    let scale_256 = U256::from(SCALE);
+
     for b in 0..num_bins as i128 {
         // Center of bin b: range_min + (2b + 1) * span / (2 * num_bins)
         let center = lo + (2 * b + 1) * span / (2 * n);
@@ -151,9 +155,9 @@ pub fn compute_bin_weights(
 
         // |diff| ≤ 5*sigma after tail cutoff, so diff² ≤ 25*sigma².
         // Use U256 for the full computation to avoid u128 overflow at large sigma.
-        let diff_sq = U256::from(diff.unsigned_abs()) * U256::from(diff.unsigned_abs());
-        let sigma_sq = U256::from(sigma as u128) * U256::from(sigma as u128);
-        let z_sq_scaled = (diff_sq * U256::from(SCALE) / sigma_sq).as_u128();
+        let diff_abs = U256::from(diff.unsigned_abs());
+        let diff_sq = diff_abs * diff_abs;
+        let z_sq_scaled = (diff_sq * scale_256 / sigma_sq).as_u128();
 
         let w = exp_neg_half_approx(z_sq_scaled);
         raw_weights.push(w);
