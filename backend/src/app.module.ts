@@ -12,6 +12,7 @@ import { UserModule } from "./user/user.module";
 import { SettingsModule } from "./settings/settings.module";
 import { FeeCollectionModule } from "./fee-collection/fee-collection.module";
 import { FaucetModule } from "./faucet/faucet.module";
+import { PriceModule } from "./price/price.module";
 import { MarketEntity } from "./market/entity/market.entity";
 import { TradeEntity } from "./market/entity/trade.entity";
 import { BookmarkEntity } from "./market/entity/bookmark.entity";
@@ -88,6 +89,7 @@ const isInProduction = process.env.NODE_ENV === "production";
     SettingsModule,
     FeeCollectionModule,
     FaucetModule,
+    PriceModule,
   ],
 })
 export class AppModule {}
