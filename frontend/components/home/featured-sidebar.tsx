@@ -1,40 +1,40 @@
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 const MARKET_SIGNALS = [
-  {
-    title: "Whale Entry Detected",
-    description: "$12.4M position opened on BTC Q2 distribution tail",
-    time: "3m ago",
-  },
-  {
-    title: "Whale Entry Detected",
-    description: "$12.4M position opened on BTC Q2 distribution tail",
-    time: "3m ago",
-  },
-  {
-    title: "Whale Entry Detected",
-    description: "$12.4M position opened on BTC Q2 distribution tail",
-    time: "3m ago",
-  },
-  {
-    title: "Whale Entry Detected",
-    description: "$12.4M position opened on BTC Q2 distribution tail",
-    time: "3m ago",
-  },
+  // {
+  //   title: "Whale Entry Detected",
+  //   description: "$12.4M position opened on BTC Q2 distribution tail",
+  //   time: "3m ago",
+  // },
 ];
 
 const TRENDING_TOPICS = [
-  { name: "BTC Halving Impact", count: "2.4K", change: 18, up: true },
-  { name: "MicroStrategy Holdings", count: "1.8K", change: 11, up: false },
-  { name: "BTC ETF Inflows", count: "1.2K", change: 6, up: true },
-  { name: "Lightning Network Growth", count: "980", change: 44, up: false },
-  { name: "BTC Dominance", count: "740", change: 3, up: true },
+  {
+    name: "CLARITY Act Markup",
+    href: "https://www.coindesk.com/policy/2026/05/01/clarity-act-text-lets-crypto-firms-offer-stablecoin-rewards-while-shielding-bank-yield",
+  },
+  {
+    name: "IBIT $1B Inflow Week",
+    href: "https://stocktwits.com/news-articles/markets/cryptocurrency/ibit-drives-bitcoin-etf-inflows-past-1-billion-for-first-time-since-january/cZXbf0bRefy",
+  },
+  {
+    name: "BTC Reclaims $82K",
+    href: "https://finance.yahoo.com/personal-finance/investing/article/bitcoin-and-ethereum-prices-today-wednesday-may-6-2026-prices-up-bitcoin-at-highest-level-since-january-112112979.html",
+  },
+  {
+    name: "Tokenized Treasuries (ONDO)",
+    href: "https://www.cryptotimes.io/2026/05/07/today-in-crypto-tokenization-breakthrough-clarity-act-deadline-set-miners-pivot-to-ai-power-plays/",
+  },
+  {
+    name: "Hyperliquid Whale Longs",
+    href: "https://www.theblock.co/post/400302/bitcoin-whales-hyperliquid-net-long-positions-2026-high",
+  },
 ];
 
 export function FeaturedSidebar() {
   return (
     <div className="flex flex-col gap-6">
-      <MarketSignals />
+      {/* <MarketSignals /> */}
       <TrendingTopics />
     </div>
   );
@@ -70,25 +70,21 @@ function TrendingTopics() {
       </div>
       <div className="space-y-2.5">
         {TRENDING_TOPICS.map((topic, i) => (
-          <div key={i} className="flex items-center gap-3">
+          <a
+            key={i}
+            href={topic.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 group"
+          >
             <span className="w-4 text-sm font-bold text-muted-foreground tabular-nums">
               {i + 1}
             </span>
-            <span className="flex-1 truncate text-sm">{topic.name}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">{topic.count}</span>
-            <span
-              className={`flex items-center gap-0.5 text-xs font-medium tabular-nums ${
-                topic.up ? "text-emerald-400" : "text-rose-400"
-              }`}
-            >
-              {topic.up ? (
-                <TrendingUp className="h-3 w-3" />
-              ) : (
-                <TrendingDown className="h-3 w-3" />
-              )}
-              {topic.up ? "+" : "-"}{topic.change}%
+            <span className="flex-1 truncate text-sm group-hover:text-primary transition-colors">
+              {topic.name}
             </span>
-          </div>
+            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </a>
         ))}
       </div>
     </div>
