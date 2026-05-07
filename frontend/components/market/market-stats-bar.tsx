@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
 import { useOracleData } from "@/hooks/use-oracle-data";
+import { useLivePrice } from "@/hooks/use-live-price";
 import {
   MarketType,
-  SCALE,
   formatUsdc,
   type MarketSummary,
 } from "@/lib/types";
@@ -12,29 +11,15 @@ import {
 interface MarketStatsBarProps {
   market: Pick<
     MarketSummary,
-    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax" | "subject"
+    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax" | "subject" | "category"
   >;
 }
 
 export function MarketStatsBar({ market }: MarketStatsBarProps) {
   const isContinuous = market.marketType === MarketType.Continuous;
   const { data: oracleData } = useOracleData(market.id, isContinuous);
+  const { data: priceData } = useLivePrice(market.id, market.category);
   const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
-
-  // Placeholder live price: random-ish but stable value within the market range
-  const livePrice = useMemo(() => {
-    if (!isContinuous || market.rangeMin == null || market.rangeMax == null)
-      return null;
-    const rMin = Number(market.rangeMin) / SCALE;
-    const rMax = Number(market.rangeMax) / SCALE;
-    // Use distribution peak if available, otherwise midpoint with small offset
-    if (oracleData?.distributionPeak != null) {
-      // Simulate a live price near the distribution peak
-      const offset = (rMax - rMin) * 0.03;
-      return oracleData.distributionPeak - offset;
-    }
-    return rMin + (rMax - rMin) * 0.48;
-  }, [isContinuous, market.rangeMin, market.rangeMax, oracleData?.distributionPeak]);
 
   return (
     <>
@@ -58,21 +43,27 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
       )}
       <StatCard label="Liquidity" value={formatUsdc(liquidity)} />
       <StatCard label="Volume (24h)" value={formatUsdc(market.totalVolume)} />
-      {livePrice != null && (
+      {priceData?.price != null && (
         <StatCard
-          label={`${market.subject} Price (live)*`}
-          value={formatStatValue(livePrice)}
+          label={`${market.subject} Price`}
+          value={formatStatValue(priceData.price.price)}
+          stale={priceData.price.stale}
         />
       )}
     </>
   );
 }
 
-export function StatCard({ label, value }: { label: string; value: string }) {
+export function StatCard({ label, value, stale }: { label: string; value: string; stale?: boolean }) {
   return (
     <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-2.5 min-w-0">
       <div className="text-base font-bold tabular-nums leading-tight whitespace-nowrap">{value}</div>
-      <div className="text-[11px] text-muted-foreground whitespace-nowrap">{label}</div>
+      <div className="flex items-center gap-1 text-[11px] text-muted-foreground whitespace-nowrap">
+        {label}
+        {stale && (
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" title="Price may be stale" />
+        )}
+      </div>
     </div>
   );
 }
