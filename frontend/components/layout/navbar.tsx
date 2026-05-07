@@ -102,7 +102,7 @@ export function Navbar() {
         </form>
 
         {/* Right side: nav links + wallet */}
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="ml-auto hidden items-center gap-1 md:flex">
           {allLinks.map(({ href, label }) => {
             const isActive =
               pathname === href || pathname.startsWith(href + "/");
