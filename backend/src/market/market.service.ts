@@ -167,6 +167,7 @@ export class MarketService {
     const offset = (page - 1) * limit;
 
     const qb = this.marketRepo.createQueryBuilder('m');
+    qb.andWhere('m.archived = FALSE');
 
     if (filters.category) {
       qb.andWhere('m.category = :category', { category: filters.category });
@@ -382,7 +383,9 @@ export class MarketService {
       relations: ['market'],
       order: { createdAt: 'DESC' },
     });
-    return bookmarks.map((bookmark) => bookmark.market);
+    return bookmarks
+      .map((bookmark) => bookmark.market)
+      .filter((market) => market && !market.archived);
   }
 
   async getBookmarkState(
