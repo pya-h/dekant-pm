@@ -62,8 +62,8 @@ export default function Home() {
 function HomePageSkeleton() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="h-64 animate-pulse rounded-xl border bg-card/50" />
-      <div className="h-8 w-32 animate-pulse rounded bg-card/50" />
+      <div className="h-64 animate-pulse rounded-xl border bg-card/40" />
+      <div className="h-8 w-32 animate-pulse rounded bg-card/40" />
       <MarketGridSkeleton />
     </div>
   );
@@ -135,8 +135,9 @@ function HomeContent() {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold tracking-tight">Markets</h2>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {/* Time range filter */}
+          <span className="hidden text-sm text-muted-foreground sm:inline">Time range</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
@@ -159,6 +160,7 @@ function HomeContent() {
           </DropdownMenu>
 
           {/* Asset filter */}
+          <span className="hidden text-sm text-muted-foreground sm:inline">Assets</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5">
@@ -261,7 +263,7 @@ function MarketGridSkeleton() {
       {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
-          className="h-44 animate-pulse rounded-xl border bg-card/50"
+          className="h-44 animate-pulse rounded-xl border bg-card/40"
           style={{ animationDelay: `${i * 80}ms`, animationFillMode: "backwards" }}
         />
       ))}
