@@ -92,7 +92,7 @@ export function MarketHeaderBar({
   return (
     <div className="space-y-3">
       {/* Row 1: Icon + Title on left | Countdown + Claim Tokens on right */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex items-center gap-3 min-w-0">
           <MarketAssetIcon
             subject={market.subject}
@@ -106,7 +106,7 @@ export function MarketHeaderBar({
           </h1>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
           {/* Countdown */}
           {countdown ? (
             <div className="flex items-center gap-3 rounded-lg border border-border/30 bg-muted/20 px-3 py-2">
