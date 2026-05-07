@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { use, useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -68,7 +68,6 @@ export default function MarketDetailPage({
   const [mu, setMu] = useState<number | null>(null);
   const [sigma, setSigma] = useState<number | null>(null);
   const handleReset = useCallback(() => { setMu(null); setSigma(null); }, []);
-  const chartRef = useRef<HTMLDivElement>(null);
 
   const collateralMint = market?.collateralMint ?? "";
   const { data: faucetData } = useFaucetStatus(walletAddress, collateralMint, !!collateralMint);
@@ -178,7 +177,6 @@ export default function MarketDetailPage({
           if (!authToken) authToken = await authenticate();
           claimFaucet.mutate({ token: collateralMint, authToken });
         }}
-        chartRef={chartRef}
         tutorialActive={tutorial.isActive}
         isBookmarked={isBookmarked}
         bookmarkLoading={bookmarkStateLoading || toggleBookmarkMutation.isPending || isAuthenticating}
@@ -199,7 +197,7 @@ export default function MarketDetailPage({
 
         {/* Center — chart + info sections */}
         <div className="min-w-0 space-y-5">
-          <div ref={chartRef}>
+          <div>
             {isContinuous ? (
               <ContinuousTradingSection
                 market={market}

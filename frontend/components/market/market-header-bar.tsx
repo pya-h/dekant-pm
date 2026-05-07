@@ -11,9 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { type MarketSummary } from "@/lib/types";
-import { toast } from "sonner";
 import {
-  Download,
   Share2,
   BookmarkPlus,
   BookmarkMinus,
@@ -29,8 +27,6 @@ interface MarketHeaderBarProps {
   faucetAvailable?: number;
   faucetLoading?: boolean;
   onClaimFaucet?: () => void;
-  /** Ref to the chart container for download functionality */
-  chartRef?: React.RefObject<HTMLDivElement | null>;
   isBookmarked?: boolean;
   bookmarkLoading?: boolean;
   onToggleBookmark?: () => void;
@@ -45,7 +41,6 @@ export function MarketHeaderBar({
   faucetAvailable = 0,
   faucetLoading = false,
   onClaimFaucet,
-  chartRef,
   isBookmarked = false,
   bookmarkLoading = false,
   onToggleBookmark,
@@ -56,38 +51,6 @@ export function MarketHeaderBar({
 
   const deadline = new Date(market.deadline);
   const countdown = deadlineCountdown(deadline);
-
-  const handleDownload = useCallback(() => {
-    if (!chartRef?.current) {
-      toast.error("No chart to download");
-      return;
-    }
-    const svg = chartRef.current.querySelector("svg");
-    if (!svg) {
-      toast.error("No chart found");
-      return;
-    }
-    const clone = svg.cloneNode(true) as SVGSVGElement;
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    bg.setAttribute("width", "100%");
-    bg.setAttribute("height", "100%");
-    bg.setAttribute("fill", "#0a0a0f");
-    clone.insertBefore(bg, clone.firstChild);
-
-    const blob = new Blob([new XMLSerializer().serializeToString(clone)], {
-      type: "image/svg+xml",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${market.title.replace(/[^a-zA-Z0-9]/g, "_")}_chart.svg`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success("Chart downloaded");
-  }, [chartRef, market.title]);
 
   return (
     <div className="space-y-3">
@@ -148,15 +111,6 @@ export function MarketHeaderBar({
 
         {/* Action buttons — right-aligned */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0 self-end pb-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 rounded-full text-muted-foreground border-border/40"
-            onClick={handleDownload}
-            title="Download chart"
-          >
-            <Download className="h-3.5 w-3.5" />
-          </Button>
           <Button
             variant="outline"
             size="icon"

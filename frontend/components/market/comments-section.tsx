@@ -128,12 +128,26 @@ export function CommentsSection({ marketId, marketCreator }: CommentsSectionProp
 
       <div className="min-h-[380px] max-h-[480px] overflow-y-auto">
         {tab === "comments" ? (
-          <CommentsContent />
+          <ComingSoon />
         ) : (
           <ActivityTab marketId={marketId} marketCreator={marketCreator} />
         )}
       </div>
     </section>
+  );
+}
+
+function ComingSoon() {
+  return (
+    <div className="flex min-h-[380px] items-center justify-center px-4 py-12">
+      <div className="text-center">
+        <MessageSquare className="mx-auto h-10 w-10 text-muted-foreground/50" />
+        <p className="mt-3 text-base font-semibold">Coming Soon!</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Comments will be available in a future update.
+        </p>
+      </div>
+    </div>
   );
 }
 
