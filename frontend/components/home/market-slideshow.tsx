@@ -57,7 +57,7 @@ export function MarketSlideshow() {
 
   if (markets.length === 0) {
     return (
-      <div className="flex items-center justify-center rounded-xl border border-border/40 bg-muted/10 p-12">
+      <div className="flex items-center justify-center rounded-xl border border-border/20 bg-muted/10 p-12">
         <p className="text-sm text-muted-foreground">No markets available</p>
       </div>
     );
@@ -150,7 +150,7 @@ function SlideContent({ market }: { market: MarketSummary }) {
   }, [connected, isBookmarked, setVisible, toggleBookmarkMutation]);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card/50 p-5">
+    <div className="rounded-xl border border-border/20 bg-card/40 p-5">
       {/* Stats + countdown + action buttons — same as market detail, without faucet */}
       <div className="mb-4">
         <MarketHeaderBar
@@ -220,7 +220,7 @@ function SlideChart({
 
 function SlideshowSkeleton() {
   return (
-    <div className="rounded-xl border border-border/40 bg-card/50 p-5">
+    <div className="rounded-xl border border-border/20 bg-card/40 p-5">
       <div className="flex items-center gap-3 mb-4">
         <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
         <div className="h-6 w-64 animate-pulse rounded bg-muted" />
