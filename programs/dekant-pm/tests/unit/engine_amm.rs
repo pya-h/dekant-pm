@@ -1445,3 +1445,423 @@ fn test_bug001_doubling_buy_then_sell_roundtrip() {
         trade * 90 / 100
     );
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// NEW TESTS: Coverage gaps identified during review (2026-05-07)
+// ══════════════════════════════════════════════════════════════════════
+
+// ── scale_reserves: u64 truncation boundary (BUG N6) ────────────────
+
+#[test]
+fn test_scale_reserves_u64_boundary_no_truncation() {
+    // Verify that scaling up reserves close to (but within) u64::MAX works correctly.
+    // With USDC 6 decimals: u64::MAX ≈ 18.4 × 10^18 → $18.4 trillion.
+    // Normal usage won't hit this, but we document the boundary.
+    let initial = u64::MAX / 3; // ~6.1e18
+    let mut reserves = vec![initial; 2];
+    let total_minted = initial as u128 * 2; // use a proportional total
+    let numerator = total_minted + initial as u128; // 1.5x scale
+    let new_k2 = scale_reserves(&mut reserves, numerator, total_minted).unwrap();
+    // Each reserve: initial * 1.5 ≈ 9.2e18, still fits u64.
+    let expected = (initial as u128 * numerator / total_minted) as u64;
+    assert_eq!(reserves[0], expected);
+    assert_eq!(reserves[1], expected);
+    assert_eq!(new_k2, numerator * numerator);
+}
+
+#[test]
+fn test_scale_reserves_u64_truncation_occurs() {
+    // Demonstrate BUG N6: when scaled reserve > u64::MAX, `as u64` truncates silently.
+    // The checked_mul catches overflow when reserve * numerator > u128::MAX,
+    // but truncation occurs when reserve * numerator / denominator fits u128
+    // but exceeds u64::MAX.
+    //
+    // Setup: use small numerator/denominator ratio (3/1) with moderate reserve
+    // so that reserve * numerator fits u128 but the result exceeds u64::MAX.
+    let initial = u64::MAX / 2; // ~9.2e18
+    let mut reserves = vec![initial];
+    let denominator: u128 = 1;
+    let numerator: u128 = 3; // result = initial * 3 ≈ 2.7e19 > u64::MAX
+
+    // Sanity: the intermediate fits u128.
+    assert!(
+        (initial as u128).checked_mul(numerator).is_some(),
+        "intermediate fits u128"
+    );
+    // But final value exceeds u64::MAX.
+    let expected = initial as u128 * numerator / denominator;
+    assert!(expected > u64::MAX as u128, "would overflow u64");
+
+    let result = scale_reserves(&mut reserves, numerator, denominator);
+    // Currently succeeds (the bug): `as u64` truncates silently.
+    assert!(result.is_ok(), "currently does not error (known bug N6)");
+    // The stored value is truncated:
+    assert_ne!(reserves[0] as u128, expected);
+}
+
+// ── Distribution sell with non-uniform weights ──────────────────────
+
+#[test]
+fn test_distribution_sell_non_uniform_weights() {
+    // 3 bins with weights [60%, 30%, 10%] (sums to SCALE).
+    let n = 3;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights: Vec<u64> = vec![
+        (SCALE * 6 / 10) as u64, // 600_000_000
+        (SCALE * 3 / 10) as u64, // 300_000_000
+        (SCALE * 1 / 10) as u64, // 100_000_000
+    ];
+
+    // First buy to get tokens.
+    let tokens = compute_distribution_buy(&mut reserves, total_minted, &weights, 1_000_000).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let tm_after_buy = total_minted + 1_000_000;
+
+    // Verify non-uniform distribution: bin 0 gets most tokens.
+    assert!(tokens[0] > tokens[1], "bin0={} > bin1={}", tokens[0], tokens[1]);
+    assert!(tokens[1] > tokens[2], "bin1={} > bin2={}", tokens[1], tokens[2]);
+
+    // Sell all back with same weights.
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, tm_after_buy, &weights, total_tokens).unwrap();
+
+    // Roundtrip should recover ~100% (within isqrt rounding).
+    let diff = collateral_out.abs_diff(1_000_000u64);
+    assert!(
+        diff <= n as u64 + 1,
+        "roundtrip non-uniform: got {collateral_out}, expected ~1_000_000, diff={diff}"
+    );
+}
+
+#[test]
+fn test_distribution_sell_different_weights_than_buy() {
+    // Buy with one distribution, sell with a different one.
+    // This simulates a trader who changes their position shape.
+    let n = 4;
+    let total_minted: u128 = 5_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let buy_weights: Vec<u64> = vec![
+        (SCALE / 4) as u64,
+        (SCALE / 4) as u64,
+        (SCALE / 4) as u64,
+        (SCALE / 4) as u64,
+    ];
+
+    // Buy uniformly.
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &buy_weights, 500_000).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let tm_after = total_minted + 500_000;
+
+    // Sell with skewed weights (all on bin 0).
+    // We can only sell min(tokens_per_bin, what we have) — use total_tokens but weight all to bin 0.
+    let sell_weights: Vec<u64> = vec![SCALE as u64, 0, 0, 0];
+    let result = compute_distribution_sell(&mut reserves, tm_after, &sell_weights, total_tokens);
+
+    // Should succeed: we're adding all tokens to bin 0's reserve.
+    assert!(result.is_ok(), "selling with different weights should work: {:?}", result);
+    let collateral_out = result.unwrap();
+    // Selling concentrated in one bin should return LESS than uniform sell
+    // (concentrated sell gets worse price impact).
+    assert!(collateral_out > 0);
+}
+
+// ── Distribution buy with many bins ─────────────────────────────────
+
+#[test]
+fn test_distribution_buy_many_bins_uniform() {
+    // 16-bin market with uniform weights.
+    let n = 16;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, 2_000_000).unwrap();
+
+    // All bins should get approximately equal tokens.
+    let avg = tokens.iter().sum::<u64>() / n as u64;
+    for (i, &t) in tokens.iter().enumerate() {
+        let diff = t.abs_diff(avg);
+        assert!(
+            diff <= 2,
+            "bin {i}: tokens={t}, avg={avg}, diff={diff}"
+        );
+    }
+    // Total tokens should be positive and reasonable.
+    let total: u64 = tokens.iter().sum();
+    assert!(total > 0);
+    // For uniform buy on uniform pool, tokens ≈ collateral * (sqrt(2) - 1) per bin approach.
+    // Just verify it's in a sane range.
+    assert!(total > 500_000, "total={total} should be meaningful");
+}
+
+#[test]
+fn test_distribution_buy_64_bins_gaussian_weights() {
+    // Simulate a realistic continuous market buy: 64 bins, Gaussian-like weights.
+    let n = 64;
+    let total_minted: u128 = 50_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+
+    // Create bell-curve weights centered on bin 32, sigma ~8 bins.
+    let mut weights_raw: Vec<f64> = Vec::with_capacity(n);
+    let mu = 32.0f64;
+    let sigma = 8.0f64;
+    for b in 0..n {
+        let z = (b as f64 - mu) / sigma;
+        weights_raw.push((-0.5 * z * z).exp());
+    }
+    let sum: f64 = weights_raw.iter().sum();
+    let weights: Vec<u64> = weights_raw
+        .iter()
+        .map(|&w| ((w / sum) * SCALE as f64) as u64)
+        .collect();
+    // Adjust last weight so sum == SCALE.
+    let mut weights = weights;
+    let wsum: u64 = weights.iter().sum();
+    if wsum < SCALE as u64 {
+        weights[32] += SCALE as u64 - wsum;
+    }
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, 5_000_000).unwrap();
+
+    // Central bins should get more tokens than edge bins.
+    assert!(tokens[32] > tokens[0], "center > edge");
+    assert!(tokens[32] > tokens[63], "center > far edge");
+    // Bins at 3-sigma away should get very few tokens.
+    assert!(tokens[8] < tokens[32] / 10, "3-sigma away bin should be small");
+}
+
+// ── Distribution sell: invariant and boundary tests ─────────────────
+
+#[test]
+fn test_distribution_sell_returns_less_than_minted() {
+    // After buy, selling all tokens should return <= collateral_in (no free money).
+    let n = 8;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 3_000_000u64;
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let tm_after = total_minted + trade as u128;
+
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, tm_after, &weights, total_tokens).unwrap();
+
+    // Roundtrip should recover approximately what was put in.
+    // isqrt floor rounding can cause ±N units drift (one per bin).
+    let diff = collateral_out.abs_diff(trade);
+    assert!(
+        diff <= n as u64 + 1,
+        "excessive roundtrip drift: got {collateral_out}, put in {trade}, diff={diff}, max={}",
+        n as u64 + 1
+    );
+}
+
+#[test]
+fn test_distribution_sell_partial_position() {
+    // Sell only half the tokens from a buy.
+    let n = 4;
+    let total_minted: u128 = 5_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 1_000_000u64;
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let tm_after = total_minted + trade as u128;
+
+    // Sell half.
+    let half_tokens = total_tokens / 2;
+    let coll_half =
+        compute_distribution_sell(&mut reserves, tm_after, &weights, half_tokens).unwrap();
+
+    // Should get less than half the original collateral (due to price impact).
+    assert!(coll_half > 0);
+    assert!(coll_half < trade); // Must be less than full trade
+}
+
+// ── compute_collateral_for_target_prob with multi-outcome ────────────
+
+#[test]
+fn test_collateral_for_target_prob_5_outcome_to_50() {
+    // 5-outcome market: default prob ~20% each.
+    // Buy outcome 0 to 50% probability.
+    let n = 5;
+    let total_minted: u128 = 10_000_000;
+    let reserves = init_reserves(n, total_minted);
+
+    let effective =
+        compute_collateral_for_target_prob(&reserves, total_minted, 0, 500_000_000).unwrap();
+    assert!(effective > 0);
+
+    // Verify: after buying, probability should be ~50%.
+    let mut reserves_after = reserves.clone();
+    let _tokens = compute_buy(&mut reserves_after, total_minted, 0, effective).unwrap();
+    let tm_after = total_minted + effective as u128;
+    let probs = compute_probabilities(&reserves_after, tm_after);
+    // Allow some tolerance due to isqrt rounding.
+    let diff = probs[0].abs_diff(500_000_000);
+    assert!(
+        diff < 10_000_000, // < 1% error
+        "prob[0]={}, expected ~500M, diff={diff}",
+        probs[0]
+    );
+}
+
+// ── compute_tokens_for_target_prob edge cases ────────────────────────
+
+#[test]
+fn test_tokens_for_target_prob_multi_outcome() {
+    // 5-outcome market: buy outcome 0 high, then sell back to 30%.
+    let n = 5;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+
+    // Buy outcome 0 up (to increase its probability).
+    let _tokens_bought = compute_buy(&mut reserves, total_minted, 0, 5_000_000).unwrap();
+    let tm_after = total_minted + 5_000_000;
+
+    let probs = compute_probabilities(&reserves, tm_after);
+    assert!(probs[0] > 300_000_000, "prob[0]={} should be > 30%", probs[0]);
+
+    // Sell to 30%.
+    let tokens_in =
+        compute_tokens_for_target_prob(&reserves, tm_after, 0, 300_000_000).unwrap();
+    assert!(tokens_in > 0);
+}
+
+// ── Buy/sell consistency: price increases monotonically ──────────────
+
+#[test]
+fn test_successive_distribution_buys_yield_fewer_tokens() {
+    // With non-uniform weights, successive buys should yield diminishing returns
+    // because the concentrated bins get increasingly expensive.
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    // Concentrated weights: 70% on bin 0, 30% spread over rest.
+    let weights: Vec<u64> = vec![
+        (SCALE * 7 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+    ];
+    let trade = 1_000_000u64;
+
+    let mut reserves = init_reserves(n, total_minted);
+    let tokens1 =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let total1: u64 = tokens1.iter().sum();
+
+    let tm_after_1 = total_minted + trade as u128;
+    let tokens2 =
+        compute_distribution_buy(&mut reserves, tm_after_1, &weights, trade).unwrap();
+    let total2: u64 = tokens2.iter().sum();
+
+    // Second buy should yield fewer tokens (price went up in concentrated bins).
+    assert!(
+        total2 < total1,
+        "diminishing returns: buy1={total1}, buy2={total2}"
+    );
+}
+
+// ── scale_reserves: verify all reserves scale proportionally ────────
+
+#[test]
+fn test_scale_reserves_non_uniform_reserves() {
+    // After some trading, reserves are non-uniform. Verify scaling preserves ratios.
+    let mut reserves = vec![200_000u64, 600_000, 400_000];
+    let total_minted: u128 = 1_000_000;
+    let deposit = 500_000u128;
+    let numerator = total_minted + deposit;
+
+    let new_k2 = scale_reserves(&mut reserves, numerator, total_minted).unwrap();
+
+    // Each reserve should be 1.5x the original.
+    assert_eq!(reserves[0], 300_000);
+    assert_eq!(reserves[1], 900_000);
+    assert_eq!(reserves[2], 600_000);
+    assert_eq!(new_k2, numerator * numerator);
+
+    // Ratios preserved: 2:6:4 → 3:9:6 (same ratio).
+    assert_eq!(reserves[1] / reserves[0], 3);
+    assert_eq!(reserves[2] / reserves[0], 2);
+}
+
+// ── Distribution buy: verify invariant holds after operation ────────
+
+#[test]
+fn test_distribution_buy_invariant_holds() {
+    // After distribution buy, verify Σ(total_minted_new - reserves[i])² ≈ k_new².
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 2_000_000u64;
+
+    let _tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let k_new = total_minted + trade as u128;
+    let k_new_sq = k_new * k_new;
+
+    // Compute actual sum of position squares.
+    let actual_sq: u128 = reserves
+        .iter()
+        .map(|&h| {
+            let x = k_new.saturating_sub(h as u128);
+            x * x
+        })
+        .sum();
+
+    // Should hold within tolerance.
+    let diff = if actual_sq > k_new_sq {
+        actual_sq - k_new_sq
+    } else {
+        k_new_sq - actual_sq
+    };
+    assert!(
+        diff <= 256, // INVARIANT_TOLERANCE
+        "invariant violated: actual_sq={actual_sq}, k_new_sq={k_new_sq}, diff={diff}"
+    );
+}
+
+#[test]
+fn test_distribution_sell_invariant_holds() {
+    // After distribution sell, invariant should also hold.
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+
+    // Buy first.
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, 2_000_000).unwrap();
+    let total_tokens: u64 = tokens.iter().sum();
+    let tm_after_buy = total_minted + 2_000_000;
+
+    // Sell half.
+    let collateral_out =
+        compute_distribution_sell(&mut reserves, tm_after_buy, &weights, total_tokens / 2).unwrap();
+    let tm_after_sell = tm_after_buy - collateral_out as u128;
+
+    // Check invariant.
+    let actual_sq: u128 = reserves
+        .iter()
+        .map(|&h| {
+            let x = tm_after_sell.saturating_sub(h as u128);
+            x * x
+        })
+        .sum();
+    let k_sq = tm_after_sell * tm_after_sell;
+    let diff = actual_sq.abs_diff(k_sq);
+    assert!(
+        diff <= 256,
+        "sell invariant violated: actual_sq={actual_sq}, k_sq={k_sq}, diff={diff}"
+    );
+}

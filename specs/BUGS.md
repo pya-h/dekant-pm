@@ -158,3 +158,8 @@ Updated 2026-05-07 with BUG-001, BUG-002, and verification pass.
   - **File:** `backend/src/market/market-deadline.service.ts:64`
   - **Impact:** Query filters `state: STATE_ACTIVE` only. Paused markets (state 1) that pass their deadline stay stuck in Paused state in the DB. The on-chain program handles this lazily on next interaction, but the frontend shows incorrect state until then.
   - **Fix:** Changed `state: STATE_ACTIVE` to `state: In([STATE_ACTIVE, STATE_PAUSED])`. Updated test assertions.
+
+- [ ] **N6: `scale_reserves` silently truncates reserves exceeding u64::MAX** *(open)*
+  - **File:** `programs/dekant-pm/src/engine/amm.rs:490`
+  - **Impact:** `*r = new_r as u64;` performs unchecked truncation. When an LP deposit more than doubles a pool that already has reserves near u64::MAX / 2, the scaled value overflows u64 and wraps silently. Reachable with 18-decimal collateral tokens (e.g., native SOL wrapped as SPL with 9 decimals at ~$18B TVL, or arbitrary 18-decimal tokens at ~$18M TVL). Not reachable with 6-decimal USDC under any realistic scenario.
+  - **Fix:** Replace `*r = new_r as u64;` with `*r = u64::try_from(new_r).map_err(|_| error!(DekantPmError::MathOverflow))?;` (requires the closure to return `Result`).
