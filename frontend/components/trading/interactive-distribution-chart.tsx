@@ -765,30 +765,20 @@ export function InteractiveDistributionChart({
         className="pointer-events-none absolute"
         style={{ left: "68%", top: "18%", width: 0, height: 0 }}
       />
-      {/* Confidence marker — spans from curve peak down to x-axis with drag icon at top */}
-      {muX != null && traderPoints.length > 0 && (() => {
-        const peakY = Math.min(...traderPoints.map(p => p.y));
-        const xAxisY = height - CHART_PADDING.bottom;
-        const topPct = (peakY / height) * 100;
-        const heightPct = ((xAxisY - peakY) / height) * 100;
-        return (
-          <div
-            data-tutorial="chart-peak"
-            className="pointer-events-none absolute flex items-start justify-center"
-            style={{
-              left: `${(muX / VIEW_W) * 100}%`,
-              top: `${topPct}%`,
-              width: 32,
-              height: `${heightPct}%`,
-              transform: "translateX(-50%)",
-            }}
-          >
-            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mt-1">
-              <path d="M1 7h16M4 4L1 7l3 3M14 4l3 3-3 3" stroke="rgb(96 165 250)" strokeOpacity="0.8" />
-            </svg>
-          </div>
-        );
-      })()}
+      {/* Confidence marker — vertical strip at mu covering the plot area */}
+      {muX != null && (
+        <div
+          data-tutorial="chart-peak"
+          className="pointer-events-none absolute"
+          style={{
+            left: `${(muX / VIEW_W) * 100}%`,
+            top: `${(CHART_PADDING.top / height) * 100}%`,
+            width: 32,
+            height: `${(plotH / height) * 100}%`,
+            transform: "translateX(-50%)",
+          }}
+        />
+      )}
       </div>
 
       {/* Legend (clickable to toggle curves) */}
