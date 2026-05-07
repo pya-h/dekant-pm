@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -104,6 +105,17 @@ export class ProfileController {
   ) {
     const walletAddress = (req as any).walletAddress as string;
     return this.userService.updateProfile(walletAddress, dto);
+  }
+
+  @Patch('tutorial')
+  @ApiOperation({ summary: 'Advance tutorial step seen' })
+  @ApiResponse({ status: 200, description: 'Updated tutorial step' })
+  async advanceTutorial(
+    @Req() req: Request,
+    @Body() body: { step: number },
+  ) {
+    const walletAddress = (req as any).walletAddress as string;
+    return this.userService.advanceTutorial(walletAddress, body.step);
   }
 }
 
