@@ -19,6 +19,7 @@ import { UserService } from '../../src/user/user.service';
 import {
   UserController,
   AdminController,
+  ProfileController,
 } from '../../src/user/user.controller';
 import { MarketEntity } from '../../src/market/entity/market.entity';
 import { TradeEntity } from '../../src/market/entity/trade.entity';
@@ -178,6 +179,7 @@ export async function createTestApp(): Promise<TestApp> {
       AmmController,
       UserController,
       AdminController,
+      ProfileController,
       SettingsController,
     ],
     providers: [

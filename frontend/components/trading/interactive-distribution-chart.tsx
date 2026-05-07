@@ -51,7 +51,7 @@ export function InteractiveDistributionChart({
   const yDragRef = useRef<{ startClientY: number; startMaxP: number } | null>(null);
 
   // Frozen y-axis base for fixed mode (only user drag should change it)
-  const fixedYBaseRef = useRef<number | null>(null);
+  const [fixedYBase, setFixedYBase] = useState<number | null>(null);
 
   // Zoom state
   const [zoom, setZoom] = useState(1);
@@ -113,14 +113,19 @@ export function InteractiveDistributionChart({
     return Math.max(marketMax, traderMax, posMax, 0.001) * 1.1;
   }, [marketProbabilities, traderWeights, positionWeights]);
 
-  // In fixed mode, freeze the y-axis base so only user drag changes it
-  if (!dynamicScale && fixedYBaseRef.current === null) {
-    fixedYBaseRef.current = computedMaxP;
-  }
-  if (dynamicScale) {
-    fixedYBaseRef.current = null;
-  }
-  const maxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBaseRef.current ?? computedMaxP));
+  // In fixed mode, freeze the y-axis base so only user drag changes it.
+  // Uses rAF to avoid synchronous setState inside effect body.
+  useEffect(() => {
+    let raf: number;
+    if (dynamicScale) {
+      raf = requestAnimationFrame(() => setFixedYBase(null));
+    } else if (fixedYBase === null) {
+      raf = requestAnimationFrame(() => setFixedYBase(computedMaxP));
+    }
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, [dynamicScale, fixedYBase, computedMaxP]);
+
+  const maxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBase ?? computedMaxP));
 
   const marketPoints = useMemo(
     () => marketProbabilities.map((p, i) => ({
@@ -469,7 +474,7 @@ export function InteractiveDistributionChart({
           </button>
           <button
             type="button"
-            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); fixedYBaseRef.current = null; resetZoom(); }}
+            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); setFixedYBase(null); resetZoom(); }}
             className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
             title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
           >
@@ -515,6 +520,7 @@ export function InteractiveDistributionChart({
           </button>
         </div>
       </div>
+      <div className="relative">
       <svg
         ref={svgRef}
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
@@ -702,7 +708,7 @@ export function InteractiveDistributionChart({
           </>
         )}
 
-        {/* "Drag handles to adjust spread" hint */}
+        {/* "Drag to change the curve peak" hint */}
         {mu !== null && muX != null && (
           <text
             x={muX} y={baseline - 8}
@@ -710,7 +716,7 @@ export function InteractiveDistributionChart({
             className="fill-muted-foreground"
             fontSize={9} opacity={0.5}
           >
-            Drag handles to adjust spread
+            Drag to change the curve peak
           </text>
         )}
 
@@ -747,6 +753,43 @@ export function InteractiveDistributionChart({
           </text>
         )}
       </svg>
+
+      {/* Tutorial step markers — positioned relative to chart for popover anchoring */}
+      <div
+        data-tutorial="chart-first-click"
+        className="pointer-events-none absolute"
+        style={{ left: "30%", top: "40%", width: 0, height: 0 }}
+      />
+      <div
+        data-tutorial="chart-second-click"
+        className="pointer-events-none absolute"
+        style={{ left: "68%", top: "18%", width: 0, height: 0 }}
+      />
+      {/* Confidence marker — spans from curve peak down to x-axis with drag icon at top */}
+      {muX != null && traderPoints.length > 0 && (() => {
+        const peakY = Math.min(...traderPoints.map(p => p.y));
+        const xAxisY = height - CHART_PADDING.bottom;
+        const topPct = (peakY / height) * 100;
+        const heightPct = ((xAxisY - peakY) / height) * 100;
+        return (
+          <div
+            data-tutorial="chart-peak"
+            className="pointer-events-none absolute flex items-start justify-center"
+            style={{
+              left: `${(muX / VIEW_W) * 100}%`,
+              top: `${topPct}%`,
+              width: 32,
+              height: `${heightPct}%`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mt-1">
+              <path d="M1 7h16M4 4L1 7l3 3M14 4l3 3-3 3" stroke="rgb(96 165 250)" strokeOpacity="0.8" />
+            </svg>
+          </div>
+        );
+      })()}
+      </div>
 
       {/* Legend (clickable to toggle curves) */}
       <div className="mt-1 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
