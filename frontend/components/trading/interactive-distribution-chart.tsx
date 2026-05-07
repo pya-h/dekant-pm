@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useId, useMemo, useCallback, useState, useEffect } from "react";
-import { ZoomIn, ZoomOut } from "lucide-react";
 import { computeBinWeights } from "@/lib/normal";
 import { computeProbabilities, SCALE, type MarketDetail } from "@/lib/types";
 import { useLocalPrefs } from "@/lib/use-local-prefs";
@@ -371,23 +370,17 @@ export function InteractiveDistributionChart({
     [clientXToSvgX, yScaleOverride, zoom, resetZoom],
   );
 
-  // Zoom via buttons (zoom from center of current view)
-  const zoomBy = useCallback((factor: number) => {
-    const newZoom = Math.max(1, Math.min(8, zoom * factor));
-    if (newZoom <= 1.01) {
-      resetZoom();
-      setYScaleOverride(null);
-      return;
-    }
-    const centerX = vbX + vbW / 2;
-    const centerY = vbY + vbH / 2;
-    const newVbW = VIEW_W / newZoom;
-    const newVbH = height / newZoom;
-    const newVbX = Math.max(0, Math.min(VIEW_W - newVbW, centerX - newVbW / 2));
-    const newVbY = Math.max(0, Math.min(height - newVbH, centerY - newVbH / 2));
-    setZoom(newZoom);
-    setPanOffset({ x: newVbX, y: newVbY });
-  }, [zoom, vbX, vbY, vbW, vbH, height, resetZoom]);
+  // Shift+! keybinding to toggle smooth/segmented curve (hidden developer shortcut)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && e.key === "!") {
+        e.preventDefault();
+        setPref("chartSmooth", !smooth);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [smooth, setPref]);
 
   // Scroll-to-zoom (non-passive wheel handler via useEffect)
   useEffect(() => {
@@ -460,65 +453,29 @@ export function InteractiveDistributionChart({
 
   return (
     <div className="relative w-full">
-      {/* Chart toolbar — sits above the chart, doesn't overlap */}
-      <div className="flex items-center justify-between mb-1">
-        {/* Left: Y-axis controls (stacked vertically) */}
-        <div className="flex flex-col gap-0.5">
-          <button
-            type="button"
-            onClick={() => setPref("chartYUnit", yUnit === "pct" ? "price" : "pct")}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-            title={yUnit === "pct" ? "Switch to price" : "Switch to percentage"}
-          >
-            {yUnit === "pct" ? "%" : "$"}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); setFixedYBase(null); resetZoom(); }}
-            className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
-            title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
-          >
-            <svg width="12" height="10" viewBox="0 0 14 10">
-              <path d="M1 9 L1 1 M1 1 L3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              {dynamicScale && (
-                <path d="M6 5 L8 3 L10 6 L13 2" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-              )}
-            </svg>
-          </button>
-        </div>
-        {/* Right: curve style + zoom controls (single row) */}
-        <div className="flex gap-0.5 items-center">
-          <button
-            type="button"
-            onClick={() => zoomBy(1.5)}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-muted-foreground transition-colors hover:text-foreground"
-            title="Zoom in"
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(1 / 1.5)}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-muted-foreground transition-colors hover:text-foreground"
-            title="Zoom out"
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setPref("chartSmooth", !smooth)}
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 text-muted-foreground transition-colors hover:text-foreground"
-            title={smooth ? "Switch to segmented (real bins)" : "Switch to smooth curve"}
-          >
-            <svg width="14" height="10" viewBox="0 0 16 10">
-              {smooth ? (
-                <path d="M1 8 C3 8 5 2 8 2 C11 2 13 6 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              ) : (
-                <path d="M1 8 L4 6 L7 2 L10 4 L13 3 L15 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-              )}
-            </svg>
-          </button>
-        </div>
+      {/* Y-axis controls — above chart, left-aligned */}
+      <div className="flex items-center gap-2 mb-1">
+        <button
+          type="button"
+          onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); setFixedYBase(null); resetZoom(); }}
+          className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-muted/30 transition-colors hover:text-foreground ${dynamicScale ? "text-blue-400" : "text-muted-foreground"}`}
+          title={dynamicScale ? "Switch to fixed Y-axis (market-based)" : "Switch to dynamic Y-axis (auto-fit both curves)"}
+        >
+          <svg width="12" height="10" viewBox="0 0 14 10">
+            <path d="M1 9 L1 1 M1 1 L3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            {dynamicScale && (
+              <path d="M6 5 L8 3 L10 6 L13 2" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+            )}
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => setPref("chartYUnit", yUnit === "pct" ? "price" : "pct")}
+          className="text-[10px] text-muted-foreground/60 cursor-pointer transition-colors hover:text-foreground/80 underline decoration-dotted underline-offset-2"
+          title={yUnit === "pct" ? "Switch to price view" : "Switch to probability view"}
+        >
+          {yUnit === "pct" ? "Probability" : "Price"}
+        </button>
       </div>
       <div className="relative">
       <svg
