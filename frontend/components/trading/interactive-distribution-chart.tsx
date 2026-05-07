@@ -55,6 +55,7 @@ export function InteractiveDistributionChart({
   // Y-axis manual scale override
   const [yScaleOverride, setYScaleOverride] = useState<number | null>(null);
   const yDragRef = useRef<{ startClientY: number; startMaxP: number } | null>(null);
+  const [frozenMaxP, setFrozenMaxP] = useState<number | null>(null);
 
   // Frozen y-axis base for fixed mode (only user drag should change it)
   const [fixedYBase, setFixedYBase] = useState<number | null>(null);
@@ -131,7 +132,10 @@ export function InteractiveDistributionChart({
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, [dynamicScale, fixedYBase, computedMaxP]);
 
-  const maxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBase ?? computedMaxP));
+  // During mu drag in dynamic mode, freeze y-axis to prevent grid jitter.
+  // frozenMaxP is set in handlePointerDown, cleared in handlePointerUp.
+  const rawMaxP = yScaleOverride ?? (dynamicScale ? computedMaxP : (fixedYBase ?? computedMaxP));
+  const maxP = frozenMaxP ?? rawMaxP;
 
   // Generate nice Y-axis ticks (e.g. 0%, 10%, 20%, … or 0%, 5%, 10%, …)
   const yTicks = useMemo(() => {
@@ -282,9 +286,11 @@ export function InteractiveDistributionChart({
       const clamped = Math.max(rangeMin, Math.min(rangeMax, value));
       onMuChange(clamped);
       setDragMode("mu");
+      // Freeze y-axis during mu drag to prevent grid jitter (skip first click when mu is unset)
+      if (mu !== null && dynamicScale && yScaleOverride == null) setFrozenMaxP(rawMaxP);
       if (zoom > 1) resetZoom();
     },
-    [clientXToSvgX, clientXToValue, mu, sigma, handleThreshold, rangeMin, rangeMax, onMuChange, yScaleOverride, computedMaxP, zoom, resetZoom],
+    [clientXToSvgX, clientXToValue, mu, sigma, handleThreshold, rangeMin, rangeMax, onMuChange, yScaleOverride, computedMaxP, zoom, resetZoom, dynamicScale, rawMaxP],
   );
 
   const handlePointerMove = useCallback(
@@ -305,6 +311,8 @@ export function InteractiveDistributionChart({
       const value = clientXToValue(e.clientX);
 
       if (dragMode === "mu") {
+        // Lazy-freeze y-axis on first move (covers initial click where mu was null)
+        if (frozenMaxP == null && dynamicScale && yScaleOverride == null) setFrozenMaxP(rawMaxP);
         const clamped = Math.max(rangeMin, Math.min(rangeMax, value));
         onMuChange(clamped);
       } else if (dragMode === "sigma-left" && mu !== null) {
@@ -315,11 +323,12 @@ export function InteractiveDistributionChart({
         onSigmaChange(newSigma);
       }
     },
-    [dragMode, clientXToValue, mu, rangeMin, rangeMax, minSigma, onMuChange, onSigmaChange],
+    [dragMode, clientXToValue, mu, rangeMin, rangeMax, minSigma, onMuChange, onSigmaChange, frozenMaxP, dynamicScale, yScaleOverride, rawMaxP],
   );
 
   const handlePointerUp = useCallback(() => {
     setDragMode("none");
+    setFrozenMaxP(null);
   }, []);
 
   // Cursor style
