@@ -35,6 +35,8 @@ interface MarketHeaderBarProps {
   bookmarkLoading?: boolean;
   onToggleBookmark?: () => void;
   bookmarkDisabled?: boolean;
+  /** When true, show the faucet button even if no claims remain (tutorial mode) */
+  tutorialActive?: boolean;
 }
 
 export function MarketHeaderBar({
@@ -48,6 +50,7 @@ export function MarketHeaderBar({
   bookmarkLoading = false,
   onToggleBookmark,
   bookmarkDisabled = false,
+  tutorialActive = false,
 }: MarketHeaderBarProps) {
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -119,18 +122,20 @@ export function MarketHeaderBar({
             </div>
           )}
 
-          {/* Faucet button (market detail only) */}
-          {showFaucet && faucetAvailable > 0 && (
+          {/* Faucet button (market detail only) — visible during tutorial even if no claims remain */}
+          {showFaucet && (faucetAvailable > 0 || tutorialActive) && (
             <Button
               data-tutorial="claim-tokens"
               onClick={onClaimFaucet}
-              disabled={faucetLoading}
+              disabled={faucetLoading || (faucetAvailable <= 0 && tutorialActive)}
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
             >
               {faucetLoading ? (
                 <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Claiming...</>
-              ) : (
+              ) : faucetAvailable > 0 ? (
                 `Claim Tokens (${faucetAvailable})`
+              ) : (
+                "Claim Tokens"
               )}
             </Button>
           )}

@@ -11,6 +11,8 @@ export interface TutorialStep {
   title: string;
   /** Preferred popover placement relative to target */
   placement?: "top" | "bottom" | "left" | "right";
+  /** Show spotlight cutout + dashed border around target (default true) */
+  spotlight?: boolean;
 }
 
 interface TutorialOverlayProps {
@@ -30,6 +32,11 @@ interface Rect {
 
 const PADDING = 8;
 const POPOVER_GAP = 12;
+const ANIM_DURATION = 350;
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
+}
 
 export function TutorialOverlay({
   steps,
@@ -39,14 +46,40 @@ export function TutorialOverlay({
   onDismiss,
 }: TutorialOverlayProps) {
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
-  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [stepKey, setStepKey] = useState(currentStep);
+  const [textVisible, setTextVisible] = useState(true);
   const popoverRef = useRef<HTMLDivElement>(null);
   const maskId = useId();
+
+  // Animated rect for smooth spotlight movement
+  const animatedRectRef = useRef<Rect | null>(null);
+  const [displayRect, setDisplayRect] = useState<Rect | null>(null);
+  const animFrameRef = useRef<number>(0);
 
   const step = steps[currentStep] ?? null;
   const targetSelector = step?.target ?? "";
   const placement = step?.placement ?? "bottom";
+  const showSpotlight = step?.spotlight !== false;
 
+  // Fade in on mount
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Crossfade step text when currentStep changes
+  useEffect(() => {
+    setTextVisible(false);
+    const timer = setTimeout(() => {
+      setStepKey(currentStep);
+      setTextVisible(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [currentStep]);
+
+  // Measure target element (viewport-relative for fixed positioning)
   const measureTarget = useCallback(() => {
     if (!targetSelector) {
       setTargetRect(null);
@@ -59,8 +92,8 @@ export function TutorialOverlay({
     }
     const rect = el.getBoundingClientRect();
     setTargetRect({
-      top: rect.top + window.scrollY,
-      left: rect.left + window.scrollX,
+      top: rect.top,
+      left: rect.left,
       width: rect.width,
       height: rect.height,
     });
@@ -87,7 +120,38 @@ export function TutorialOverlay({
     }
   }, [targetSelector]);
 
-  // Position popover
+  // Animate spotlight cutout toward target rect
+  useEffect(() => {
+    cancelAnimationFrame(animFrameRef.current);
+
+    if (!targetRect) {
+      animatedRectRef.current = null;
+      setDisplayRect(null);
+      return;
+    }
+
+    const startRect = animatedRectRef.current ?? targetRect;
+    const startTime = performance.now();
+
+    const animate = (now: number) => {
+      const t = Math.min(1, (now - startTime) / ANIM_DURATION);
+      const ease = easeOutCubic(t);
+      const current: Rect = {
+        top: startRect.top + (targetRect.top - startRect.top) * ease,
+        left: startRect.left + (targetRect.left - startRect.left) * ease,
+        width: startRect.width + (targetRect.width - startRect.width) * ease,
+        height: startRect.height + (targetRect.height - startRect.height) * ease,
+      };
+      animatedRectRef.current = current;
+      setDisplayRect(current);
+      if (t < 1) animFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [targetRect]);
+
+  // Position popover (viewport-relative, fixed positioning)
   useEffect(() => {
     if (!step || !popoverRef.current) return;
 
@@ -96,13 +160,12 @@ export function TutorialOverlay({
     const ph = popover.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const scrollY = window.scrollY;
 
     let top = 0;
     let left = 0;
 
     if (!targetRect) {
-      top = scrollY + vh / 2 - ph / 2;
+      top = vh / 2 - ph / 2;
       left = vw / 2 - pw / 2;
     } else {
       if (placement === "bottom") {
@@ -123,14 +186,10 @@ export function TutorialOverlay({
     // Clamp to viewport
     if (left < 12) left = 12;
     if (left + pw > vw - 12) left = vw - pw - 12;
-    if (top - scrollY < 12) top = scrollY + 12;
-    if (top - scrollY + ph > vh - 12) top = scrollY + vh - ph - 12;
+    if (top < 12) top = 12;
+    if (top + ph > vh - 12) top = vh - ph - 12;
 
-    setPopoverStyle({
-      position: "absolute",
-      top: `${top}px`,
-      left: `${left}px`,
-    });
+    setPopoverPos({ top, left });
   }, [targetRect, placement, step, currentStep]);
 
   // Keyboard navigation
@@ -147,21 +206,32 @@ export function TutorialOverlay({
 
   if (!step) return null;
 
+  const displayStep = steps[stepKey] ?? step;
+
   const overlay = (
-    <div className="tutorial-overlay" style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
-      {/* Dimming layer with mask to cut out target area */}
+    <div
+      className="tutorial-overlay"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9998,
+        opacity: mounted ? 1 : 0,
+        transition: "opacity 300ms ease-out",
+      }}
+    >
+      {/* Dimming layer with animated mask cutout */}
       <svg
         style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 9998, pointerEvents: "none" }}
       >
         <defs>
           <mask id={maskId}>
             <rect x="0" y="0" width="100%" height="100%" fill="white" />
-            {targetRect && (
+            {showSpotlight && displayRect && (
               <rect
-                x={targetRect.left - window.scrollX - PADDING}
-                y={targetRect.top - window.scrollY - PADDING}
-                width={targetRect.width + PADDING * 2}
-                height={targetRect.height + PADDING * 2}
+                x={displayRect.left - PADDING}
+                y={displayRect.top - PADDING}
+                width={displayRect.width + PADDING * 2}
+                height={displayRect.height + PADDING * 2}
                 rx="8"
                 fill="black"
               />
@@ -178,21 +248,21 @@ export function TutorialOverlay({
         />
       </svg>
 
-      {/* Click-capture layer (clicking outside dismisses) */}
+      {/* Click-capture layer */}
       <div
         style={{ position: "fixed", inset: 0, zIndex: 9998 }}
         onClick={onDismiss}
       />
 
-      {/* Highlight border around target */}
-      {targetRect && (
+      {/* Animated highlight border around target */}
+      {showSpotlight && displayRect && (
         <div
           style={{
-            position: "absolute",
-            top: `${targetRect.top - PADDING}px`,
-            left: `${targetRect.left - PADDING}px`,
-            width: `${targetRect.width + PADDING * 2}px`,
-            height: `${targetRect.height + PADDING * 2}px`,
+            position: "fixed",
+            top: `${displayRect.top - PADDING}px`,
+            left: `${displayRect.left - PADDING}px`,
+            width: `${displayRect.width + PADDING * 2}px`,
+            height: `${displayRect.height + PADDING * 2}px`,
             borderRadius: "8px",
             border: "2px dashed oklch(0.7 0.15 200)",
             zIndex: 9999,
@@ -201,20 +271,37 @@ export function TutorialOverlay({
         />
       )}
 
-      {/* Popover */}
+      {/* Popover with smooth position transitions */}
       <div
         ref={popoverRef}
         style={{
-          ...popoverStyle,
+          position: "fixed",
+          top: popoverPos ? `${popoverPos.top}px` : "50%",
+          left: popoverPos ? `${popoverPos.left}px` : "50%",
           zIndex: 10000,
+          transition: "top 350ms cubic-bezier(0.33, 1, 0.68, 1), left 350ms cubic-bezier(0.33, 1, 0.68, 1)",
+          animation: "tutorial-popover-in 300ms cubic-bezier(0.33, 1, 0.68, 1) both",
         }}
         className="rounded-xl border border-[oklch(1_0_0/15%)] bg-[oklch(0.18_0.005_285)] shadow-2xl shadow-black/40"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start gap-3 p-4 min-w-[200px] max-w-[280px]">
+        <style>{`
+          @keyframes tutorial-popover-in {
+            from { opacity: 0; transform: scale(0.92) translateY(8px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
+          }
+        `}</style>
+        <div className="flex items-start gap-3 p-4 min-w-[200px] max-w-[340px]">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[oklch(0.95_0_0)]">
-              {step.title}
+            <p
+              className="text-sm font-medium text-[oklch(0.95_0_0)]"
+              style={{
+                opacity: textVisible ? 1 : 0,
+                transform: textVisible ? "translateY(0)" : "translateY(-4px)",
+                transition: "opacity 150ms ease, transform 150ms ease",
+              }}
+            >
+              {displayStep.title}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <button

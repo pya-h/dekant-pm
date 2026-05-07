@@ -158,6 +158,90 @@ describe('UserService', () => {
     });
   });
 
+  // ── Tutorial ─────────────────────────────────────────────────
+
+  describe('advanceTutorial', () => {
+    it('should advance from 0 to 1', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 0 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, 1);
+
+      expect(result).toEqual({ tutorialStepSeen: 1 });
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ tutorialStepSeen: 1 }),
+      );
+    });
+
+    it('should advance multiple steps forward', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 2 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, 5);
+
+      expect(result).toEqual({ tutorialStepSeen: 5 });
+      expect(userRepo.save).toHaveBeenCalled();
+    });
+
+    it('should never go backward', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 3 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, 1);
+
+      expect(result).toEqual({ tutorialStepSeen: 3 });
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should be a no-op when step equals current', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 2 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, 2);
+
+      expect(result).toEqual({ tutorialStepSeen: 2 });
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should ignore negative step values', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 1 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, -5);
+
+      expect(result).toEqual({ tutorialStepSeen: 1 });
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should ignore non-number step values', async () => {
+      const user = { id: '1', walletAddress: WALLET, tutorialStepSeen: 0 };
+      userRepo.findOne.mockResolvedValue(user);
+
+      const result = await service.advanceTutorial(WALLET, 'abc' as any);
+
+      expect(result).toEqual({ tutorialStepSeen: 0 });
+      expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should create user if not found', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      // Mock create to include default tutorialStepSeen (matches entity default)
+      userRepo.create.mockReturnValueOnce({
+        walletAddress: WALLET,
+        username: 'user_abc',
+        id: '1',
+        tutorialStepSeen: 0,
+      });
+
+      const result = await service.advanceTutorial(WALLET, 1);
+
+      expect(userRepo.create).toHaveBeenCalled();
+      // save called twice: once for create, once for tutorial advance
+      expect(userRepo.save).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ tutorialStepSeen: 1 });
+    });
+  });
+
   // ── Existing tests ────────────────────────────────────────────
 
   describe('getPositions', () => {
