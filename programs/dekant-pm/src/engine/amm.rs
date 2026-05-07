@@ -487,7 +487,7 @@ pub fn scale_reserves(
             .checked_mul(numerator)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?
             / denominator;
-        *r = new_r as u64;
+        *r = u64::try_from(new_r).map_err(|_| error!(DekantPmError::MathOverflow))?;
     }
 
     numerator
