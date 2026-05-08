@@ -36,6 +36,7 @@ export function DistributionInput({
   onParamsChange,
   collateralBalance,
   tokenName,
+  position,
 }: DistributionInputProps) {
   const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
@@ -73,6 +74,18 @@ export function DistributionInput({
     () => computeBinWeights(rangeMin, rangeMax, numBins, mu, sigma),
     [rangeMin, rangeMax, numBins, mu, sigma],
   );
+
+  // Max sellable shares for the current distribution shape
+  const maxSellShares = useMemo(() => {
+    if (!position || side !== "sell") return 0;
+    let max = Infinity;
+    for (let i = 0; i < traderWeights.length; i++) {
+      if (traderWeights[i] <= 0) continue;
+      const holding = Number(position.holdings[i] ?? "0");
+      max = Math.min(max, holding / traderWeights[i]);
+    }
+    return max === Infinity ? 0 : Math.floor(max);
+  }, [position, side, traderWeights]);
 
   // Reset inputUnit when side changes (React-recommended pattern)
   const [prevSide, setPrevSide] = useState(side);
@@ -201,15 +214,22 @@ export function DistributionInput({
         <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
           {side === "buy" && collateralBalance != null ? (
             <span>Balance: {formatUsdc(collateralBalance)}{tokenName ? ` ${tokenName}` : ""}</span>
+          ) : side === "sell" && inputUnit === "shares" && maxSellShares > 0 ? (
+            <span>Available: {(maxSellShares / 10 ** USDC_DECIMALS).toFixed(2)} shares</span>
           ) : (
             <span />
           )}
-          {side === "buy" && collateralBalance != null && collateralBalance > 0 && (
+          {((side === "buy" && collateralBalance != null && collateralBalance > 0) ||
+            (side === "sell" && inputUnit === "shares" && maxSellShares > 0)) && (
             <button
               type="button"
-              onClick={() =>
-                setAmount((collateralBalance / 10 ** USDC_DECIMALS).toString())
-              }
+              onClick={() => {
+                if (side === "buy" && collateralBalance != null) {
+                  setAmount((collateralBalance / 10 ** USDC_DECIMALS).toString());
+                } else if (side === "sell" && maxSellShares > 0) {
+                  setAmount((maxSellShares / 10 ** USDC_DECIMALS).toString());
+                }
+              }}
               className="text-[11px] font-medium text-primary hover:text-primary/80"
             >
               Max

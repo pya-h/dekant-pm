@@ -233,7 +233,7 @@ export default function MarketDetailPage({
         <div className="lg:sticky lg:top-16 lg:self-start">
           <TradingPanel
             market={market}
-            distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset } : undefined}
+            distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset, onSetMuSigma: (m, s) => { setMu(m); setSigma(s); } } : undefined}
           />
         </div>
       </div>
