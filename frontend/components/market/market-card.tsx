@@ -99,8 +99,8 @@ function MarketCardInner({ market }: { market: MarketSummary }) {
   const label = `${market.subject} - End of ${MONTH_FULL_NAMES[deadline.getMonth()]}`;
   const countdown = deadlineCountdown(deadline);
 
-  // Liquidity: sum of all reserves (collateral locked in the AMM)
-  const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
+  // Liquidity: total collateral deposited into the market
+  const liquidity = Number(market.totalMinted);
 
   return (
     <Card className="relative h-full overflow-hidden py-0 gap-0 transition-all duration-300 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5">
