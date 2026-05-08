@@ -17,6 +17,8 @@ interface CostPreviewProps {
   sigma?: number;
   /** Reports the computed amount (base units) for reverse/target trades, null for standard */
   onEstimate?: (computedAmount: number | null) => void;
+  /** Display ticker for the collateral token (e.g. "USDC"). Defaults to "USDC". */
+  tokenName?: string | null;
 }
 
 interface BuyEstimate {
@@ -81,7 +83,9 @@ export function CostPreview({
   mu,
   sigma,
   onEstimate,
+  tokenName,
 }: CostPreviewProps) {
+  const ticker = tokenName || "USDC";
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -298,7 +302,7 @@ export function CostPreview({
           ) : mode === "sellToPrice" && "tokensToSell" in estimate ? (
             <>
               <PreviewRow
-                label="USDC received"
+                label={`${ticker} received`}
                 value={formatUsdcRaw(
                   (estimate as SellToPriceEstimate).collateralOut,
                 )}
@@ -408,7 +412,7 @@ export function CostPreview({
           ) : "collateralOut" in estimate ? (
             <>
               <PreviewRow
-                label="USDC received"
+                label={`${ticker} received`}
                 value={formatUsdcRaw(
                   (estimate as SellEstimate).collateralOut,
                 )}

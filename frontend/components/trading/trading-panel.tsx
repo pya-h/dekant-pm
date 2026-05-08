@@ -122,6 +122,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
     address,
   );
   const { data: tokenName } = useTokenName(market.collateralMint);
+  const ticker = tokenName || "USDC";
 
   const handleParamsChange = useCallback(
     (p: TradeParams | null) => {
@@ -240,7 +241,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
   //   })();
 
   const validationError = exceedsBalance
-    ? "Insufficient USDC balance"
+    ? `Insufficient ${ticker} balance`
     : null;
 
   const handleSubmit = useCallback(async () => {
@@ -468,7 +469,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-medium text-muted-foreground">
-                  Amount (USDC)
+                  Amount ({ticker})
                 </label>
               </div>
               <div className="relative">
@@ -483,12 +484,12 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   disabled={chartMu === null}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                  USDC
+                  {ticker}
                 </span>
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
                 {collateralBalance > 0 ? (
-                  <span>Balance: {formatUsdc(collateralBalance)}{tokenName ? ` ${tokenName}` : ""}</span>
+                  <span>Balance: {formatUsdc(collateralBalance)} {ticker}</span>
                 ) : (
                   <span />
                 )}
@@ -518,6 +519,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   amount={amount}
                   inputUnit={inputUnit}
                   onEstimate={handleEstimate}
+                  tokenName={ticker}
                 />
               )}
               {validationError && (
@@ -575,6 +577,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   amount={params.amount}
                   inputUnit={params.inputUnit}
                   onEstimate={handleEstimate}
+                  tokenName={ticker}
                 />
               )}
               {validationError && (
@@ -624,6 +627,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   amount={params.amount}
                   inputUnit={params.inputUnit}
                   onEstimate={handleEstimate}
+                  tokenName={ticker}
                 />
               )}
               {validationError && (
