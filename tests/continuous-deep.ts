@@ -9,7 +9,7 @@ import { ctx } from "./helpers/context";
 import { ensureSetup } from "./helpers/setup";
 import { findUserPosition, findLpPosition } from "./helpers/pda";
 import { getOrCreateAta, mintTokens } from "./helpers/accounts";
-import { createContinuousMarket } from "./helpers/market-helper";
+import { createContinuousMarket, createBinaryMarket } from "./helpers/market-helper";
 import { SCALE } from "./helpers/constants";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -853,5 +853,260 @@ describe("Continuous Deep — Multiple Traders Full Resolution", () => {
     const vaultBal = await getVaultBalance(mkt.vault);
     const marketFinal = await ctx.program.account.market.fetch(mkt.marketPda);
     expect(vaultBal).to.be.greaterThanOrEqual(Number(marketFinal.protocolFeeAccumulated));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// sell_all instruction tests
+// ══════════════════════════════════════════════════════════════════════
+
+describe("Continuous Deep — sell_all instruction", () => {
+  let marketPda: PublicKey, vaultAuthority: PublicKey, vault: PublicKey;
+  const NUM_BINS = 32;
+  const RANGE_MIN = new BN(0).mul(SCALE);
+  const RANGE_MAX = new BN(100).mul(SCALE);
+
+  before(async () => {
+    await ensureSetup();
+    const mkt = await createContinuousMarket({
+      numBins: NUM_BINS,
+      rangeMin: RANGE_MIN,
+      rangeMax: RANGE_MAX,
+      deadline: Math.floor(Date.now() / 1000) + 180,
+      liquidity: new BN(20_000_000),
+    });
+    marketPda = mkt.marketPda;
+    vaultAuthority = mkt.vaultAuthority;
+    vault = mkt.vault;
+  });
+
+  it("sells entire position in one call after a single buy", async () => {
+    const traderAta = await fundTrader(ctx.traderA);
+    const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
+
+    // Buy distribution N(50, 15)
+    await buyDistribution(
+      ctx.traderA, traderAta, marketPda, vaultAuthority, vault,
+      new BN(50).mul(SCALE), new BN(15).mul(SCALE), new BN(5_000_000),
+    );
+
+    const posBefore = await ctx.program.account.userPosition.fetch(posA);
+    const holdingsBefore = posBefore.holdings.map((h: any) => h.toNumber());
+    const totalTokens = holdingsBefore.reduce((s: number, h: number) => s + h, 0);
+    expect(totalTokens).to.be.greaterThan(0, "should have tokens after buy");
+
+    const ataBalBefore = Number((await getAccount(ctx.provider.connection, traderAta)).amount);
+
+    // sell_all — sells entire position with no distribution fitting needed
+    await ctx.program.methods
+      .sellAll({ minCollateralOut: new BN(0) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority,
+        vault,
+        traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      ])
+      .signers([ctx.traderA])
+      .rpc();
+
+    // Position should be zeroed out
+    const posAfter = await ctx.program.account.userPosition.fetch(posA);
+    const holdingsAfter = posAfter.holdings.map((h: any) => h.toNumber());
+    expect(holdingsAfter.every((h: number) => h === 0)).to.be.true;
+
+    // Should have received collateral
+    const ataBalAfter = Number((await getAccount(ctx.provider.connection, traderAta)).amount);
+    const collateralReceived = ataBalAfter - ataBalBefore;
+    expect(collateralReceived).to.be.greaterThan(0, "should receive collateral");
+  });
+
+  it("sells entire position after multiple buys with different curves", async () => {
+    const traderBata = await fundTrader(ctx.traderB);
+    const [posB] = findUserPosition(marketPda, ctx.traderB.publicKey, ctx.program.programId);
+
+    // Buy #1: N(30, 10)
+    await buyDistribution(
+      ctx.traderB, traderBata, marketPda, vaultAuthority, vault,
+      new BN(30).mul(SCALE), new BN(10).mul(SCALE), new BN(3_000_000),
+    );
+    // Buy #2: N(70, 10)
+    await buyDistribution(
+      ctx.traderB, traderBata, marketPda, vaultAuthority, vault,
+      new BN(70).mul(SCALE), new BN(10).mul(SCALE), new BN(3_000_000),
+    );
+
+    const posBefore = await ctx.program.account.userPosition.fetch(posB);
+    const holdingsBefore = posBefore.holdings.map((h: any) => h.toNumber());
+    const totalTokens = holdingsBefore.reduce((s: number, h: number) => s + h, 0);
+    expect(totalTokens).to.be.greaterThan(0);
+
+    // Non-Gaussian shape: tokens should be in two peaks
+    const leftPeak = holdingsBefore[Math.floor(30 * NUM_BINS / 100)];
+    const rightPeak = holdingsBefore[Math.floor(70 * NUM_BINS / 100)];
+    expect(leftPeak).to.be.greaterThan(0, "left peak should have tokens");
+    expect(rightPeak).to.be.greaterThan(0, "right peak should have tokens");
+
+    const ataBalBefore = Number((await getAccount(ctx.provider.connection, traderBata)).amount);
+
+    // sell_all handles any shape — no Gaussian fitting needed
+    await ctx.program.methods
+      .sellAll({ minCollateralOut: new BN(0) })
+      .accountsPartial({
+        trader: ctx.traderB.publicKey,
+        market: marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posB,
+        vaultAuthority,
+        vault,
+        traderAta: traderBata,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      ])
+      .signers([ctx.traderB])
+      .rpc();
+
+    // Position zeroed
+    const posAfter = await ctx.program.account.userPosition.fetch(posB);
+    expect(posAfter.holdings.every((h: any) => h.toNumber() === 0)).to.be.true;
+
+    // Received collateral
+    const ataBalAfter = Number((await getAccount(ctx.provider.connection, traderBata)).amount);
+    expect(ataBalAfter - ataBalBefore).to.be.greaterThan(0);
+  });
+
+  it("respects min_collateral_out slippage protection", async () => {
+    const traderAta = await fundTrader(ctx.traderA);
+    const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
+
+    // Buy a small amount
+    await buyDistribution(
+      ctx.traderA, traderAta, marketPda, vaultAuthority, vault,
+      new BN(50).mul(SCALE), new BN(15).mul(SCALE), new BN(1_000_000),
+    );
+
+    // Attempt sell_all with absurdly high min_collateral_out
+    try {
+      await ctx.program.methods
+        .sellAll({ minCollateralOut: new BN(999_999_999) })
+        .accountsPartial({
+          trader: ctx.traderA.publicKey,
+          market: marketPda,
+          protocolConfig: ctx.protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+        ])
+        .signers([ctx.traderA])
+        .rpc();
+      expect.fail("Should reject when min_collateral_out exceeds actual");
+    } catch (err: any) {
+      expect(err.toString()).to.include("MinCollateralNotMet");
+    }
+
+    // Clean up: sell_all with no slippage protection
+    await ctx.program.methods
+      .sellAll({ minCollateralOut: new BN(0) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority,
+        vault,
+        traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      ])
+      .signers([ctx.traderA])
+      .rpc();
+  });
+
+  it("rejects sell_all when position has no holdings", async () => {
+    const [posA] = findUserPosition(marketPda, ctx.traderA.publicKey, ctx.program.programId);
+    const traderAta = await getOrCreateAta(ctx.collateralMint, ctx.traderA.publicKey, ctx.traderA);
+
+    // Position should be empty from previous test
+    try {
+      await ctx.program.methods
+        .sellAll({ minCollateralOut: new BN(0) })
+        .accountsPartial({
+          trader: ctx.traderA.publicKey,
+          market: marketPda,
+          protocolConfig: ctx.protocolConfig,
+          userPosition: posA,
+          vaultAuthority,
+          vault,
+          traderAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([ctx.traderA])
+        .rpc();
+      expect.fail("Should reject sell_all with empty position");
+    } catch (err: any) {
+      expect(err.toString()).to.include("InsufficientHoldings");
+    }
+  });
+
+  it("rejects sell_all on discrete (binary) markets", async () => {
+    const binMkt = await createBinaryMarket({
+      deadline: Math.floor(Date.now() / 1000) + 60,
+      liquidity: new BN(10_000_000),
+    });
+    const traderAta = await fundTrader(ctx.traderA);
+    const [posA] = findUserPosition(binMkt.marketPda, ctx.traderA.publicKey, ctx.program.programId);
+
+    // Buy first to create position
+    await ctx.program.methods
+      .buy({ outcome: 0, collateralAmount: new BN(1_000_000) })
+      .accountsPartial({
+        trader: ctx.traderA.publicKey,
+        market: binMkt.marketPda,
+        protocolConfig: ctx.protocolConfig,
+        userPosition: posA,
+        vaultAuthority: binMkt.vaultAuthority,
+        vault: binMkt.vault,
+        traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([ctx.traderA])
+      .rpc();
+
+    // sell_all should reject for non-continuous markets
+    try {
+      await ctx.program.methods
+        .sellAll({ minCollateralOut: new BN(0) })
+        .accountsPartial({
+          trader: ctx.traderA.publicKey,
+          market: binMkt.marketPda,
+          protocolConfig: ctx.protocolConfig,
+          userPosition: posA,
+          vaultAuthority: binMkt.vaultAuthority,
+          vault: binMkt.vault,
+          traderAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([ctx.traderA])
+        .rpc();
+      expect.fail("Should reject sell_all on binary market");
+    } catch (err: any) {
+      expect(err.toString()).to.include("WrongMarketType");
+    }
   });
 });

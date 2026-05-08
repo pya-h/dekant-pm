@@ -104,6 +104,12 @@ pub mod dekant_pm {
         handle_sell_distribution(ctx, args)
     }
 
+    /// Sell the trader's entire position in a continuous market.
+    /// Reads holdings directly from the position account — no distribution fitting needed.
+    pub fn sell_all(ctx: Context<SellAll>, args: SellAllArgs) -> Result<()> {
+        handle_sell_all(ctx, args)
+    }
+
     // ── Liquidity ────────────────────────────────────────────────────
 
     /// Deposit proportional liquidity into a market.
