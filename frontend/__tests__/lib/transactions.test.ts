@@ -43,9 +43,12 @@ beforeEach(() => {
     .fn()
     .mockReturnValue([DUMMY_PK, 255]);
 
-  // ComputeBudgetProgram.setComputeUnitLimit uses buffer-layout which
-  // is incompatible with jsdom's Buffer implementation.
+  // ComputeBudgetProgram uses buffer-layout which is incompatible with
+  // jsdom's Buffer implementation.
   vi.spyOn(ComputeBudgetProgram, "setComputeUnitLimit").mockReturnValue(
+    {} as any,
+  );
+  vi.spyOn(ComputeBudgetProgram, "setComputeUnitPrice").mockReturnValue(
     {} as any,
   );
 });
@@ -58,12 +61,20 @@ afterEach(() => {
 // Helpers to create a mock Anchor Program with a fluent API
 // ---------------------------------------------------------------------------
 
+/** Fake serialized transaction (just needs to be a valid Uint8Array) */
+const FAKE_SERIALIZED = new Uint8Array([1, 2, 3]);
+
 function createMockProgram() {
-  const rpc = vi.fn().mockResolvedValue("mock-signature");
-  const preInstructions = vi.fn().mockReturnValue({ rpc });
+  const mockTx = {
+    recentBlockhash: null as string | null,
+    feePayer: null as PublicKey | null,
+    serialize: vi.fn().mockReturnValue(FAKE_SERIALIZED),
+  };
+  const transaction = vi.fn().mockResolvedValue(mockTx);
+  const preInstructions = vi.fn().mockReturnValue({ transaction });
   const accountsPartial = vi
     .fn()
-    .mockReturnValue({ rpc, preInstructions });
+    .mockReturnValue({ preInstructions, transaction });
 
   const methods: Record<string, ReturnType<typeof vi.fn>> = {};
   for (const name of [
@@ -78,6 +89,20 @@ function createMockProgram() {
     methods[name] = vi.fn().mockReturnValue({ accountsPartial });
   }
 
+  const mockConnection = {
+    getLatestBlockhash: vi.fn().mockResolvedValue({
+      blockhash: "mock-blockhash",
+      lastValidBlockHeight: 999,
+    }),
+    sendRawTransaction: vi.fn().mockResolvedValue("mock-signature"),
+    confirmTransaction: vi.fn().mockResolvedValue({ value: { err: null } }),
+  };
+
+  const mockWallet = {
+    publicKey: DUMMY_PK,
+    signTransaction: vi.fn().mockResolvedValue(mockTx),
+  };
+
   const program = {
     methods,
     account: {
@@ -90,9 +115,13 @@ function createMockProgram() {
         }),
       },
     },
+    provider: {
+      connection: mockConnection,
+      wallet: mockWallet,
+    },
   } as unknown as Program<DekantPm>;
 
-  return { program, methods, rpc, accountsPartial };
+  return { program, methods, accountsPartial, mockConnection, mockWallet };
 }
 
 const MARKET_PK = new PublicKey(
