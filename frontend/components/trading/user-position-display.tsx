@@ -26,6 +26,7 @@ import {
   formatProbability,
   type MarketDetail,
 } from "@/lib/types";
+import { computeAmmSellProceeds } from "@/lib/portfolio-utils";
 import { cn } from "@/lib/utils";
 import { History, Loader2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
@@ -83,14 +84,14 @@ export function UserPositionDisplay({ market }: UserPositionDisplayProps) {
 
   const deposited = Number(position.totalDeposited);
   const withdrawn = Number(position.totalWithdrawn);
-  const netInvested = deposited - withdrawn;
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);
 
-  const currentValue = computeValue(holdingsNum, probabilities, market);
-  const pnl = currentValue - netInvested;
-  const pnlPct = deposited > 0 ? (pnl / deposited) * 100 : 0;
+  const currentValue = computeValue(holdingsNum, market);
+  const paidPrice = deposited - withdrawn;
+  const pnl = currentValue - paidPrice;
+  const pnlPct = paidPrice > 0 ? (pnl / paidPrice) * 100 : 0;
 
   return (
     <Card>
@@ -183,7 +184,6 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function computeValue(
   holdings: number[],
-  probabilities: number[],
   market: MarketDetail,
 ): number {
   if (market.state === MarketState.Resolved) {
@@ -215,11 +215,8 @@ function computeValue(
     return 0;
   }
 
-  let value = 0;
-  for (let i = 0; i < holdings.length; i++) {
-    value += holdings[i] * (probabilities[i] ?? 0);
-  }
-  return value;
+  // Active/Paused markets: AMM sell proceeds after fees
+  return computeAmmSellProceeds(market.reserves, market.totalMinted, holdings);
 }
 
 function Holdings({
