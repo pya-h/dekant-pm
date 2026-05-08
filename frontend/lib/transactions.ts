@@ -32,6 +32,16 @@ async function sendRobust(
   const connection = provider.connection;
   const wallet = provider.wallet;
 
+  // Pre-flight SOL balance check — with skipPreflight:true the RPC won't
+  // simulate, so insufficient SOL manifests as a silent drop followed by a
+  // confusing "transaction expired" timeout instead of a clear error.
+  const solBalance = await connection.getBalance(wallet.publicKey);
+  if (solBalance < 5_000) {
+    throw new Error(
+      "Insufficient SOL for transaction fees. Please add SOL to your wallet.",
+    );
+  }
+
   // Build the transaction via Anchor (applies accountsPartial, args, etc.)
   // Priority fee (1 micro-lamport per CU) improves tx landing on devnet.
   const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 });
