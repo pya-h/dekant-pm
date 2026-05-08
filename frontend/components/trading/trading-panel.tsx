@@ -3,7 +3,6 @@
 import { useState, useCallback, /* useMemo, */ Component, type ReactNode, type ErrorInfo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { useConnection } from "@solana/wallet-adapter-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { Loader2, TrendingUp, TrendingDown, Wallet, RotateCcw, LogOut } from "lucide-react";
@@ -112,7 +111,6 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
 
   const { publicKey, connected } = useWallet();
   const { setVisible } = useWalletModal();
-  const { connection } = useConnection();
   const program = useProgram();
   const queryClient = useQueryClient();
   const { isSuperadmin, isAdmin, isCreator } = useAdminRole();
@@ -317,16 +315,6 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
 
       if (!signature) return;
 
-      try {
-        const latestBlockhash = await connection.getLatestBlockhash();
-        await connection.confirmTransaction(
-          { signature, ...latestBlockhash },
-          "confirmed",
-        );
-      } catch {
-        // Confirmation timeout is non-fatal
-      }
-
       showTradeSuccess(signature, side === "buy" ? "Buy" : "Sell");
 
       const keys = [
@@ -362,7 +350,7 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
     connected, publicKey, program, params, side, address,
     market.pubkey, market.id, market.collateralMint,
     hasDistParams, chartMu, chartSigma, amount, inputUnit, sellOutLocked,
-    computedAmount, connection, setVisible, queryClient, distributionParams,
+    computedAmount, setVisible, queryClient, distributionParams,
   ]);
 
   const buttonLabel = !connected
