@@ -107,7 +107,9 @@ export function showTradeError(error: unknown) {
 
   // 3. Insufficient SOL for fees
   if (isInsufficientSolError(error)) {
-    toast.error("Insufficient SOL for transaction fees");
+    toast.error("Not enough SOL to pay transaction fees", {
+      description: "Add a small amount of SOL to your wallet to cover network fees.",
+    });
     return;
   }
 

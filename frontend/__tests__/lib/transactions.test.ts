@@ -90,6 +90,7 @@ function createMockProgram() {
   }
 
   const mockConnection = {
+    getBalance: vi.fn().mockResolvedValue(1_000_000_000), // 1 SOL
     getLatestBlockhash: vi.fn().mockResolvedValue({
       blockhash: "mock-blockhash",
       lastValidBlockHeight: 999,
