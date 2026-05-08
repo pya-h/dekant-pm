@@ -21,6 +21,7 @@ import {
   timeUntil,
   type UserPosition,
 } from "@/lib/types";
+import { computeAmmSellProceeds } from "@/lib/portfolio-utils";
 import { cn } from "@/lib/utils";
 
 interface PositionCardProps {
@@ -43,14 +44,11 @@ export function PositionCard({ position }: PositionCardProps) {
   const deposited = Number(position.totalDeposited);
   const withdrawn = Number(position.totalWithdrawn);
 
-  // Mark-to-market value
-  const currentValue = computeCurrentValue(
-    holdingsNum,
-    probabilities,
-    market,
-  );
-  const pnl = currentValue - deposited + withdrawn;
-  const pnlPct = deposited > 0 ? (pnl / deposited) * 100 : 0;
+  // Liquidation value (what you'd get selling now, after fees)
+  const currentValue = computeCurrentValue(holdingsNum, market);
+  const paidPrice = deposited - withdrawn;
+  const pnl = currentValue - paidPrice;
+  const pnlPct = paidPrice > 0 ? (pnl / paidPrice) * 100 : 0;
 
   const isClaimable =
     market.state === MarketState.Resolved && !position.claimed && hasHoldings;
@@ -126,13 +124,11 @@ export function PositionCard({ position }: PositionCardProps) {
 
 function computeCurrentValue(
   holdings: number[],
-  probabilities: number[],
   market: UserPosition["market"],
 ): number {
   // For resolved markets: winning tokens are worth face value
   if (market.state === MarketState.Resolved) {
     if (market.marketType === MarketType.Continuous) {
-      // Continuous resolved: value based on resolvedValue bin
       if (market.resolvedValue != null && market.rangeMin != null && market.rangeMax != null) {
         const resolved = Number(market.resolvedValue) / SCALE;
         const rMin = Number(market.rangeMin) / SCALE;
@@ -149,7 +145,6 @@ function computeCurrentValue(
       }
       return 0;
     }
-    // Binary/Multi: resolved outcome tokens are worth face value
     const winIdx = market.resolvedOutcome;
     if (winIdx != null && winIdx >= 0 && winIdx < holdings.length) {
       return holdings[winIdx];
@@ -157,12 +152,8 @@ function computeCurrentValue(
     return 0;
   }
 
-  // Active/Paused markets: mark-to-market using probabilities
-  let value = 0;
-  for (let i = 0; i < holdings.length; i++) {
-    value += holdings[i] * (probabilities[i] ?? 0);
-  }
-  return value;
+  // Active/Paused markets: AMM sell proceeds after fees
+  return computeAmmSellProceeds(market.reserves, market.totalMinted, holdings);
 }
 
 const OUTCOME_COLORS = [

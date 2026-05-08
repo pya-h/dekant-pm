@@ -8,31 +8,79 @@ import {
   type Trade,
 } from "./types";
 
+// ── Constants ──
+
+/** Default trade fee in basis points (0.3%). */
+export const DEFAULT_TRADE_FEE_BPS = 30;
+
+// ── AMM sell simulation ──
+
+/**
+ * Simulates selling all holdings through the L2-norm AMM and returns
+ * total net proceeds after fees. Sells each outcome sequentially,
+ * updating pool state between sells.
+ *
+ * This matches the on-chain compute_sell + compute_fees flow.
+ */
+export function computeAmmSellProceeds(
+  reserves: string[],
+  totalMinted: string,
+  holdings: number[],
+  feeBps: number = DEFAULT_TRADE_FEE_BPS,
+): number {
+  const res = reserves.map((r) => Number(r));
+  let tm = Number(totalMinted);
+  let totalNet = 0;
+
+  for (let i = 0; i < holdings.length; i++) {
+    const tokensIn = holdings[i];
+    if (tokensIn <= 0) continue;
+
+    const xI = tm - res[i];
+    if (xI < tokensIn) continue; // Can't sell more than circulating supply
+
+    // Return tokens to pool
+    res[i] += tokensIn;
+
+    // Compute new L2-norm
+    let kNewSq = 0;
+    for (let j = 0; j < res.length; j++) {
+      const x = tm - res[j];
+      kNewSq += x * x;
+    }
+    const kNew = Math.sqrt(kNewSq);
+    const grossCollateral = Math.max(0, Math.floor(tm - kNew));
+
+    // Apply trading fee
+    const fee = Math.floor((grossCollateral * feeBps) / 10_000);
+    totalNet += grossCollateral - fee;
+
+    // Update pool state: totalMinted and all reserves decrease by grossCollateral
+    tm -= grossCollateral;
+    for (let j = 0; j < res.length; j++) {
+      res[j] -= grossCollateral;
+    }
+  }
+
+  return totalNet;
+}
+
 // ── Position value computation ──
 
 /**
- * Computes the mark-to-market value of a position.
- * For resolved markets: value = winning tokens.
- * For active markets: value = sum(holdings[i] * probability[i]).
+ * Computes the liquidation value of a position (what you'd get selling now).
+ * For resolved markets: value = winning tokens (face value claim).
+ * For active/expired markets: value = AMM sell proceeds after fees.
  */
 export function computePositionValue(pos: UserPosition): number {
   const { market } = pos;
   const holdings = pos.holdings.map((h) => Number(h));
-  const probabilities = computeProbabilities(
-    market.reserves,
-    market.totalMinted,
-    market.kSquared,
-  );
 
   if (market.state === MarketState.Resolved) {
     return computeResolvedValue(holdings, market);
   }
 
-  let value = 0;
-  for (let i = 0; i < holdings.length; i++) {
-    value += holdings[i] * (probabilities[i] ?? 0);
-  }
-  return value;
+  return computeAmmSellProceeds(market.reserves, market.totalMinted, holdings);
 }
 
 function computeResolvedValue(
@@ -152,12 +200,12 @@ export function categorizePositions(positions: UserPosition[]): PortfolioTab {
 }
 
 /**
- * Portfolio Value: Sum of mark-to-market values of all positions with holdings.
+ * Portfolio Value: Sum of liquidation values of all positions with holdings.
  * Includes active, expired, and settled (unclaimed) positions.
  */
-export function computePortfolioValue(openPositions: UserPosition[]): number {
+export function computePortfolioValue(positions: UserPosition[]): number {
   let total = 0;
-  for (const pos of openPositions) {
+  for (const pos of positions) {
     total += computePositionValue(pos);
   }
   return total;
@@ -321,7 +369,7 @@ export function computeAvgWinProbability(
 // ── Per-position display helpers ──
 
 /**
- * Compute current value (mark-to-market) for display in position row.
+ * Compute current liquidation value for display in position row.
  */
 export function computeCurrentValue(pos: UserPosition): number {
   return computePositionValue(pos);
@@ -329,13 +377,15 @@ export function computeCurrentValue(pos: UserPosition): number {
 
 /**
  * Compute PnL (profit and loss) for a position.
+ * ProfitLoss = SellPrice - PaidPrice
+ * P/L% = 100 × ProfitLoss / PaidPrice
+ * where PaidPrice = totalDeposited - totalWithdrawn (net cost).
  */
 export function computePnl(pos: UserPosition): { pnl: number; pnlPct: number } {
-  const value = computePositionValue(pos);
-  const deposited = Number(pos.totalDeposited);
-  const withdrawn = Number(pos.totalWithdrawn);
-  const pnl = value - deposited + withdrawn;
-  const pnlPct = deposited > 0 ? (pnl / deposited) * 100 : 0;
+  const sellPrice = computePositionValue(pos);
+  const paidPrice = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
+  const pnl = sellPrice - paidPrice;
+  const pnlPct = paidPrice > 0 ? (pnl / paidPrice) * 100 : 0;
   return { pnl, pnlPct };
 }
 
