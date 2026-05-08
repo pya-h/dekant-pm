@@ -1,11 +1,21 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MarketStatsBar, StatCard } from "@/components/market/market-stats-bar";
 import { mockBinaryMarket, mockContinuousMarket } from "../helpers/mock-data";
 
 vi.mock("@/hooks/use-oracle-data", () => ({
   useOracleData: () => ({ data: null, isLoading: false }),
 }));
+
+vi.mock("@/hooks/use-live-price", () => ({
+  useLivePrice: () => ({ data: null, isLoading: false }),
+}));
+
+function Wrapper({ children }: { children: React.ReactNode }) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+}
 
 describe("MarketStatsBar", () => {
   it("renders liquidity and volume stats for binary market", () => {
@@ -19,8 +29,10 @@ describe("MarketStatsBar", () => {
           rangeMin: mockBinaryMarket.rangeMin,
           rangeMax: mockBinaryMarket.rangeMax,
           subject: mockBinaryMarket.subject,
+          category: mockBinaryMarket.category,
         }}
       />,
+      { wrapper: Wrapper },
     );
     expect(screen.getByText(/Liquidity/)).toBeInTheDocument();
     expect(screen.getByText(/Volume/)).toBeInTheDocument();
@@ -37,8 +49,10 @@ describe("MarketStatsBar", () => {
           rangeMin: mockBinaryMarket.rangeMin,
           rangeMax: mockBinaryMarket.rangeMax,
           subject: mockBinaryMarket.subject,
+          category: mockBinaryMarket.category,
         }}
       />,
+      { wrapper: Wrapper },
     );
     expect(container.textContent).not.toContain("Price (live)");
   });
@@ -54,10 +68,13 @@ describe("MarketStatsBar", () => {
           rangeMin: mockContinuousMarket.rangeMin,
           rangeMax: mockContinuousMarket.rangeMax,
           subject: mockContinuousMarket.subject,
+          category: mockContinuousMarket.category,
         }}
       />,
+      { wrapper: Wrapper },
     );
-    expect(container.textContent).toContain("BTC Price (live)");
+    // useLivePrice is mocked to return null, so no price card rendered
+    expect(container.textContent).not.toContain("BTC Price");
   });
 });
 
