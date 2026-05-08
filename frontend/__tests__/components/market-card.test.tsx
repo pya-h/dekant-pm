@@ -35,10 +35,10 @@ vi.mock("next/link", () => ({
 }));
 
 describe("MarketCard", () => {
-  it("renders deadline label", () => {
-    render(<MarketCard market={mockBinaryMarket} />);
-    // Mock deadline is 1 day from now → "Tomorrow"
-    expect(screen.getByText("Tomorrow")).toBeInTheDocument();
+  it("renders deadline countdown", () => {
+    const { container } = render(<MarketCard market={mockBinaryMarket} />);
+    // Mock deadline is 1 day from now → shows hrs/mins countdown
+    expect(container.textContent).toMatch(/hrs|mins|days/);
   });
 
   it("links to the market detail page", () => {
@@ -60,18 +60,17 @@ describe("MarketCard", () => {
 
   it("renders multi-outcome market", () => {
     const { container } = render(<MarketCard market={mockMultiMarket} />);
-    expect(container.textContent).toMatch(/Tomorrow/);
+    expect(container.textContent).toMatch(/hrs|mins|days/);
   });
 
   it("renders continuous market", () => {
     const { container } = render(<MarketCard market={mockContinuousMarket} />);
-    expect(container.textContent).toMatch(/Tomorrow/);
+    expect(container.textContent).toMatch(/hrs|mins|days/);
   });
 
   it("renders resolved market", () => {
     const { container } = render(<MarketCard market={mockResolvedMarket} />);
-    // Resolved market still has a future deadline in mock data
-    expect(container.textContent).toMatch(/Tomorrow/);
+    expect(container.textContent).toMatch(/hrs|mins|days/);
   });
 
   describe("creator mode", () => {
@@ -83,7 +82,7 @@ describe("MarketCard", () => {
           onMarketUpdated={vi.fn()}
         />,
       );
-      expect(container.textContent).toMatch(/Tomorrow/);
+      expect(container.textContent).toMatch(/hrs|mins|days/);
     });
 
     it("still links to the market detail page in creator mode", () => {
