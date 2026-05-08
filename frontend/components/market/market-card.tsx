@@ -96,7 +96,7 @@ export function MarketCard({ market, isCreator, onMarketUpdated }: MarketCardPro
 
 function MarketCardInner({ market }: { market: MarketSummary }) {
   const deadline = new Date(market.deadline);
-  const label = `${market.subject} - End of ${MONTH_FULL_NAMES[deadline.getMonth()]}`;
+  const deadlineLabel = `End of ${MONTH_FULL_NAMES[deadline.getMonth()]}`;
   const countdown = deadlineCountdown(deadline);
 
   // Liquidity: total collateral deposited into the market
@@ -117,9 +117,14 @@ function MarketCardInner({ market }: { market: MarketSummary }) {
               symbolClassName="text-[13px]"
               imageClassName="h-4 w-4"
             />
-            <span className="text-sm font-semibold leading-snug transition-colors group-hover:text-primary">
-              {label}
-            </span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold leading-snug transition-colors group-hover:text-primary truncate">
+                {market.subject}
+              </span>
+              <span className="text-[11px] text-muted-foreground leading-tight">
+                {deadlineLabel}
+              </span>
+            </div>
           </div>
           {countdown ? (
             <div className="flex items-center gap-1.5 shrink-0 tabular-nums text-xs text-muted-foreground">
