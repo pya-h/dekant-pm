@@ -23,6 +23,14 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
 
   return (
     <>
+      {priceData?.price != null && (
+        <StatCard
+          label={`${market.subject} Price`}
+          value={formatStatValue(priceData.price.price)}
+          live={!priceData.price.stale}
+          stale={priceData.price.stale}
+        />
+      )}
       {isContinuous && oracleData?.distributionPeak != null && (
         <StatCard
           label="Distribution Peak"
@@ -43,21 +51,22 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
       )}
       <StatCard label="Liquidity" value={formatUsdc(liquidity)} />
       <StatCard label="Volume (24h)" value={formatUsdc(market.totalVolume)} />
-      {priceData?.price != null && (
-        <StatCard
-          label={`${market.subject} Price`}
-          value={formatStatValue(priceData.price.price)}
-          stale={priceData.price.stale}
-        />
-      )}
     </>
   );
 }
 
-export function StatCard({ label, value, stale }: { label: string; value: string; stale?: boolean }) {
+export function StatCard({ label, value, stale, live }: { label: string; value: string; stale?: boolean; live?: boolean }) {
   return (
     <div className="rounded-lg border border-border/30 bg-muted/20 px-4 py-2.5 min-w-0">
-      <div className="text-base font-bold tabular-nums leading-tight whitespace-nowrap">{value}</div>
+      <div className="flex items-center gap-1.5 text-base font-bold tabular-nums leading-tight whitespace-nowrap">
+        {value}
+        {live && (
+          <span className="relative flex h-2 w-2" title="Live price">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-1 text-[11px] text-muted-foreground whitespace-nowrap">
         {label}
         {stale && (
