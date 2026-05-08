@@ -90,7 +90,7 @@ export function UserPositionDisplay({ market }: UserPositionDisplayProps) {
 
   const currentValue = computeValue(holdingsNum, probabilities, market);
   const pnl = currentValue - netInvested;
-  const pnlPct = netInvested > 0 ? (pnl / netInvested) * 100 : 0;
+  const pnlPct = deposited > 0 ? (pnl / deposited) * 100 : 0;
 
   return (
     <Card>
