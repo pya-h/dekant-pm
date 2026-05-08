@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DekantPM",
+  title: "Dekant - Don't pick a side, Draw a curve!",
   description: "Continuous decentralized prediction market on Solana",
 };
 
