@@ -303,11 +303,34 @@ describe("computeMaxPotentialGain", () => {
     expect(computeMaxPotentialGain([], [])).toBe(0);
   });
 
-  it("sums max holdings per position", () => {
+  it("sums net gain (max payout minus net cost) per position", () => {
+    // pos1: deposited=12000000, withdrawn=0 → netCost=12000000
+    //   max holding=10000000 < 12000000 → gain=0 (would lose even in best case)
     const pos1 = makePosition({ holdings: ["10000000", "5000000"] });
+    // pos2: deposited=12000000, withdrawn=0 → netCost=12000000
+    //   max holding=8000000 < 12000000 → gain=0
     const pos2 = makePosition({ id: "2", holdings: ["3000000", "8000000"] });
-    // max(10000000,5000000) + max(3000000,8000000) = 10000000+8000000 = 18000000
-    expect(computeMaxPotentialGain([pos1], [pos2])).toBe(18000000);
+    expect(computeMaxPotentialGain([pos1], [pos2])).toBe(0);
+  });
+
+  it("computes positive net gain when max payout exceeds net cost", () => {
+    // deposited=5000000, withdrawn=0 → netCost=5000000
+    // max holding=10000000 → gain=10000000-5000000=5000000
+    const pos1 = makePosition({
+      holdings: ["10000000", "5000000"],
+      totalDeposited: "5000000",
+      totalWithdrawn: "0",
+    });
+    // deposited=3000000, withdrawn=1000000 → netCost=2000000
+    // max holding=8000000 → gain=8000000-2000000=6000000
+    const pos2 = makePosition({
+      id: "2",
+      holdings: ["3000000", "8000000"],
+      totalDeposited: "3000000",
+      totalWithdrawn: "1000000",
+    });
+    // total = 5000000 + 6000000 = 11000000
+    expect(computeMaxPotentialGain([pos1], [pos2])).toBe(11000000);
   });
 });
 

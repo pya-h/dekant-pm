@@ -152,8 +152,8 @@ export function categorizePositions(positions: UserPosition[]): PortfolioTab {
 }
 
 /**
- * Portfolio Value: Sum of mark-to-market values of all active (ongoing) positions.
- * Only includes markets that are Active or Paused (not expired/resolved).
+ * Portfolio Value: Sum of mark-to-market values of all positions with holdings.
+ * Includes active, expired, and settled (unclaimed) positions.
  */
 export function computePortfolioValue(openPositions: UserPosition[]): number {
   let total = 0;
@@ -212,8 +212,8 @@ export function computeTotalAtRisk(
 }
 
 /**
- * Max Potential Gain: For each undecided position, find the best-case scenario
- * (the bin with maximum holdings) and sum across all positions.
+ * Max Potential Gain: For each undecided position, find the best-case net profit
+ * (the bin with maximum holdings minus net cost).
  */
 export function computeMaxPotentialGain(
   open: UserPosition[],
@@ -223,7 +223,8 @@ export function computeMaxPotentialGain(
   for (const pos of [...open, ...expired]) {
     const holdings = pos.holdings.map((h) => Number(h));
     const maxHolding = Math.max(...holdings, 0);
-    total += maxHolding;
+    const netCost = Math.max(0, Number(pos.totalDeposited) - Number(pos.totalWithdrawn));
+    total += Math.max(0, maxHolding - netCost);
   }
   return total;
 }
