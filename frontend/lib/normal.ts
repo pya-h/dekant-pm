@@ -46,6 +46,48 @@ export function computeBinWeights(
   return rawWeights.map((w) => w / totalWeight);
 }
 
+/**
+ * Fit a Gaussian (mu, sigma) to a holdings distribution.
+ * Returns the weighted mean and standard deviation of bin centers.
+ */
+export function fitGaussian(
+  rangeMin: number,
+  rangeMax: number,
+  holdings: number[],
+): { mu: number; sigma: number } | null {
+  const numBins = holdings.length;
+  if (numBins === 0 || rangeMax <= rangeMin) return null;
+
+  const binWidth = (rangeMax - rangeMin) / numBins;
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  for (let i = 0; i < numBins; i++) {
+    const h = holdings[i];
+    if (h <= 0) continue;
+    const center = rangeMin + (i + 0.5) * binWidth;
+    weightedSum += h * center;
+    totalWeight += h;
+  }
+
+  if (totalWeight === 0) return null;
+
+  const mu = weightedSum / totalWeight;
+
+  let varianceSum = 0;
+  for (let i = 0; i < numBins; i++) {
+    const h = holdings[i];
+    if (h <= 0) continue;
+    const center = rangeMin + (i + 0.5) * binWidth;
+    varianceSum += h * (center - mu) ** 2;
+  }
+
+  const sigma = Math.sqrt(varianceSum / totalWeight);
+  // Clamp sigma to at least half a bin width to avoid degenerate distributions
+  const minSigma = binWidth * 0.5;
+  return { mu, sigma: Math.max(sigma, minSigma) };
+}
+
 // Log-scale mapping boundaries for confidence slider
 const LN_FRAC_MIN = Math.log(1 / 100); // sigma = 1% of range width (very sure)
 const LN_FRAC_MAX = Math.log(1 / 2); // sigma = 50% of range width (very uncertain)
