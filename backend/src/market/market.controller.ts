@@ -136,6 +136,7 @@ export class MarketController {
     @Req() request: Request,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('trader') trader?: string,
   ) {
     const callerWallet = (request as any).walletAddress as
       | string
@@ -149,6 +150,7 @@ export class MarketController {
       Math.min(Math.max(1, Number(limit) || 50), 100),
       callerWallet,
       isPrivileged,
+      trader,
     );
   }
 

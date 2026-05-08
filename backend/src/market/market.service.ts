@@ -274,9 +274,12 @@ export class MarketService {
     limit = 50,
     callerWallet?: string,
     isPrivileged = false,
+    traderFilter?: string,
   ): Promise<{ data: Record<string, any>[]; total: number }> {
+    const where: Record<string, any> = { marketId: String(id) };
+    if (traderFilter) where.trader = traderFilter;
     const [trades, total] = await this.tradeRepo.findAndCount({
-      where: { marketId: String(id) },
+      where,
       order: { timestamp: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
