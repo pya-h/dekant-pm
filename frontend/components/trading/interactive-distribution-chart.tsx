@@ -17,6 +17,8 @@ interface InteractiveDistributionChartProps {
   /** User's existing position holdings per bin (raw token amounts). Normalized internally for display. */
   positionHoldings?: number[] | null;
   height?: number;
+  /** When true, chart is non-interactive — shows position + market curves only (sell side) */
+  readOnly?: boolean;
 }
 
 const CHART_PADDING = { top: 20, right: 24, bottom: 36, left: 54 };
@@ -38,6 +40,7 @@ export function InteractiveDistributionChart({
   onSigmaChange,
   positionHoldings,
   height = DEFAULT_HEIGHT,
+  readOnly = false,
 }: InteractiveDistributionChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const gradientMarketId = useId();
@@ -481,8 +484,8 @@ export function InteractiveDistributionChart({
 
   return (
     <div className="relative w-full">
-      {/* Y-axis controls — above chart, left-aligned */}
-      <div className="flex items-center gap-2 mb-1.5 pl-1">
+      {/* Y-axis controls — above chart, left-aligned (hidden in readOnly/sell mode) */}
+      <div className={`flex items-center gap-2 mb-1.5 pl-1${readOnly ? " invisible" : ""}`}>
         <button
           type="button"
           onClick={() => { setPref("chartDynamicScale", !dynamicScale); setYScaleOverride(null); setFixedYBase(null); resetZoom(); }}
@@ -510,12 +513,12 @@ export function InteractiveDistributionChart({
         ref={svgRef}
         viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
         className="w-full h-auto select-none"
-        style={{ cursor: dragMode === "y-scale" ? "ns-resize" : dragMode !== "none" ? "grabbing" : hoverCursor }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={(e) => { handlePointerMove(e); handleHoverMove(e); }}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={() => { handlePointerUp(); setHoveredCurve("none"); }}
-        onDoubleClick={handleDoubleClick}
+        style={{ cursor: readOnly ? "default" : dragMode === "y-scale" ? "ns-resize" : dragMode !== "none" ? "grabbing" : hoverCursor }}
+        onPointerDown={readOnly ? undefined : handlePointerDown}
+        onPointerMove={readOnly ? undefined : (e) => { handlePointerMove(e); handleHoverMove(e); }}
+        onPointerUp={readOnly ? undefined : handlePointerUp}
+        onPointerLeave={readOnly ? undefined : () => { handlePointerUp(); setHoveredCurve("none"); }}
+        onDoubleClick={readOnly ? undefined : handleDoubleClick}
       >
         <defs>
           <linearGradient id={gradientMarketId} x1="0" x2="0" y1="0" y2="1">
@@ -619,8 +622,8 @@ export function InteractiveDistributionChart({
           {yUnit === "pct" ? "0%" : "$0"}
         </text>
 
-        {/* Sigma shaded region between ±1σ bounds */}
-        {mu !== null && leftBoundX != null && rightBoundX != null && (
+        {/* Sigma shaded region between ±1σ bounds (hidden in readOnly/sell mode) */}
+        {!readOnly && mu !== null && leftBoundX != null && rightBoundX != null && (
           <g clipPath={`url(#${clipId})`}>
             <rect
               x={leftBoundX}
@@ -688,8 +691,8 @@ export function InteractiveDistributionChart({
           })}
         </g>
 
-        {/* Sigma boundary lines */}
-        {mu !== null && leftBoundX != null && rightBoundX != null && (
+        {/* Sigma boundary lines (hidden in readOnly/sell mode) */}
+        {!readOnly && mu !== null && leftBoundX != null && rightBoundX != null && (
           <>
             <line
               x1={leftBoundX} x2={leftBoundX}
@@ -743,8 +746,8 @@ export function InteractiveDistributionChart({
           </>
         )}
 
-        {/* Mu marker */}
-        {mu !== null && muX != null && (
+        {/* Mu marker (hidden in readOnly/sell mode) */}
+        {!readOnly && mu !== null && muX != null && (
           <line
             x1={muX} x2={muX}
             y1={CHART_PADDING.top} y2={baseline}
@@ -753,8 +756,8 @@ export function InteractiveDistributionChart({
           />
         )}
 
-        {/* "Drag to change the curve peak" hint */}
-        {mu !== null && muX != null && (
+        {/* "Drag to change the curve peak" hint (hidden in readOnly/sell mode) */}
+        {!readOnly && mu !== null && muX != null && (
           <text
             x={muX} y={baseline - 6}
             textAnchor="middle"
@@ -786,8 +789,8 @@ export function InteractiveDistributionChart({
           </g>
         ))}
 
-        {/* Click hint (only when no mu set) */}
-        {mu === null && (
+        {/* Click hint (only when no mu set and not readOnly) */}
+        {!readOnly && mu === null && (
           <text
             x={VIEW_W / 2} y={height / 2}
             textAnchor="middle"
@@ -834,7 +837,7 @@ export function InteractiveDistributionChart({
           hidden={hiddenCurves.has("market")}
           onClick={() => toggleCurve("market")}
         />
-        {mu !== null && (
+        {!readOnly && mu !== null && (
           <LegendItem
             color={COLOR_TRADER}
             label="Your prediction"
@@ -852,8 +855,8 @@ export function InteractiveDistributionChart({
         )}
       </div>
 
-      {/* Mu/Sigma display below chart */}
-      {mu !== null && (
+      {/* Mu/Sigma display below chart (hidden in readOnly/sell mode) */}
+      {!readOnly && mu !== null && (
         <div className="mt-1.5 flex items-center justify-center gap-5 text-[11px] text-muted-foreground/70">
           <span>
             Center: <span className="font-medium text-foreground/90 tabular-nums">{formatChartValue(mu)}</span>

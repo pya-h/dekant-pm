@@ -68,6 +68,7 @@ export default function MarketDetailPage({
   const [mu, setMu] = useState<number | null>(null);
   const [sigma, setSigma] = useState<number | null>(null);
   const handleReset = useCallback(() => { setMu(null); setSigma(null); }, []);
+  const [tradingSide, setTradingSide] = useState<"buy" | "sell">("buy");
 
   const collateralMint = market?.collateralMint ?? "";
   const { data: faucetData } = useFaucetStatus(walletAddress, collateralMint, !!collateralMint);
@@ -206,6 +207,7 @@ export default function MarketDetailPage({
                 onMuChange={setMu}
                 onSigmaChange={setSigma}
                 positionHoldings={positionHoldings}
+                readOnly={tradingSide === "sell"}
               />
             ) : (
               <Card>
@@ -234,6 +236,7 @@ export default function MarketDetailPage({
           <TradingPanel
             market={market}
             distributionParams={isContinuous ? { mu, sigma: effectiveSigma, onReset: handleReset, onSetMuSigma: (m, s) => { setMu(m); setSigma(s); } } : undefined}
+            onSideChange={setTradingSide}
           />
         </div>
       </div>
