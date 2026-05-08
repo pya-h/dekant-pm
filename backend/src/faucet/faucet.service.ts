@@ -33,6 +33,8 @@ export class FaucetService {
   private readonly logger = new Logger(FaucetService.name);
   private faucetKeypair: Keypair | null = null;
   private connection: Connection;
+  /** Lamports of SOL to airdrop alongside every faucet claim (0 = disabled). */
+  private supportingSolLamports: bigint;
 
   constructor(
     @InjectRepository(FaucetConfigEntity)
@@ -44,6 +46,11 @@ export class FaucetService {
     const rpcUrl = this.configService.get<string>('SOLANA_RPC_URL') ?? 'https://api.devnet.solana.com';
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.loadKeypair();
+
+    const supportingSol = parseFloat(
+      this.configService.get<string>('SUPPORTING_SOL_FAUCET') ?? '0.03',
+    );
+    this.supportingSolLamports = BigInt(Math.round((isNaN(supportingSol) ? 0 : supportingSol) * 1e9));
   }
 
   private loadKeypair() {
@@ -452,6 +459,27 @@ export class FaucetService {
         }),
       );
       throw new ServiceUnavailableException('Faucet service not available right now');
+    }
+
+    // Send supporting SOL for transaction fees (best-effort, non-blocking).
+    // Skipped for native SOL claims (user already receives SOL).
+    // Failures here do NOT fail the claim — the main token was already sent.
+    if (this.supportingSolLamports > 0n && !isNative) {
+      try {
+        const solBalance = await this.connection.getBalance(keypair.publicKey);
+        if (BigInt(solBalance) >= this.supportingSolLamports + 5000n) {
+          const solSig = await this.transferNative(keypair, userAddress, this.supportingSolLamports);
+          this.logger.log(
+            `Supporting SOL sent: ${Number(this.supportingSolLamports) / 1e9} SOL → ${userAddress} (tx: ${solSig})`,
+          );
+        } else {
+          this.logger.warn(
+            `Faucet wallet has insufficient SOL for supporting transfer (balance=${solBalance}, needed=${this.supportingSolLamports + 5000n})`,
+          );
+        }
+      } catch (err: any) {
+        this.logger.warn(`Supporting SOL transfer failed (non-fatal): ${err.message}`);
+      }
     }
 
     // Record success (history stores raw amount for chain accountability)
