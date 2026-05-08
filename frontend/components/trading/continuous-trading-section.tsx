@@ -11,6 +11,8 @@ interface ContinuousTradingSectionProps {
   onMuChange: (mu: number | null) => void;
   onSigmaChange: (sigma: number) => void;
   positionHoldings?: number[] | null;
+  /** When true, chart is non-interactive (sell side: shows position only) */
+  readOnly?: boolean;
 }
 
 export function ContinuousTradingSection({
@@ -20,6 +22,7 @@ export function ContinuousTradingSection({
   onMuChange,
   onSigmaChange,
   positionHoldings,
+  readOnly,
 }: ContinuousTradingSectionProps) {
   return (
     <Card>
@@ -31,6 +34,7 @@ export function ContinuousTradingSection({
           onMuChange={onMuChange}
           onSigmaChange={onSigmaChange}
           positionHoldings={positionHoldings}
+          readOnly={readOnly}
         />
       </CardContent>
     </Card>

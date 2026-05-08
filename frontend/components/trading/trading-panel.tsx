@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, Component, type ReactNode, type ErrorInfo } from "react";
+import { useState, useCallback, /* useMemo, */ Component, type ReactNode, type ErrorInfo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useConnection } from "@solana/wallet-adapter-react";
@@ -26,19 +26,19 @@ import { useTokenName } from "@/hooks/use-token-name";
 import { BN } from "@coral-xyz/anchor";
 import {
   executeBuy,
-  executeSell,
+  // executeSell,        // COMMENTED: sell simplification — sell side always uses sell_all
   executeBuyDistribution,
-  executeSellDistribution,
+  // executeSellDistribution, // COMMENTED: sell simplification
   executeSellAll,
   executeBuyToPrice,
-  executeSellToPrice,
+  // executeSellToPrice, // COMMENTED: sell simplification
 } from "@/lib/transactions";
 import {
   showTradeSuccess,
   showTradeError,
 } from "@/components/common/transaction-toast";
-import { cn } from "@/lib/utils";
-import { computeBinWeights } from "@/lib/normal";
+// import { cn } from "@/lib/utils";           // COMMENTED: sell simplification
+// import { computeBinWeights } from "@/lib/normal"; // COMMENTED: sell simplification
 
 type TradeParams =
   | { outcome: number; amount: string; inputUnit: "collateral" | "shares" | "target" }
@@ -52,6 +52,8 @@ interface TradingPanelProps {
     onReset: () => void;
     onSetMuSigma: (mu: number, sigma: number) => void;
   };
+  /** Notifies parent when buy/sell side changes (used to lock chart on sell) */
+  onSideChange?: (side: "buy" | "sell") => void;
 }
 
 interface ErrorBoundaryState {
@@ -91,15 +93,15 @@ class TradingPanelErrorBoundary extends Component<{ children: ReactNode }, Error
   }
 }
 
-export function TradingPanel({ market, distributionParams }: TradingPanelProps) {
+export function TradingPanel({ market, distributionParams, onSideChange }: TradingPanelProps) {
   return (
     <TradingPanelErrorBoundary>
-      <TradingPanelInner market={market} distributionParams={distributionParams} />
+      <TradingPanelInner market={market} distributionParams={distributionParams} onSideChange={onSideChange} />
     </TradingPanelErrorBoundary>
   );
 }
 
-function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
+function TradingPanelInner({ market, distributionParams, onSideChange }: TradingPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [params, setParams] = useState<TradeParams | null>(null);
   const [amount, setAmount] = useState("");
@@ -144,42 +146,45 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   const chartMu = distributionParams?.mu ?? null;
   const chartSigma = distributionParams?.sigma ?? 1;
 
-  // Continuous market range values (used for sell-all and max computation)
-  const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
-  const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
+  // COMMENTED: rangeMin/rangeMax — no longer needed, sell side uses sell_all
+  // const rangeMin = market.rangeMin != null ? Number(market.rangeMin) / SCALE : 0;
+  // const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
 
-  // Max sellable shares for chart-based continuous mode
-  const maxSellShares = useMemo(() => {
-    if (!hasDistParams || chartMu === null || side !== "sell" || !position) return 0;
-    const weights = computeBinWeights(rangeMin, rangeMax, market.numOutcomes, chartMu, chartSigma);
-    let max = Infinity;
-    for (let i = 0; i < weights.length; i++) {
-      if (weights[i] <= 0) continue;
-      const holding = Number(position.holdings[i] ?? "0");
-      max = Math.min(max, holding / weights[i]);
-    }
-    return max === Infinity ? 0 : Math.floor(max);
-  }, [hasDistParams, chartMu, chartSigma, side, position, rangeMin, rangeMax, market.numOutcomes]);
+  // COMMENTED: maxSellShares — no longer needed, sell side always uses sell_all
+  // const maxSellShares = useMemo(() => {
+  //   if (!hasDistParams || chartMu === null || side !== "sell" || !position) return 0;
+  //   const weights = computeBinWeights(rangeMin, rangeMax, market.numOutcomes, chartMu, chartSigma);
+  //   let max = Infinity;
+  //   for (let i = 0; i < weights.length; i++) {
+  //     if (weights[i] <= 0) continue;
+  //     const holding = Number(position.holdings[i] ?? "0");
+  //     max = Math.min(max, holding / weights[i]);
+  //   }
+  //   return max === Infinity ? 0 : Math.floor(max);
+  // }, [hasDistParams, chartMu, chartSigma, side, position, rangeMin, rangeMax, market.numOutcomes]);
 
-  // Whether the user has any continuous holdings to sell
-  const hasPositionHoldings = hasDistParams && position != null &&
+  // Whether the user has any holdings to sell (any market type)
+  const hasPositionHoldings = position != null &&
     position.holdings.some((h) => Number(h) > 0);
 
-  // "Sell Out" handler: shows total holdings as locked amount, uses sell_all instruction (no curve fitting)
-  const handleSellOut = useCallback(() => {
-    if (!position || !distributionParams) return;
-    const holdingsNum = position.holdings.map(Number);
-    const totalTokens = holdingsNum.reduce((a, b) => a + b, 0);
-    if (totalTokens === 0) return;
+  // Total tokens across all outcomes (for sell-entire-position display)
+  const totalPositionTokens = position
+    ? position.holdings.reduce((sum, h) => sum + Number(h), 0)
+    : 0;
 
-    // Reset chart selection — the position curve is already visible via positionHoldings
-    distributionParams.onReset();
-    setSide("sell");
-    setInputUnit("shares");
-    setComputedAmount(null);
-    setAmount((totalTokens / 10 ** USDC_DECIMALS).toFixed(USDC_DECIMALS));
-    setSellOutLocked(true);
-  }, [position, distributionParams]);
+  // COMMENTED: handleSellOut — no longer needed, sell side always uses sell_all
+  // const handleSellOut = useCallback(() => {
+  //   if (!position || !distributionParams) return;
+  //   const holdingsNum = position.holdings.map(Number);
+  //   const totalTokens = holdingsNum.reduce((a, b) => a + b, 0);
+  //   if (totalTokens === 0) return;
+  //   distributionParams.onReset();
+  //   setSide("sell");
+  //   setInputUnit("shares");
+  //   setComputedAmount(null);
+  //   setAmount((totalTokens / 10 ** USDC_DECIMALS).toFixed(USDC_DECIMALS));
+  //   setSellOutLocked(true);
+  // }, [position, distributionParams]);
 
   // Validation for continuous (chart-based) mode
   const continuousHasValid = hasDistParams && chartMu !== null && Number(amount) > 0;
@@ -203,9 +208,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
     (side === "sell" && discreteInputUnit === "collateral");
   const discreteNeedsEstimate = (discreteIsReverse || isTargetPrice) && computedAmount == null && discreteHasValid;
 
-  // Combined validation — sellOutLocked bypasses estimation (uses sell_all instruction)
-  const hasValidParams = sellOutLocked || (hasDistParams ? continuousHasValid : discreteHasValid);
-  const needsEstimate = sellOutLocked ? false : (hasDistParams ? continuousNeedsEstimate : discreteNeedsEstimate);
+  // Combined validation — sell side always uses sell_all (no estimation needed)
+  const hasValidParams = side === "sell" ? hasPositionHoldings : (hasDistParams ? continuousHasValid : discreteHasValid);
+  const needsEstimate = side === "sell" ? false : (hasDistParams ? continuousNeedsEstimate : discreteNeedsEstimate);
 
   const exceedsBalance =
     connected && side === "buy" && hasValidParams &&
@@ -220,26 +225,25 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
         : computedAmount != null && computedAmount > collateralBalance;
     })();
 
-  const exceedsHoldings =
-    connected &&
-    side === "sell" &&
-    discreteHasValid &&
-    !hasDistParams &&
-    position != null &&
-    "outcome" in params! &&
-    (() => {
-      const holdings = Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0");
-      if (isTargetPrice) return holdings === 0;
-      return discreteInputUnit === "shares"
-        ? Number(params!.amount) * 10 ** USDC_DECIMALS > holdings
-        : computedAmount != null && computedAmount > holdings;
-    })();
+  // COMMENTED: exceedsHoldings — sell side now always uses sell_all, no per-outcome validation needed
+  // const exceedsHoldings =
+  //   connected &&
+  //   side === "sell" &&
+  //   discreteHasValid &&
+  //   !hasDistParams &&
+  //   position != null &&
+  //   "outcome" in params! &&
+  //   (() => {
+  //     const holdings = Number(position.holdings[(params! as { outcome: number }).outcome] ?? "0");
+  //     if (isTargetPrice) return holdings === 0;
+  //     return discreteInputUnit === "shares"
+  //       ? Number(params!.amount) * 10 ** USDC_DECIMALS > holdings
+  //       : computedAmount != null && computedAmount > holdings;
+  //   })();
 
   const validationError = exceedsBalance
     ? "Insufficient USDC balance"
-    : exceedsHoldings
-      ? "Insufficient holdings"
-      : null;
+    : null;
 
   const handleSubmit = useCallback(async () => {
     if (!connected || !publicKey || !program) {
@@ -252,14 +256,12 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
       const marketPubkey = new PublicKey(market.pubkey);
       let signature: string | undefined;
 
-      if (hasDistParams && side === "sell" && sellOutLocked) {
-        // Sell entire position via sell_all instruction — no distribution fitting
+      // SIMPLIFIED SELL: always use sell_all for any market type
+      if (side === "sell") {
         signature = await executeSellAll(program, marketPubkey, publicKey);
       } else if (hasDistParams && chartMu !== null) {
-        // Continuous chart-based trade
-        const isReverse =
-          (side === "buy" && inputUnit === "shares") ||
-          (side === "sell" && inputUnit === "collateral");
+        // Continuous chart-based buy
+        const isReverse = inputUnit === "shares";
 
         let effectiveAmount = amount;
         if (isReverse && computedAmount != null) {
@@ -267,23 +269,15 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
           effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
         }
 
-        if (side === "buy") {
-          signature = await executeBuyDistribution(
-            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
-          );
-        } else {
-          signature = await executeSellDistribution(
-            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
-          );
-        }
+        signature = await executeBuyDistribution(
+          program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
+        );
       } else if (params) {
-        const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
+        const unit = params.inputUnit ?? "collateral";
 
         if ("mu" in params) {
-          // Classic continuous trade (from DistributionInput in modal)
-          const isReverse =
-            (side === "buy" && unit === "shares") ||
-            (side === "sell" && unit === "collateral");
+          // Classic continuous buy (from DistributionInput in modal)
+          const isReverse = unit === "shares";
 
           let effectiveAmount = params.amount;
           if (isReverse && computedAmount != null) {
@@ -291,34 +285,19 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
           }
 
-          if (side === "buy") {
-            signature = await executeBuyDistribution(
-              program, marketPubkey, publicKey, params.mu, params.sigma, effectiveAmount,
-            );
-          } else {
-            signature = await executeSellDistribution(
-              program, marketPubkey, publicKey, params.mu, params.sigma, effectiveAmount,
-            );
-          }
+          signature = await executeBuyDistribution(
+            program, marketPubkey, publicKey, params.mu, params.sigma, effectiveAmount,
+          );
         } else if (unit === "target" && "outcome" in params && computedAmount != null) {
           const targetProbScaled = new BN(
             Math.round((Number(params.amount) / 100) * SCALE),
           );
-          if (side === "buy") {
-            const maxCollateral = new BN(Math.ceil(computedAmount * 1.005));
-            signature = await executeBuyToPrice(
-              program, marketPubkey, publicKey, params.outcome, targetProbScaled, maxCollateral,
-            );
-          } else {
-            const minCollateralOut = new BN(Math.floor(computedAmount * 0.995));
-            signature = await executeSellToPrice(
-              program, marketPubkey, publicKey, params.outcome, targetProbScaled, minCollateralOut,
-            );
-          }
+          const maxCollateral = new BN(Math.ceil(computedAmount * 1.005));
+          signature = await executeBuyToPrice(
+            program, marketPubkey, publicKey, params.outcome, targetProbScaled, maxCollateral,
+          );
         } else {
-          const isReverse =
-            (side === "buy" && unit === "shares") ||
-            (side === "sell" && unit === "collateral");
+          const isReverse = unit === "shares";
 
           let effectiveAmount = params.amount;
           if (isReverse && computedAmount != null) {
@@ -326,18 +305,10 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
           }
 
-          if (side === "buy") {
-            if ("outcome" in params) {
-              signature = await executeBuy(
-                program, marketPubkey, publicKey, params.outcome, effectiveAmount,
-              );
-            }
-          } else {
-            if ("outcome" in params) {
-              signature = await executeSell(
-                program, marketPubkey, publicKey, params.outcome, effectiveAmount,
-              );
-            }
+          if ("outcome" in params) {
+            signature = await executeBuy(
+              program, marketPubkey, publicKey, params.outcome, effectiveAmount,
+            );
           }
         }
       } else {
@@ -374,13 +345,13 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
         }
       }, 3000);
 
+      // Reset form state after successful trade
+      setAmount("");
+      setComputedAmount(null);
+      setSellOutLocked(false);
+      setParams(null);
       if (hasDistParams) {
-        setAmount("");
-        setComputedAmount(null);
-        setSellOutLocked(false);
         distributionParams?.onReset();
-      } else {
-        setParams(null);
       }
     } catch (error) {
       showTradeError(error);
@@ -400,11 +371,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
       ? "Confirming..."
       : needsEstimate
         ? "Estimating..."
-        : sellOutLocked
+        : side === "sell"
           ? "Sell Entire Position"
-          : side === "buy"
-            ? "Open Position"
-            : "Place Sell Position";
+          : "Open Position";
 
   const buttonIcon = !connected ? (
     <Wallet className="mr-2 h-4 w-4" />
@@ -433,12 +402,17 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
           <Tabs
             value={side}
             onValueChange={(v) => {
-              setSide(v as "buy" | "sell");
+              const newSide = v as "buy" | "sell";
+              setSide(newSide);
               setParams(null);
               setAmount("");
               setComputedAmount(null);
-              setInputUnit(v === "buy" ? "collateral" : "shares");
-              setSellOutLocked(false);
+              setInputUnit(newSide === "buy" ? "collateral" : "shares");
+              setSellOutLocked(newSide === "sell");
+              if (newSide === "sell" && hasDistParams) {
+                distributionParams?.onReset();
+              }
+              onSideChange?.(newSide);
             }}
           >
             <TabsList className="w-full">
@@ -457,9 +431,44 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
       <CardContent className="space-y-4">
         {isDisabled ? (
           <DisabledMessage state={market.state} />
-        ) : hasDistParams ? (
+        ) : side === "sell" ? (
+          /* ── SELL SIDE: unified sell-entire-position for all market types ── */
           <>
-            {chartMu === null && !sellOutLocked && (
+            <div className="rounded-lg border border-dashed border-border/60 p-4 text-center space-y-2">
+              {hasPositionHoldings ? (
+                <>
+                  <LogOut className="mx-auto h-5 w-5 text-rose-400" />
+                  <p className="text-sm font-medium text-foreground">
+                    Sell entire position
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Total: {formatUsdc(totalPositionTokens)} shares
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No position to sell
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <MarketInfoFields market={market} />
+            </div>
+
+            <Button
+              className="w-full bg-rose-500 text-white font-semibold hover:bg-rose-400 transition-all"
+              disabled={!hasPositionHoldings || !connected || loading}
+              onClick={handleSubmit}
+            >
+              {buttonIcon}
+              {buttonLabel}
+            </Button>
+          </>
+        ) : hasDistParams ? (
+          /* ── BUY SIDE: continuous chart-based ── */
+          <>
+            {chartMu === null && (
               <div className="rounded-lg border border-dashed border-border/60 p-4 text-center">
                 <p className="text-xs text-muted-foreground">
                   Click on the chart to set your prediction
@@ -467,37 +476,12 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               </div>
             )}
 
-            {/* Amount input */}
+            {/* Amount input (buy only) */}
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-medium text-muted-foreground">
-                  {sellOutLocked
-                    ? "Total position (shares)"
-                    : side === "buy"
-                      ? "Amount (USDC)"
-                      : inputUnit === "shares"
-                        ? "Shares to sell"
-                        : "USDC to receive"}
+                  Amount (USDC)
                 </label>
-                {side === "sell" && !sellOutLocked && (
-                  <div className="flex rounded-md border border-border/60 bg-muted/20 text-[10px]">
-                    {(["shares", "collateral"] as const).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => { setInputUnit(opt); setAmount(""); setComputedAmount(null); }}
-                        className={cn(
-                          "px-2 py-0.5 transition-colors first:rounded-l-md last:rounded-r-md",
-                          inputUnit === opt
-                            ? "bg-primary/20 text-primary font-medium"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {opt === "shares" ? "Shares" : "USDC"}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
               <div className="relative">
                 <Input
@@ -506,23 +490,21 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
                   min="0"
                   step="0.01"
                   value={amount}
-                  onChange={(e) => { if (!sellOutLocked) { setAmount(e.target.value); setComputedAmount(null); } }}
-                  className={cn("pr-14", sellOutLocked && "opacity-60")}
-                  disabled={chartMu === null || sellOutLocked}
+                  onChange={(e) => { setAmount(e.target.value); setComputedAmount(null); }}
+                  className="pr-14"
+                  disabled={chartMu === null}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                  {side === "buy" ? "USDC" : inputUnit === "shares" ? "shares" : "USDC"}
+                  USDC
                 </span>
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-                {side === "buy" && collateralBalance > 0 ? (
+                {collateralBalance > 0 ? (
                   <span>Balance: {formatUsdc(collateralBalance)}{tokenName ? ` ${tokenName}` : ""}</span>
-                ) : side === "sell" && inputUnit === "shares" && maxSellShares > 0 ? (
-                  <span>Available: {(maxSellShares / 10 ** USDC_DECIMALS).toFixed(2)} shares</span>
                 ) : (
                   <span />
                 )}
-                {side === "buy" && collateralBalance > 0 && (
+                {collateralBalance > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -534,24 +516,12 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
                     Max
                   </button>
                 )}
-                {side === "sell" && !sellOutLocked && chartMu !== null && inputUnit === "shares" && maxSellShares > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAmount((maxSellShares / 10 ** USDC_DECIMALS).toString());
-                      setComputedAmount(null);
-                    }}
-                    className="text-[11px] font-medium text-primary hover:text-primary/80"
-                  >
-                    Max
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Cost preview + validation + market info — contiguous block */}
+            {/* Cost preview + validation + market info */}
             <div className="space-y-3">
-              {continuousHasValid && chartMu !== null && !sellOutLocked && (
+              {continuousHasValid && chartMu !== null && (
                 <CostPreview
                   marketId={market.id}
                   side={side}
@@ -578,44 +548,25 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
               {buttonLabel}
             </Button>
 
-            {/* Reset / Sell Out */}
-            {(chartMu !== null || sellOutLocked) && (
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 gap-1.5 text-xs text-muted-foreground"
-                  onClick={() => {
-                    distributionParams?.onReset();
-                    setAmount("");
-                    setComputedAmount(null);
-                    setSellOutLocked(false);
-                  }}
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Reset
-                </Button>
-                {side === "sell" && hasPositionHoldings && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "flex-1 gap-1.5 text-xs",
-                      sellOutLocked
-                        ? "bg-rose-500/20 text-rose-400 border-rose-500/40"
-                        : "text-rose-400 border-rose-500/30 hover:bg-rose-500/10",
-                    )}
-                    onClick={handleSellOut}
-                    disabled={sellOutLocked}
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Sell Out
-                  </Button>
-                )}
-              </div>
+            {/* Reset */}
+            {chartMu !== null && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5 text-xs text-muted-foreground"
+                onClick={() => {
+                  distributionParams?.onReset();
+                  setAmount("");
+                  setComputedAmount(null);
+                }}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
+              </Button>
             )}
           </>
         ) : isContinuous ? (
+          /* ── BUY SIDE: continuous classic (modal) ── */
           <>
             <DistributionInput
               market={market}
@@ -654,6 +605,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
             </Button>
           </>
         ) : (
+          /* ── BUY SIDE: binary / multi ── */
           <>
             {market.marketType === MarketType.Binary ? (
               <BinaryInput
