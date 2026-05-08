@@ -14,7 +14,7 @@ describe("MarketStatsBar", () => {
         market={{
           id: mockBinaryMarket.id,
           marketType: mockBinaryMarket.marketType,
-          reserves: mockBinaryMarket.reserves,
+          totalMinted: mockBinaryMarket.totalMinted,
           totalVolume: mockBinaryMarket.totalVolume,
           rangeMin: mockBinaryMarket.rangeMin,
           rangeMax: mockBinaryMarket.rangeMax,
@@ -32,7 +32,7 @@ describe("MarketStatsBar", () => {
         market={{
           id: mockBinaryMarket.id,
           marketType: mockBinaryMarket.marketType,
-          reserves: mockBinaryMarket.reserves,
+          totalMinted: mockBinaryMarket.totalMinted,
           totalVolume: mockBinaryMarket.totalVolume,
           rangeMin: mockBinaryMarket.rangeMin,
           rangeMax: mockBinaryMarket.rangeMax,
@@ -49,7 +49,7 @@ describe("MarketStatsBar", () => {
         market={{
           id: mockContinuousMarket.id,
           marketType: mockContinuousMarket.marketType,
-          reserves: mockContinuousMarket.reserves,
+          totalMinted: mockContinuousMarket.totalMinted,
           totalVolume: mockContinuousMarket.totalVolume,
           rangeMin: mockContinuousMarket.rangeMin,
           rangeMax: mockContinuousMarket.rangeMax,

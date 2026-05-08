@@ -11,7 +11,7 @@ import {
 interface MarketStatsBarProps {
   market: Pick<
     MarketSummary,
-    "id" | "marketType" | "reserves" | "totalVolume" | "rangeMin" | "rangeMax" | "subject" | "category"
+    "id" | "marketType" | "totalMinted" | "totalVolume" | "rangeMin" | "rangeMax" | "subject" | "category"
   >;
 }
 
@@ -19,7 +19,7 @@ export function MarketStatsBar({ market }: MarketStatsBarProps) {
   const isContinuous = market.marketType === MarketType.Continuous;
   const { data: oracleData } = useOracleData(market.id, isContinuous);
   const { data: priceData } = useLivePrice(market.id, market.category);
-  const liquidity = market.reserves.reduce((sum, r) => sum + Number(r), 0);
+  const liquidity = Number(market.totalMinted);
 
   return (
     <>
