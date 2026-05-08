@@ -265,4 +265,47 @@ describe('FaucetService', () => {
       );
     });
   });
+
+  describe('supportingSolLamports', () => {
+    async function buildServiceWith(envValue: string | undefined) {
+      const mod = await Test.createTestingModule({
+        providers: [
+          FaucetService,
+          { provide: getRepositoryToken(FaucetConfigEntity), useValue: configRepo },
+          { provide: getRepositoryToken(FaucetHistoryEntity), useValue: historyRepo },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn((key: string) => {
+                if (key === 'SOLANA_RPC_URL') return 'https://api.devnet.solana.com';
+                if (key === 'SUPPORTING_SOL_FAUCET') return envValue;
+                return undefined;
+              }),
+            },
+          },
+        ],
+      }).compile();
+      return mod.get<FaucetService>(FaucetService);
+    }
+
+    it('should default to 0.03 SOL (30_000_000 lamports) when env not set', async () => {
+      const svc = await buildServiceWith(undefined);
+      expect((svc as any).supportingSolLamports).toBe(BigInt(30_000_000));
+    });
+
+    it('should parse custom value', async () => {
+      const svc = await buildServiceWith('0.1');
+      expect((svc as any).supportingSolLamports).toBe(BigInt(100_000_000));
+    });
+
+    it('should be 0 when set to "0"', async () => {
+      const svc = await buildServiceWith('0');
+      expect((svc as any).supportingSolLamports).toBe(0n);
+    });
+
+    it('should be 0 when set to invalid value', async () => {
+      const svc = await buildServiceWith('not-a-number');
+      expect((svc as any).supportingSolLamports).toBe(0n);
+    });
+  });
 });
