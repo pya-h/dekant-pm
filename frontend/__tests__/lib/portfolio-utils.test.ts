@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computePositionValue,
+  computeAmmSellProceeds,
   getPositionRange,
   categorizePositions,
   computePortfolioValue,
@@ -42,17 +43,73 @@ function makeMarket(overrides: Partial<MarketSummary> = {}): MarketSummary {
 
 const SCALE = 1_000_000_000;
 
+// ── computeAmmSellProceeds ──
+
+describe("computeAmmSellProceeds", () => {
+  it("returns 0 for zero holdings", () => {
+    expect(
+      computeAmmSellProceeds(["10000000", "5000000"], "25000000", [0, 0]),
+    ).toBe(0);
+  });
+
+  it("computes net sell proceeds after fees for single outcome", () => {
+    // Sell 10M tokens of outcome 0 from market [10M, 5M] / 25M
+    const proceeds = computeAmmSellProceeds(
+      ["10000000", "5000000"],
+      "25000000",
+      [10000000, 0],
+    );
+    // gross = floor(25M - sqrt(5M² + 20M²)) = 4384471
+    // fee = floor(4384471 * 30 / 10000) = 13153
+    // net = 4371318
+    expect(proceeds).toBe(4371318);
+  });
+
+  it("computes sequential sell proceeds for multiple outcomes", () => {
+    const proceeds = computeAmmSellProceeds(
+      ["10000000", "5000000"],
+      "25000000",
+      [10000000, 5000000],
+    );
+    // Two sequential sells, pool state updates between them
+    expect(proceeds).toBe(9161046);
+  });
+
+  it("skips outcomes where holdings exceed circulating supply", () => {
+    // x[0] = 25M - 10M = 15M, holdings[0] = 20M > 15M → skipped
+    const proceeds = computeAmmSellProceeds(
+      ["10000000", "5000000"],
+      "25000000",
+      [20000000, 0],
+    );
+    expect(proceeds).toBe(0);
+  });
+
+  it("applies custom fee rate", () => {
+    const noFee = computeAmmSellProceeds(
+      ["10000000", "5000000"],
+      "25000000",
+      [10000000, 0],
+      0,
+    );
+    const withFee = computeAmmSellProceeds(
+      ["10000000", "5000000"],
+      "25000000",
+      [10000000, 0],
+      30,
+    );
+    expect(noFee).toBeGreaterThan(withFee);
+  });
+});
+
 // ── computePositionValue ──
 
 describe("computePositionValue", () => {
-  it("computes mark-to-market value for active binary position", () => {
-    // reserves=[30,70], totalMinted=100, kSquared=10000
-    // probs: p0=(100-30)^2/10000=0.49, p1=(100-70)^2/10000=0.09
-    // holdings=[10000000, 5000000]
-    // value = 10000000*0.49 + 5000000*0.09 = 4900000 + 450000 = 5350000
+  it("computes AMM sell proceeds for active binary position", () => {
     const pos = makePosition();
     const value = computePositionValue(pos);
-    expect(value).toBeCloseTo(5350000, 0);
+    // Sell proceeds for holdings=[10M,5M] in market reserves=[10M,5M]/25M
+    expect(value).toBe(9161046);
   });
 
   it("returns winning token value for resolved market with resolvedOutcome", () => {
@@ -200,15 +257,15 @@ describe("computePortfolioValue", () => {
     expect(computePortfolioValue([])).toBe(0);
   });
 
-  it("sums values of open positions", () => {
+  it("sums sell proceeds of positions", () => {
     const pos1 = makePosition({ holdings: ["10000000", "5000000"] });
     const pos2 = makePosition({
       id: "pos-2",
       holdings: ["10000000", "5000000"],
     });
     const value = computePortfolioValue([pos1, pos2]);
-    // Each ≈ 5350000, so total ≈ 10700000
-    expect(value).toBeCloseTo(10700000, -3);
+    // Each = 9161046, total = 18322092
+    expect(value).toBe(18322092);
   });
 });
 
@@ -234,9 +291,6 @@ describe("computeWinRate", () => {
   });
 
   it("returns 1.0 when all positions won", () => {
-    // resolvedOutcome=0, holdings[0]=10000000, netCost=12000000-0=12000000
-    // payout=10000000 < 12000000 → NOT a win
-    // Let's make a winning position
     const pos = makePosition({
       market: mockResolvedMarket,
       holdings: ["20000000", "0"],
@@ -446,38 +500,49 @@ describe("computeAvgWinProbability", () => {
   it("computes non-zero probability when some bins exceed net cost", () => {
     // netCost = 5000000
     // holdings = [10000000, 5000000] → bin 0 (10000000 > 5000000) wins
-    // prob[0] = 0.49 → winProb ≈ 0.49
+    // p[0] = 0.36 (with new mock data: x[0]²/k² = 15M²/25M² = 0.36)
     const pos = makePosition({
       totalDeposited: "5000000",
       totalWithdrawn: "0",
     });
     const result = computeAvgWinProbability([pos], []);
-    expect(result).toBeCloseTo(0.49, 2);
+    expect(result).toBeCloseTo(0.36, 2);
   });
 });
 
 // ── computePnl ──
 
 describe("computePnl", () => {
-  it("computes pnl and pnlPct", () => {
+  it("computes pnl and pnlPct using sell proceeds and paid price", () => {
     const pos = makePosition({
       totalDeposited: "12000000",
       totalWithdrawn: "2000000",
     });
     const { pnl, pnlPct } = computePnl(pos);
-    // value ≈ 5350000, pnl = 5350000 - 12000000 + 2000000 = -4650000
-    expect(pnl).toBeCloseTo(-4650000, -3);
-    // pnlPct = (-4650000 / 12000000) * 100 ≈ -38.75
-    expect(pnlPct).toBeCloseTo(-38.75, 0);
+    // sellPrice = 9161046, paidPrice = 12M - 2M = 10M
+    // pnl = 9161046 - 10000000 = -838954
+    expect(pnl).toBe(-838954);
+    // pnlPct = -838954 / 10000000 * 100 = -8.38954
+    expect(pnlPct).toBeCloseTo(-8.39, 1);
   });
 
-  it("returns 0 pnlPct when deposited is 0", () => {
+  it("returns 0 pnlPct when paidPrice is 0", () => {
     const pos = makePosition({
       totalDeposited: "0",
       totalWithdrawn: "0",
       holdings: ["0", "0"],
     });
     const { pnlPct } = computePnl(pos);
+    expect(pnlPct).toBe(0);
+  });
+
+  it("returns 0 pnlPct when withdrawn exceeds deposited", () => {
+    const pos = makePosition({
+      totalDeposited: "5000000",
+      totalWithdrawn: "6000000",
+    });
+    const { pnlPct } = computePnl(pos);
+    // paidPrice = -1M ≤ 0, so pnlPct = 0
     expect(pnlPct).toBe(0);
   });
 });
@@ -495,13 +560,13 @@ describe("computePositionWinProb", () => {
 
   it("returns probability of profitable bins", () => {
     // netCost = 5000000
-    // holdings[0] = 10000000 > 5000000 → includes prob[0] = 0.49
+    // holdings[0] = 10000000 > 5000000 → includes prob[0] = 0.36
     // holdings[1] = 5000000 not > 5000000 → excluded
     const pos = makePosition({
       totalDeposited: "5000000",
       totalWithdrawn: "0",
     });
-    expect(computePositionWinProb(pos)).toBeCloseTo(0.49, 2);
+    expect(computePositionWinProb(pos)).toBeCloseTo(0.36, 2);
   });
 });
 
