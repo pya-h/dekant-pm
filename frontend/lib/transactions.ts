@@ -260,3 +260,20 @@ export async function executeSellDistribution(
     ])
     .rpc({ skipPreflight: true, maxRetries: 3 });
 }
+
+/** Sell entire position in a continuous market. No distribution fitting needed. */
+export async function executeSellAll(
+  program: Program<DekantPm>,
+  marketPubkey: PublicKey,
+  trader: PublicKey,
+  minCollateralOut: BN = new BN(0),
+): Promise<string> {
+  const accounts = await resolveAccounts(program, marketPubkey, trader);
+  return program.methods
+    .sellAll({ minCollateralOut })
+    .accountsPartial(accounts)
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+    ])
+    .rpc({ skipPreflight: true, maxRetries: 3 });
+}
