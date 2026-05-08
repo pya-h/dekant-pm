@@ -8,6 +8,7 @@ import {
   deriveVaultAuthority,
 } from "./solana";
 import { USDC_DECIMALS, SCALE } from "./types";
+import { AnchorProvider } from "@coral-xyz/anchor";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -15,6 +16,50 @@ const TOKEN_PROGRAM_ID = new PublicKey(
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
 );
+
+/**
+ * Send a transaction robustly: build instruction(s), fetch a FRESH blockhash
+ * right before sending (so wallet signing delay doesn't expire it), then send
+ * with skipPreflight + retries.
+ */
+async function sendRobust(
+  program: Program<DekantPm>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  builder: { preInstructions: (ixs: any[]) => any; transaction: () => Promise<any> },
+  preIxs: ReturnType<typeof ComputeBudgetProgram.setComputeUnitLimit>[] = [],
+): Promise<string> {
+  const provider = program.provider as AnchorProvider;
+  const connection = provider.connection;
+  const wallet = provider.wallet;
+
+  // Build the transaction via Anchor (applies accountsPartial, args, etc.)
+  // Priority fee (1 micro-lamport per CU) improves tx landing on devnet.
+  const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 });
+  const allPreIxs = [priorityFeeIx, ...preIxs];
+  const tx = await builder.preInstructions(allPreIxs).transaction();
+
+  // Fetch a FRESH blockhash right before signing — this is the key fix.
+  // Anchor's .rpc() fetches the blockhash early, then the wallet signing
+  // can take 10-30+ seconds (especially on mobile), causing the blockhash
+  // to expire before the tx reaches the network.
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = wallet.publicKey;
+
+  const signed = await wallet.signTransaction(tx);
+
+  const signature = await connection.sendRawTransaction(signed.serialize(), {
+    skipPreflight: true,
+    maxRetries: 3,
+  });
+
+  await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed",
+  );
+
+  return signature;
+}
 
 /** Derive Associated Token Address (mirrors @solana/spl-token). */
 function getAta(mint: PublicKey, owner: PublicKey): PublicKey {
@@ -73,13 +118,12 @@ export async function executeBuy(
   amount: string,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .buy({ outcome, collateralAmount: toBaseUnits(amount) })
-    .accountsPartial({
-      ...accounts,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .buy({ outcome, collateralAmount: toBaseUnits(amount) })
+      .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+  );
 }
 
 /** Sell discrete outcome tokens (Binary / MultiOutcome markets). */
@@ -91,10 +135,12 @@ export async function executeSell(
   amount: string,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .sell({ outcome, tokenAmount: toBaseUnits(amount) })
-    .accountsPartial(accounts)
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .sell({ outcome, tokenAmount: toBaseUnits(amount) })
+      .accountsPartial(accounts),
+  );
 }
 
 /** Buy distribution position (Continuous markets). */
@@ -107,20 +153,17 @@ export async function executeBuyDistribution(
   amount: string,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .buyDistribution({
-      mu: toScaled(mu),
-      sigma: toScaled(sigma),
-      collateralAmount: toBaseUnits(amount),
-    })
-    .accountsPartial({
-      ...accounts,
-      systemProgram: SystemProgram.programId,
-    })
-    .preInstructions([
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    ])
-    .rpc({ skipPreflight: true, maxRetries: 3 });
+  return sendRobust(
+    program,
+    program.methods
+      .buyDistribution({
+        mu: toScaled(mu),
+        sigma: toScaled(sigma),
+        collateralAmount: toBaseUnits(amount),
+      })
+      .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+    [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+  );
 }
 
 /** Claim payout from a resolved market. */
@@ -130,7 +173,10 @@ export async function executeClaimPayout(
   trader: PublicKey,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods.claimPayout().accountsPartial(accounts).rpc();
+  return sendRobust(
+    program,
+    program.methods.claimPayout().accountsPartial(accounts),
+  );
 }
 
 /** Resolve a market (Oracle only). */
@@ -141,13 +187,12 @@ export async function executeResolveMarket(
   outcome: number,
   value: BN,
 ): Promise<string> {
-  return program.methods
-    .resolveMarket({ outcome, value })
-    .accountsPartial({
-      oracle,
-      market: marketPubkey,
-    })
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .resolveMarket({ outcome, value })
+      .accountsPartial({ oracle, market: marketPubkey }),
+  );
 }
 
 /** Buy outcome tokens to reach a target probability (Binary / MultiOutcome). */
@@ -160,13 +205,12 @@ export async function executeBuyToPrice(
   maxCollateral: BN,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .buyToPrice({ outcome, targetProbability, maxCollateral })
-    .accountsPartial({
-      ...accounts,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .buyToPrice({ outcome, targetProbability, maxCollateral })
+      .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+  );
 }
 
 /** Sell outcome tokens to reach a target probability (Binary / MultiOutcome). */
@@ -179,10 +223,12 @@ export async function executeSellToPrice(
   minCollateralOut: BN,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .sellToPrice({ outcome, targetProbability, minCollateralOut })
-    .accountsPartial(accounts)
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .sellToPrice({ outcome, targetProbability, minCollateralOut })
+      .accountsPartial(accounts),
+  );
 }
 
 /** Resolve accounts for LP instructions (different from trading accounts). */
@@ -215,13 +261,12 @@ export async function executeAddLiquidity(
   amount: string,
 ): Promise<string> {
   const accounts = await resolveLpAccounts(program, marketPubkey, provider);
-  return program.methods
-    .addLiquidity({ amount: toBaseUnits(amount) })
-    .accountsPartial({
-      ...accounts,
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .addLiquidity({ amount: toBaseUnits(amount) })
+      .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+  );
 }
 
 /** Remove liquidity from a market (burn LP shares, receive USDC). */
@@ -232,10 +277,12 @@ export async function executeRemoveLiquidity(
   sharesToBurn: BN,
 ): Promise<string> {
   const accounts = await resolveLpAccounts(program, marketPubkey, provider);
-  return program.methods
-    .removeLiquidity({ sharesToBurn })
-    .accountsPartial(accounts)
-    .rpc();
+  return sendRobust(
+    program,
+    program.methods
+      .removeLiquidity({ sharesToBurn })
+      .accountsPartial(accounts),
+  );
 }
 
 /** Sell distribution position (Continuous markets). */
@@ -248,17 +295,17 @@ export async function executeSellDistribution(
   amount: string,
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .sellDistribution({
-      mu: toScaled(mu),
-      sigma: toScaled(sigma),
-      tokenAmount: toBaseUnits(amount),
-    })
-    .accountsPartial(accounts)
-    .preInstructions([
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    ])
-    .rpc({ skipPreflight: true, maxRetries: 3 });
+  return sendRobust(
+    program,
+    program.methods
+      .sellDistribution({
+        mu: toScaled(mu),
+        sigma: toScaled(sigma),
+        tokenAmount: toBaseUnits(amount),
+      })
+      .accountsPartial(accounts),
+    [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+  );
 }
 
 /** Sell entire position in a continuous market. No distribution fitting needed. */
@@ -269,11 +316,11 @@ export async function executeSellAll(
   minCollateralOut: BN = new BN(0),
 ): Promise<string> {
   const accounts = await resolveAccounts(program, marketPubkey, trader);
-  return program.methods
-    .sellAll({ minCollateralOut })
-    .accountsPartial(accounts)
-    .preInstructions([
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    ])
-    .rpc({ skipPreflight: true, maxRetries: 3 });
+  return sendRobust(
+    program,
+    program.methods
+      .sellAll({ minCollateralOut })
+      .accountsPartial(accounts),
+    [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+  );
 }
