@@ -57,7 +57,7 @@ export default function PortfolioPage() {
   }, [positions]);
 
   const stats = useMemo(() => {
-    const portfolioValue = computePortfolioValue(tabs.open);
+    const portfolioValue = computePortfolioValue(tabs.all);
     const activeCount = computeActivePositionCount(tabs.open, tabs.expired);
     const winRate = computeWinRate(tabs.settled);
     const totalAtRisk = computeTotalAtRisk(tabs.open, tabs.expired);
