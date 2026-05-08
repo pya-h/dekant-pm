@@ -533,7 +533,7 @@ All financial state lives on-chain. The backend is a read cache — a compromise
 
 | Network | Chain | Program ID |
 |---------|-------|-----------|
-| **Devnet** (live) | Solana devnet | `F7dR6Ho8aCm9SBD2aNfJChTdpQpNvPmKjXZGSfjLZHKL` |
+| **Devnet** (live) | Solana devnet | `4GYvtbs7da26tLaZt9PNQWLesq2riwEN6fi9tGF91A5P` |
 | **Mainnet** | Solana mainnet-beta | Coming soon — gated by waitlist |
 
 ---
