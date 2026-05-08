@@ -448,8 +448,9 @@ export function InteractiveDistributionChart({
       setPanOffset({ x: newVbX, y: newVbY });
       setYScaleOverride(null);
     };
-    svg.addEventListener("wheel", handler, { passive: false });
-    return () => svg.removeEventListener("wheel", handler);
+    // Zoom-on-scroll disabled — interferes with page scrolling
+    // svg.addEventListener("wheel", handler, { passive: false });
+    // return () => svg.removeEventListener("wheel", handler);
   }, []);
 
   const toggleCurve = useCallback((curve: "market" | "trader" | "position") => {
