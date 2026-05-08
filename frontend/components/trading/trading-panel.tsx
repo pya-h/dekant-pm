@@ -27,6 +27,7 @@ import {
   executeSell,
   executeBuyDistribution,
   executeSellDistribution,
+  executeSellAll,
   executeBuyToPrice,
   executeSellToPrice,
 } from "@/lib/transactions";
@@ -207,9 +208,9 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
     (side === "sell" && discreteInputUnit === "collateral");
   const discreteNeedsEstimate = (discreteIsReverse || isTargetPrice) && computedAmount == null && discreteHasValid;
 
-  // Combined validation
-  const hasValidParams = hasDistParams ? continuousHasValid : discreteHasValid;
-  const needsEstimate = hasDistParams ? continuousNeedsEstimate : discreteNeedsEstimate;
+  // Combined validation — sellOutLocked bypasses estimation (uses sell_all instruction)
+  const hasValidParams = sellOutLocked || (hasDistParams ? continuousHasValid : discreteHasValid);
+  const needsEstimate = sellOutLocked ? false : (hasDistParams ? continuousNeedsEstimate : discreteNeedsEstimate);
 
   const exceedsBalance =
     connected && side === "buy" && hasValidParams &&
@@ -258,24 +259,29 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
       if (hasDistParams && chartMu !== null) {
         // Continuous chart-based trade
-        const isReverse =
-          (side === "buy" && inputUnit === "shares") ||
-          (side === "sell" && inputUnit === "collateral");
-
-        let effectiveAmount = amount;
-        if (isReverse && computedAmount != null) {
-          const buffered = Math.ceil(computedAmount * 1.005);
-          effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
-        }
-
-        if (side === "buy") {
-          signature = await executeBuyDistribution(
-            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
-          );
+        if (side === "sell" && sellOutLocked) {
+          // Sell entire position via sell_all instruction — no distribution fitting
+          signature = await executeSellAll(program, marketPubkey, publicKey);
         } else {
-          signature = await executeSellDistribution(
-            program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
-          );
+          const isReverse =
+            (side === "buy" && inputUnit === "shares") ||
+            (side === "sell" && inputUnit === "collateral");
+
+          let effectiveAmount = amount;
+          if (isReverse && computedAmount != null) {
+            const buffered = Math.ceil(computedAmount * 1.005);
+            effectiveAmount = (buffered / 10 ** USDC_DECIMALS).toString();
+          }
+
+          if (side === "buy") {
+            signature = await executeBuyDistribution(
+              program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
+            );
+          } else {
+            signature = await executeSellDistribution(
+              program, marketPubkey, publicKey, chartMu, chartSigma, effectiveAmount,
+            );
+          }
         }
       } else if (params) {
         const unit = params.inputUnit ?? (side === "buy" ? "collateral" : "shares");
@@ -391,7 +397,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
   }, [
     connected, publicKey, program, params, side, address,
     market.pubkey, market.id, market.collateralMint,
-    hasDistParams, chartMu, chartSigma, amount, inputUnit,
+    hasDistParams, chartMu, chartSigma, amount, inputUnit, sellOutLocked,
     computedAmount, connection, setVisible, queryClient, distributionParams,
   ]);
 
@@ -545,7 +551,7 @@ function TradingPanelInner({ market, distributionParams }: TradingPanelProps) {
 
             {/* Cost preview + validation + market info — contiguous block */}
             <div className="space-y-3">
-              {continuousHasValid && chartMu !== null && (
+              {continuousHasValid && chartMu !== null && !sellOutLocked && (
                 <CostPreview
                   marketId={market.id}
                   side={side}

@@ -1880,3 +1880,248 @@ fn test_distribution_sell_invariant_holds() {
         "sell invariant violated: actual_sq={actual_sq}, k_sq={k_sq}, diff={diff}"
     );
 }
+
+// ── compute_sell_all ─────────────────────────────────────────────────
+
+#[test]
+fn test_sell_all_basic_roundtrip() {
+    // Buy distribution, then sell_all with exact holdings → should recover ~100%
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 2_000_000u64;
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let tm_after_buy = total_minted + trade as u128;
+
+    // sell_all with exact per-bin token amounts
+    let collateral_out =
+        compute_sell_all(&mut reserves, tm_after_buy, &tokens).unwrap();
+
+    let diff = collateral_out.abs_diff(trade);
+    assert!(
+        diff <= n as u64 + 1,
+        "sell_all roundtrip: got {collateral_out}, expected ~{trade}, diff={diff}"
+    );
+}
+
+#[test]
+fn test_sell_all_matches_distribution_sell() {
+    // sell_all with per-bin amounts should give the same collateral
+    // as compute_distribution_sell with the same effective per-bin amounts
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let weights = uniform_weights(n);
+    let trade = 1_500_000u64;
+
+    // Path A: buy + sell_all
+    let mut reserves_a = init_reserves(n, total_minted);
+    let tokens_a =
+        compute_distribution_buy(&mut reserves_a, total_minted, &weights, trade).unwrap();
+    let tm_after = total_minted + trade as u128;
+    let coll_a = compute_sell_all(&mut reserves_a, tm_after, &tokens_a).unwrap();
+
+    // Path B: buy + distribution_sell (same total tokens, same weights)
+    let mut reserves_b = init_reserves(n, total_minted);
+    let tokens_b =
+        compute_distribution_buy(&mut reserves_b, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens_b.iter().sum();
+    let coll_b =
+        compute_distribution_sell(&mut reserves_b, tm_after, &weights, total_tokens).unwrap();
+
+    // Should be identical (same math, same per-bin amounts for uniform weights)
+    assert_eq!(coll_a, coll_b,
+        "sell_all={coll_a} should equal distribution_sell={coll_b} for uniform weights");
+}
+
+#[test]
+fn test_sell_all_non_uniform_holdings() {
+    // Holdings from a non-uniform buy should sell correctly
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights: Vec<u64> = vec![
+        (SCALE * 7 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+        (SCALE * 1 / 10) as u64,
+    ];
+    let trade = 2_000_000u64;
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let tm_after = total_minted + trade as u128;
+
+    // Verify tokens are non-uniform
+    assert!(tokens[0] > tokens[1], "bin0 should have more tokens");
+
+    let collateral_out = compute_sell_all(&mut reserves, tm_after, &tokens).unwrap();
+    let diff = collateral_out.abs_diff(trade);
+    assert!(
+        diff <= n as u64 + 1,
+        "non-uniform sell_all roundtrip: got {collateral_out}, expected ~{trade}, diff={diff}"
+    );
+}
+
+#[test]
+fn test_sell_all_multi_buy_then_sell_all() {
+    // Multiple buys with different curves, then sell_all with combined holdings
+    let n = 8;
+    let total_minted: u128 = 20_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let mut total_minted_cur = total_minted;
+
+    // Buy #1: concentrated on bins 0-3
+    let weights1: Vec<u64> = vec![
+        (SCALE / 4) as u64, (SCALE / 4) as u64,
+        (SCALE / 4) as u64, (SCALE / 4) as u64,
+        0, 0, 0, 0,
+    ];
+    let tokens1 =
+        compute_distribution_buy(&mut reserves, total_minted_cur, &weights1, 1_000_000).unwrap();
+    total_minted_cur += 1_000_000;
+
+    // Buy #2: concentrated on bins 4-7
+    let weights2: Vec<u64> = vec![
+        0, 0, 0, 0,
+        (SCALE / 4) as u64, (SCALE / 4) as u64,
+        (SCALE / 4) as u64, (SCALE / 4) as u64,
+    ];
+    let tokens2 =
+        compute_distribution_buy(&mut reserves, total_minted_cur, &weights2, 1_000_000).unwrap();
+    total_minted_cur += 1_000_000;
+
+    // Combined holdings
+    let mut combined: Vec<u64> = vec![0; n];
+    for i in 0..n {
+        combined[i] = tokens1[i] + tokens2[i];
+    }
+
+    // sell_all with combined holdings — this is what the instruction does
+    let collateral_out = compute_sell_all(&mut reserves, total_minted_cur, &combined).unwrap();
+
+    // Should recover close to total invested (2M), accounting for price impact between buys
+    assert!(collateral_out > 0);
+    assert!(
+        collateral_out > 1_800_000, // at least 90% of 2M
+        "multi-buy sell_all should recover most collateral: got {collateral_out}"
+    );
+}
+
+#[test]
+fn test_sell_all_invariant_holds() {
+    // After sell_all, invariant should hold (proportional tolerance)
+    let n = 8;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, 2_000_000).unwrap();
+    let tm_after_buy = total_minted + 2_000_000;
+
+    let collateral_out = compute_sell_all(&mut reserves, tm_after_buy, &tokens).unwrap();
+    let tm_after_sell = tm_after_buy - collateral_out as u128;
+
+    let actual_sq: u128 = reserves
+        .iter()
+        .map(|&h| {
+            let x = tm_after_sell.saturating_sub(h as u128);
+            x * x
+        })
+        .sum();
+    let k_sq = tm_after_sell * tm_after_sell;
+    let diff = actual_sq.abs_diff(k_sq);
+    // Use proportional tolerance (1e-6 relative) — same as other distribution tests.
+    // isqrt rounding accumulates across N bins.
+    assert!(
+        diff <= k_sq / 1_000_000 + 256,
+        "sell_all invariant violated: actual_sq={actual_sq}, k_sq={k_sq}, diff={diff}"
+    );
+}
+
+#[test]
+fn test_sell_all_empty_holdings() {
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let holdings = vec![0u64; n];
+
+    assert!(compute_sell_all(&mut reserves, total_minted, &holdings).is_err());
+}
+
+#[test]
+fn test_sell_all_mismatched_lengths() {
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let mut reserves = init_reserves(n, total_minted);
+    let holdings = vec![100u64; 3]; // wrong length
+
+    assert!(compute_sell_all(&mut reserves, total_minted, &holdings).is_err());
+}
+
+#[test]
+fn test_sell_all_path_independence() {
+    // Selling all at once via sell_all should give the same result as
+    // selling the same amounts via compute_distribution_sell in two separate calls
+    let n = 4;
+    let total_minted: u128 = 10_000_000;
+    let weights = uniform_weights(n);
+    let trade = 2_000_000u64;
+
+    // Path A: buy + sell_all (one shot)
+    let mut reserves_a = init_reserves(n, total_minted);
+    let tokens =
+        compute_distribution_buy(&mut reserves_a, total_minted, &weights, trade).unwrap();
+    let tm_after = total_minted + trade as u128;
+    let coll_all = compute_sell_all(&mut reserves_a, tm_after, &tokens).unwrap();
+
+    // Path B: buy + sell half + sell other half via sell_all
+    let mut reserves_b = init_reserves(n, total_minted);
+    let tokens_b =
+        compute_distribution_buy(&mut reserves_b, total_minted, &weights, trade).unwrap();
+    let total_tokens: u64 = tokens_b.iter().sum();
+    let half = total_tokens / 2;
+    let coll_half =
+        compute_distribution_sell(&mut reserves_b, tm_after, &weights, half).unwrap();
+    let tm_mid = tm_after - coll_half as u128;
+
+    // Remaining holdings
+    let mut remaining: Vec<u64> = vec![0; n];
+    for i in 0..n {
+        let sold_this_bin = (half as u128 * weights[i] as u128 / SCALE) as u64;
+        remaining[i] = tokens_b[i] - sold_this_bin;
+    }
+    let coll_rest = compute_sell_all(&mut reserves_b, tm_mid, &remaining).unwrap();
+
+    // Total collateral should be identical (path independence)
+    let total_b = coll_half + coll_rest;
+    let diff = coll_all.abs_diff(total_b);
+    assert!(
+        diff <= 1,
+        "path independence: all_at_once={coll_all}, split={total_b}, diff={diff}"
+    );
+}
+
+#[test]
+fn test_sell_all_large_pool() {
+    // Test at large pool sizes (exercises U256 path)
+    let n = 64;
+    let total_minted: u128 = 1_000_000_000_000; // $1M
+    let mut reserves = init_reserves(n, total_minted);
+    let weights = uniform_weights(n);
+    let trade = 50_000_000u64; // $50
+
+    let tokens =
+        compute_distribution_buy(&mut reserves, total_minted, &weights, trade).unwrap();
+    let tm_after = total_minted + trade as u128;
+
+    let collateral_out = compute_sell_all(&mut reserves, tm_after, &tokens).unwrap();
+    let diff = collateral_out.abs_diff(trade);
+    assert!(
+        diff <= n as u64,
+        "large pool sell_all roundtrip: got {collateral_out}, expected ~{trade}, diff={diff}"
+    );
+}

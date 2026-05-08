@@ -306,6 +306,61 @@ pub fn compute_distribution_sell(
     Ok(collateral_out)
 }
 
+// ── Sell All (exact per-bin amounts) ─────────────────────────────────
+
+/// Sell exact per-bin token amounts back to the AMM (continuous market).
+///
+/// Unlike `compute_distribution_sell` which distributes a total token count
+/// via Gaussian weights, this takes the exact holdings per bin and sells them
+/// all in one operation. Used for "sell entire position" functionality.
+///
+/// Mutates `reserves` in place. Returns total collateral_out (before fees).
+///
+/// Algorithm (same math as distribution sell):
+/// 1. Add holdings[b] back to reserves[b] for each bin.
+/// 2. Compute k_new_sq = Σ (total_minted - reserves_new[b])².
+/// 3. k_new = isqrt(k_new_sq).
+/// 4. collateral_out = total_minted - k_new.
+/// 5. Subtract collateral_out from all reserves.
+pub fn compute_sell_all(
+    reserves: &mut [u64],
+    total_minted: u128,
+    holdings: &[u64],
+) -> Result<u64> {
+    let n = reserves.len();
+    require!(holdings.len() == n, DekantPmError::InvalidNumOutcomes);
+
+    let total_tokens: u64 = holdings.iter().sum();
+    require!(total_tokens > 0, DekantPmError::TradeTooSmall);
+
+    // Accumulate Σ x_new² in U256 to avoid overflow at extreme pool sizes.
+    let mut k_new_sq = U256::ZERO;
+    for (i, &h) in holdings.iter().enumerate() {
+        reserves[i] = reserves[i]
+            .checked_add(h)
+            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+
+        let x_new = U256::from(total_minted.saturating_sub(reserves[i] as u128));
+        k_new_sq += x_new * x_new;
+    }
+
+    let k_new: u128 = isqrt_u256(k_new_sq);
+    require!(
+        total_minted >= k_new,
+        DekantPmError::InsufficientLiquidity
+    );
+    let collateral_out = (total_minted - k_new) as u64;
+    require!(collateral_out > 0, DekantPmError::TradeTooSmall);
+
+    for r in reserves.iter_mut() {
+        *r = r
+            .checked_sub(collateral_out)
+            .ok_or_else(|| error!(DekantPmError::InsufficientLiquidity))?;
+    }
+
+    Ok(collateral_out)
+}
+
 // ── Pricing ──────────────────────────────────────────────────────────
 
 /// Compute implied probabilities for all outcomes.
