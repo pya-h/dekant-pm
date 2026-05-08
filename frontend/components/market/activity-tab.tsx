@@ -31,13 +31,16 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["marketActivity", marketId, token],
-    queryFn: ({ pageParam = 1 }) =>
-      api.get<{ data: Trade[]; total: number }>(
+    queryKey: ["marketActivity", marketId, token, mine ? walletAddress : null],
+    queryFn: ({ pageParam = 1 }) => {
+      const params: Record<string, any> = { page: pageParam, limit: PAGE_SIZE };
+      if (mine && walletAddress) params.trader = walletAddress;
+      return api.get<{ data: Trade[]; total: number }>(
         `/markets/${marketId}/history`,
-        { page: pageParam, limit: PAGE_SIZE },
+        params,
         token ?? undefined,
-      ),
+      );
+    },
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       const fetched = allPages.reduce((n, p) => n + p.data.length, 0);
@@ -89,11 +92,8 @@ export function ActivityTab({ marketId, marketCreator }: ActivityTabProps) {
     return items;
   }, [allTrades, marketCreator, mine]);
 
-  // Filter for "Mine" mode
-  const filtered = useMemo(() => {
-    if (!mine || !walletAddress) return activities;
-    return activities.filter((a) => a.trader === walletAddress);
-  }, [activities, mine, walletAddress]);
+  // When mine=true, filtering is done server-side via the trader query param
+  const filtered = activities;
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
