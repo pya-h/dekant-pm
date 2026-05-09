@@ -99,7 +99,7 @@ function TradeList({
                   <div className="h-px flex-1 bg-border/30" />
                 </div>
               )}
-              <TradeRow trade={trade} rangeMin={rangeMin} rangeMax={rangeMax} />
+              <TradeRow trade={trade} />
             </div>
           );
         })}
@@ -110,16 +110,15 @@ function TradeList({
 
 function TradeRow({
   trade,
-  rangeMin,
-  rangeMax,
 }: {
   trade: Trade;
-  rangeMin?: number;
-  rangeMax?: number;
 }) {
   // Direction: for continuous markets use mu (peak); for discrete, use outcome index
   let directionLabel: string;
-  if (trade.mu != null) {
+  const isSellAll = !trade.isBuy && trade.mu != null && Number(trade.sigma) === 0 && Number(trade.mu) === 0;
+  if (isSellAll) {
+    directionLabel = "All";
+  } else if (trade.mu != null && trade.sigma != null && Number(trade.sigma) > 0) {
     const muVal = Number(trade.mu) / SCALE;
     // Format compactly
     if (Math.abs(muVal) >= 1_000) {
