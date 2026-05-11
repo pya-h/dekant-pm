@@ -25,6 +25,7 @@ import { SettingEntity } from "./settings/setting.entity";
 import { FaucetConfigEntity } from "./faucet/entity/faucet-config.entity";
 import { FaucetHistoryEntity } from "./faucet/entity/faucet-history.entity";
 import { LoggerModule } from "nestjs-pino";
+import { LogsModule } from "./logs/logs.module";
 
 const isInProduction = process.env.NODE_ENV === "production";
 
@@ -90,6 +91,7 @@ const isInProduction = process.env.NODE_ENV === "production";
     FeeCollectionModule,
     FaucetModule,
     PriceModule,
+    LogsModule,
   ],
 })
 export class AppModule {}

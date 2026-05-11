@@ -9,6 +9,7 @@ import {
 } from "./solana";
 import { USDC_DECIMALS, SCALE } from "./types";
 import { AnchorProvider } from "@coral-xyz/anchor";
+import { reportClientError, extractTxLogs } from "./report-error";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -27,10 +28,12 @@ async function sendRobust(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   builder: { preInstructions: (ixs: any[]) => any; transaction: () => Promise<any> },
   preIxs: ReturnType<typeof ComputeBudgetProgram.setComputeUnitLimit>[] = [],
+  txLabel: string = "tx",
 ): Promise<string> {
   const provider = program.provider as AnchorProvider;
   const connection = provider.connection;
   const wallet = provider.wallet;
+  let signature: string | undefined;
 
   // Pre-flight SOL balance check — with skipPreflight:true the RPC won't
   // simulate, so insufficient SOL manifests as a silent drop followed by a
@@ -58,17 +61,33 @@ async function sendRobust(
 
   const signed = await wallet.signTransaction(tx);
 
-  const signature = await connection.sendRawTransaction(signed.serialize(), {
-    skipPreflight: true,
-    maxRetries: 3,
-  });
+  try {
+    signature = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: true,
+      maxRetries: 3,
+    });
 
-  await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  );
+    await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      "confirmed",
+    );
 
-  return signature;
+    return signature;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reportClientError({
+      event: "tx_failed",
+      message: `${txLabel}: ${message}`,
+      context: {
+        txLabel,
+        signature,
+        wallet: wallet.publicKey.toBase58(),
+        programId: program.programId.toBase58(),
+        programLogs: extractTxLogs(err),
+      },
+    });
+    throw err;
+  }
 }
 
 /** Derive Associated Token Address (mirrors @solana/spl-token). */
@@ -133,6 +152,8 @@ export async function executeBuy(
     program.methods
       .buy({ outcome, collateralAmount: toBaseUnits(amount) })
       .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+    [],
+    "buy",
   );
 }
 
@@ -150,6 +171,8 @@ export async function executeSell(
     program.methods
       .sell({ outcome, tokenAmount: toBaseUnits(amount) })
       .accountsPartial(accounts),
+    [],
+    "sell",
   );
 }
 
@@ -173,6 +196,7 @@ export async function executeBuyDistribution(
       })
       .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
     [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+    "buyDistribution",
   );
 }
 
@@ -186,6 +210,8 @@ export async function executeClaimPayout(
   return sendRobust(
     program,
     program.methods.claimPayout().accountsPartial(accounts),
+    [],
+    "claimPayout",
   );
 }
 
@@ -202,6 +228,8 @@ export async function executeResolveMarket(
     program.methods
       .resolveMarket({ outcome, value })
       .accountsPartial({ oracle, market: marketPubkey }),
+    [],
+    "resolveMarket",
   );
 }
 
@@ -220,6 +248,8 @@ export async function executeBuyToPrice(
     program.methods
       .buyToPrice({ outcome, targetProbability, maxCollateral })
       .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+    [],
+    "buyToPrice",
   );
 }
 
@@ -238,6 +268,8 @@ export async function executeSellToPrice(
     program.methods
       .sellToPrice({ outcome, targetProbability, minCollateralOut })
       .accountsPartial(accounts),
+    [],
+    "sellToPrice",
   );
 }
 
@@ -276,6 +308,8 @@ export async function executeAddLiquidity(
     program.methods
       .addLiquidity({ amount: toBaseUnits(amount) })
       .accountsPartial({ ...accounts, systemProgram: SystemProgram.programId }),
+    [],
+    "addLiquidity",
   );
 }
 
@@ -292,6 +326,8 @@ export async function executeRemoveLiquidity(
     program.methods
       .removeLiquidity({ sharesToBurn })
       .accountsPartial(accounts),
+    [],
+    "removeLiquidity",
   );
 }
 
@@ -315,6 +351,7 @@ export async function executeSellDistribution(
       })
       .accountsPartial(accounts),
     [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+    "sellDistribution",
   );
 }
 
@@ -332,5 +369,6 @@ export async function executeSellAll(
       .sellAll({ minCollateralOut })
       .accountsPartial(accounts),
     [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })],
+    "sellAll",
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { reportClientError } from "@/lib/report-error";
 
 export default function GlobalError({
   error,
@@ -12,6 +13,15 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error("Unhandled error:", error);
+    reportClientError({
+      event: "unhandled_error",
+      message: error.message || "Unknown error",
+      context: {
+        digest: error.digest,
+        stack: error.stack?.slice(0, 4000),
+        url: typeof window !== "undefined" ? window.location.href : undefined,
+      },
+    });
   }, [error]);
 
   return (
