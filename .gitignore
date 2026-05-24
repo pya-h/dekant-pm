@@ -23,3 +23,5 @@ specs/math/improved/offline
 specs/archived
 id.json
 PROTO_TASKS.md
+.playwright-mcp/
+sec5-lambda.png

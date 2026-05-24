@@ -2051,6 +2051,7 @@ function applySetting(key, value) {
     if (autoEl) autoEl.checked = autosaveEnabled;
   } else if (key === 'theme') {
     if ((value === 'light') !== (currentTheme === 'light')) toggleTheme();
+  }
   refreshAllDisplays();
   markChanged();
 }

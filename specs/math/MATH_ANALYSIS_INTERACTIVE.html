@@ -1963,7 +1963,7 @@ select.control-input {
   <div class="subsection-title">
     5.3 Distribution Buy  </div>
   <div class="math-block">
-    $$XW = \sum_j x_j W_j, \quad W^2 = \sum_j W_j^2, \quad \lambda = \sqrt{XW^2 + W^2 \cdot (k'^2 - k^2)} - XW$$
+    $$XW = \sum_j x_j W_j, \quad W^2 = \sum_j W_j^2, \quad \lambda = \sqrt{(XW)^2 + W^2 \cdot (k'^2 - k^2)} - XW$$
   </div>
   <div class="math-block">
     $$\text{tokens\_out}_j = \frac{\lambda \cdot W_j}{W^2}$$
@@ -2629,7 +2629,7 @@ select.control-input {
   <div class="math-block">
     $$x'_j = x_j + \frac{\lambda W_j}{W^2}, \qquad \sum(x'_j)^2 = k'^2$$
     $$\Downarrow$$
-    $$\lambda^2 + 2\,XW \cdot \lambda - W^2 \cdot \text{excess} = 0 \quad \Rightarrow \quad \lambda = \sqrt{XW^2 + W^2 \cdot \text{excess}} - XW$$
+    $$\lambda^2 + 2\,XW \cdot \lambda - W^2 \cdot \text{excess} = 0 \quad \Rightarrow \quad \lambda = \sqrt{(XW)^2 + W^2 \cdot \text{excess}} - XW$$
   </div>
 
   <div class="section-header" style="margin-top:40px;">
