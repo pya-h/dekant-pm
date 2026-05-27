@@ -129,12 +129,7 @@ export class MarketService {
     }
 
     if (dto.icon !== undefined) {
-      if (dto.icon === null) {
-        market.icon = null;
-      } else {
-        const icon = dto.icon.trim();
-        market.icon = icon === '' ? null : icon;
-      }
+      market.icon = dto.icon?.trim() || null;
       hasAnyChange = true;
     }
 
@@ -150,6 +145,10 @@ export class MarketService {
       hasAnyChange = true;
     }
 
+    if(dto.description !== undefined) {
+      market.description = dto.description?.trim() || null;
+      hasAnyChange = true;
+    }
     if (!hasAnyChange) {
       throw new BadRequestException(
         'At least one editable field must be provided: category, subject, icon, tags',

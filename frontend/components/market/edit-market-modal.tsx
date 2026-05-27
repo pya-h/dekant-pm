@@ -10,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -33,6 +34,7 @@ export function EditMarketModal({
 }: EditMarketModalProps) {
   const [category, setCategory] = useState(market.category ?? "");
   const [subject, setSubject] = useState(market.subject ?? "");
+  const [description, setDescription] = useState(market.description ?? "");
   const [icon, setIcon] = useState(market.icon ?? "");
   const [tagsInput, setTagsInput] = useState(market.tags?.join(", ") ?? "");
   const [saving, setSaving] = useState(false);
@@ -47,6 +49,8 @@ export function EditMarketModal({
         body.category = category.trim();
       if (subject.trim() !== (market.subject ?? ""))
         body.subject = subject.trim();
+      if (description.trim() !== (market.description ?? ""))
+        body.description = description.trim() || null;
       if (icon.trim() !== (market.icon ?? ""))
         body.icon = icon.trim() || null;
       const newTags = tagsInput
@@ -101,6 +105,16 @@ export function EditMarketModal({
               onChange={(e) => setSubject(e.target.value)}
               placeholder="BTC"
               maxLength={32}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="edit-description">Description</Label>
+            <Textarea
+              id="edit-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Market description (or leave blank to clear)"
+              rows={3}
             />
           </div>
           <div className="grid gap-1.5">
