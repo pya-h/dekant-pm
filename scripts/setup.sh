@@ -176,7 +176,7 @@ if [ "$DO_RESET" = true ]; then
     success "Database reset and migrated"
   fi
 else
-  # Use existing config (or defaults)
+  # Use existing config (get_program_id falls back to deploy keypair)
   PROGRAM_ID=$(get_program_id)
   propagate_config "$PROGRAM_ID" "$RPC_URL" "$NETWORK"
   log "Using program ID: $PROGRAM_ID"

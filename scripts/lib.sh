@@ -83,8 +83,15 @@ get_program_id() {
   local pid
   pid=$(state_get PROGRAM_ID "")
   if [ -z "$pid" ]; then
-    fail "PROGRAM_ID is not set. Run setup.sh first or set it in scripts/.state/env"
-    exit 1
+    # Fall back to the deploy keypair
+    local keypair="$ROOT/target/deploy/dekant_pm-keypair.json"
+    pid=$(solana address -k "$keypair" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      state_set PROGRAM_ID "$pid"
+    else
+      fail "PROGRAM_ID is not set. Run setup.sh first or set it in scripts/.state/env"
+      exit 1
+    fi
   fi
   echo "$pid"
 }
