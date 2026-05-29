@@ -42,13 +42,15 @@ Remaining: `_padding: [u8; 20]`
 
 ---
 
-## Phase 0: Pre-Refactor Assessment
+## Phase 0: Pre-Refactor Assessment ✅
 
 Verify the current state is clean and stable before making any changes.
 
+> **Done (2026-05-29).** Baseline recorded in `specs/details/improved/IMPROVED_REFACTOR_BASELINE.md`. All suites green: Rust 256, Anchor 131, backend unit 287, backend e2e 296, frontend vitest 247, frontend build OK.
+
 ---
 
-### P0-1: Snapshot current test baseline
+### P0-1: Snapshot current test baseline ✅
 
 Run all test suites and record pass counts as the baseline.
 
@@ -67,7 +69,7 @@ Record: unit count, integration count, backend unit count, backend e2e count, fr
 
 ---
 
-### P0-2: Analyze impact on live deployment
+### P0-2: Analyze impact on live deployment ✅
 
 Document answers to these questions before proceeding:
 
@@ -83,15 +85,18 @@ Document answers to these questions before proceeding:
 
 ---
 
-## Phase 1: Linear Probability Display
+## Phase 1: Linear Probability Display ✅
 
 Independent of the kernel refactor. Can be done first as a low-risk warm-up. No on-chain state changes — purely changes how probabilities are presented.
 
 **Formula change:** `p_i = x_i^2 / k^2` -> `p_i = x_i / sum(x_j)` where `x_i = total_minted - reserves[i]`
 
+> **Done (2026-05-29).** All suites green vs. baseline: Rust 256, Anchor 131, backend unit 287, backend e2e 296, frontend vitest 248 (+1), backend/devkit typecheck + frontend build OK.
+> **Two notes:** (1) the plan missed two quadratic formulas in `backend/src/market/market.service.ts` (`getPrices`, distribution peak-bin) — both fixed under P1-4. (2) `buy_to_price`/`sell_to_price` still target the QUADRATIC probability, so after this phase "buy to 70%" drives the market to a state the linear display shows as ~60%. Reconciling that (P1-4a) is a deferred, dedicated task that should land before Phase 1 ships to users.
+
 ---
 
-### P1-1: Update on-chain `compute_probabilities()` in `engine/amm.rs`
+### P1-1: Update on-chain `compute_probabilities()` in `engine/amm.rs` ✅
 
 **File:** `programs/dekant-pm/src/engine/amm.rs` (lines 366-391)
 
@@ -115,7 +120,7 @@ Key points:
 
 ---
 
-### P1-2: Update on-chain `implied_probability()` in `state/market.rs`
+### P1-2: Update on-chain `implied_probability()` in `state/market.rs` ✅
 
 **File:** `programs/dekant-pm/src/state/market.rs` (lines 524-549)
 
@@ -127,7 +132,7 @@ Same formula change for the per-outcome helper method. Must use `sum_x` from all
 
 ---
 
-### P1-3: Update frontend `computeProbabilities()` in `lib/types.ts`
+### P1-3: Update frontend `computeProbabilities()` in `lib/types.ts` ✅
 
 **File:** `frontend/lib/types.ts` (lines 154-171)
 
@@ -146,13 +151,18 @@ Same formula change for the per-outcome helper method. Must use `sum_x` from all
 
 ---
 
-### P1-4: Update backend `computeProbabilities()` in `amm.service.ts`
+### P1-4: Update backend `computeProbabilities()` in `amm.service.ts` ✅
 
 **File:** `backend/src/amm/amm.service.ts` (lines 752-762)
 
 Same formula change. This method is used by:
 - Trade estimation endpoints (`estimateBuy`, `estimateSell`, etc.)
 - `buy-to-price` / `sell-to-price` logic
+
+> **Plan gap found during implementation:** `backend/src/market/market.service.ts` had two MORE quadratic display formulas the original task missed — both fixed:
+> - `getPrices()` (the `/markets/:id/prices` API endpoint) — changed to linear.
+> - the distribution peak-bin finder in `getDistributionStats` — simplified to argmax of `x_i` (the peak bin is identical under linear or quadratic since both are monotonic in `x_i`).
+> The AMM trade math and the `estimate*ToPrice` "current probability" remain quadratic on purpose (that is the target-price math, see P1-4a).
 
 **Breaking changes:** Backend trade estimation responses return different `newProbabilities` values
 **Possible bugs:**
@@ -161,7 +171,7 @@ Same formula change. This method is used by:
 
 ---
 
-### P1-5: Update devkit `computeProbabilities()` in `common.ts`
+### P1-5: Update devkit `computeProbabilities()` in `common.ts` ✅
 
 **File:** `devkit/src/common.ts` (lines 250-257)
 
@@ -172,7 +182,7 @@ Same formula change. Used by `query.ts`, `trade.ts`, `resolve.ts`, `market.ts` f
 
 ---
 
-### P1-6: Update tests for linear probability
+### P1-6: Update tests for linear probability ✅
 
 Files to update:
 - Rust unit tests that assert probability values (search for `compute_probabilities` in test files)
@@ -191,7 +201,7 @@ Add new test cases:
 
 ---
 
-### P1-7: Build and verify Phase 1
+### P1-7: Build and verify Phase 1 ✅
 
 ```bash
 anchor build

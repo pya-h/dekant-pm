@@ -345,7 +345,6 @@ export function computeAvgWinProbability(
     const probabilities = computeProbabilities(
       market.reserves,
       market.totalMinted,
-      market.kSquared,
     );
     const netCost = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
     if (netCost <= 0) {
@@ -398,7 +397,6 @@ export function computePositionWinProb(pos: UserPosition): number {
   const probabilities = computeProbabilities(
     market.reserves,
     market.totalMinted,
-    market.kSquared,
   );
   const netCost = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
   if (netCost <= 0) return 1;

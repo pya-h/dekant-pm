@@ -151,23 +151,20 @@ export interface MarketFilters {
   createdAfter?: string;
 }
 
+// Linear probability display: p_i = x_i / sum(x_j), where x_i = totalMinted - reserves[i].
+// Exact at equilibrium; see specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md.
 export function computeProbabilities(
   reserves: string[],
   totalMinted: string | number,
-  kSquared?: string | number,
 ): number[] {
   const n = reserves.length;
   if (n === 0) return [];
   const tm = Number(totalMinted);
   if (tm === 0) return Array(n).fill(1 / n);
-  // Use the actual kSquared from the market when available,
-  // falling back to totalMinted^2 (only correct before LP operations).
-  const kSq = kSquared != null ? Number(kSquared) : tm * tm;
-  if (kSq === 0) return Array(n).fill(1 / n);
-  return reserves.map((r) => {
-    const x = tm - Number(r);
-    return (x * x) / kSq;
-  });
+  const xs = reserves.map((r) => tm - Number(r));
+  const sumX = xs.reduce((acc, x) => acc + x, 0);
+  if (sumX === 0) return Array(n).fill(1 / n);
+  return xs.map((x) => x / sumX);
 }
 
 export const USDC_DECIMALS = 6;

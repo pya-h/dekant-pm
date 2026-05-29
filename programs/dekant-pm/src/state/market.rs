@@ -521,30 +521,33 @@ impl Market {
 
     // ── AMM Queries ──────────────────────────────────────────────────
 
-    /// Implied probability for outcome `i`, scaled to SCALE (10^9).
+    /// Implied probability for outcome `i`, scaled to SCALE (10^9), linear display.
     ///
-    /// `price[i] = (total_minted - reserves[i])² * SCALE / total_minted²`.
-    /// Returns error if `i` is out of bounds, total_minted is zero, or
-    /// the intermediate multiplication overflows.
+    /// `p[i] = (total_minted - reserves[i]) * SCALE / sum_j(total_minted - reserves[j])`.
+    /// This matches `engine::amm::compute_probabilities` and is exact at
+    /// equilibrium; see `specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md`.
+    /// Returns `InvalidOutcome` if `i` is out of bounds, and `DivisionByZero` if
+    /// no outcome carries any net position (sum_x == 0, e.g. an empty market).
     pub fn implied_probability(&self, i: u16) -> Result<u128> {
         let h = *self
             .reserves
             .get(i as usize)
             .ok_or_else(|| error!(DekantPmError::InvalidOutcome))? as u128;
-        let x = self
+        let x_i = self
             .total_minted
             .checked_sub(h)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-        let x_sq = x
-            .checked_mul(x)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-        let k_sq = self
-            .total_minted
-            .checked_mul(self.total_minted)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-        x_sq.checked_mul(SCALE)
+
+        let mut sum_x: u128 = 0;
+        for &r in self.reserves.iter() {
+            let x = self.total_minted.saturating_sub(r as u128);
+            sum_x = sum_x
+                .checked_add(x)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+        }
+        x_i.checked_mul(SCALE)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?
-            .checked_div(k_sq)
+            .checked_div(sum_x)
             .ok_or_else(|| error!(DekantPmError::DivisionByZero))
     }
 

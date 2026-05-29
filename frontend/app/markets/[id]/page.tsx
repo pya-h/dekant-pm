@@ -159,7 +159,7 @@ export default function MarketDetailPage({
   const rangeMax = market.rangeMax != null ? Number(market.rangeMax) / SCALE : 100;
   const effectiveSigma = sigma ?? sliderToSigma(0.5, rangeMax - rangeMin);
 
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);

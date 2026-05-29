@@ -97,8 +97,8 @@ export function InteractiveDistributionChart({
   const minSigma = rangeWidth * 0.01;
 
   const marketProbabilities = useMemo(
-    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
-    [market.reserves, market.totalMinted, market.kSquared],
+    () => computeProbabilities(market.reserves, market.totalMinted),
+    [market.reserves, market.totalMinted],
   );
 
   const traderWeights = useMemo(

@@ -23,7 +23,6 @@ export function MiniChart({ market, height = 60, showAxes = false }: MiniChartPr
   const probabilities = computeProbabilities(
     market.reserves,
     market.totalMinted,
-    market.kSquared,
   );
 
   if (probabilities.length === 0) return null;

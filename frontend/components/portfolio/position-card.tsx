@@ -33,7 +33,6 @@ export function PositionCard({ position }: PositionCardProps) {
   const probabilities = computeProbabilities(
     market.reserves,
     market.totalMinted,
-    market.kSquared,
   );
   const labels =
     market.outcomeLabels ??

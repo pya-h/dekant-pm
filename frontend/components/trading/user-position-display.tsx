@@ -72,8 +72,8 @@ export function UserPositionDisplay({ market }: UserPositionDisplayProps) {
     address,
   );
   const probabilities = useMemo(
-    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
-    [market.reserves, market.totalMinted, market.kSquared],
+    () => computeProbabilities(market.reserves, market.totalMinted),
+    [market.reserves, market.totalMinted],
   );
 
   if (!address || !position) return null;

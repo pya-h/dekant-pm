@@ -65,8 +65,8 @@ export function DistributionInput({
 
   // Market's current distribution
   const marketProbabilities = useMemo(
-    () => computeProbabilities(market.reserves, market.totalMinted, market.kSquared),
-    [market.reserves, market.totalMinted, market.kSquared],
+    () => computeProbabilities(market.reserves, market.totalMinted),
+    [market.reserves, market.totalMinted],
   );
 
   // Trader's distribution preview

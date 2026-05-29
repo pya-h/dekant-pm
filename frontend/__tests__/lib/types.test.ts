@@ -21,56 +21,59 @@ describe("computeProbabilities", () => {
     expect(computeProbabilities(["100", "100"], 0)).toEqual([0.5, 0.5]);
   });
 
-  it("returns equal probabilities when kSquared is 0", () => {
-    expect(computeProbabilities(["50", "50"], "100", "0")).toEqual([0.5, 0.5]);
+  it("returns uniform when no outcome carries a position (sumX = 0)", () => {
+    // reserves all equal totalMinted → every x_i = 0
+    expect(computeProbabilities(["100", "100"], "100")).toEqual([0.5, 0.5]);
   });
 
-  it("computes correct binary probabilities (default kSquared = totalMinted²)", () => {
-    // reserves = [30, 70], totalMinted = 100 → kSq = 10000
-    // p0 = (100-30)² / 10000 = 4900/10000 = 0.49
-    // p1 = (100-70)² / 10000 = 900/10000  = 0.09
+  it("computes linear binary probabilities (p_i = x_i / sumX)", () => {
+    // reserves = [30, 70], tm = 100 → x = [70, 30], sumX = 100
     const result = computeProbabilities(["30", "70"], "100");
-    expect(result[0]).toBeCloseTo(0.49, 5);
-    expect(result[1]).toBeCloseTo(0.09, 5);
+    expect(result[0]).toBeCloseTo(0.7, 5);
+    expect(result[1]).toBeCloseTo(0.3, 5);
   });
 
-  it("uses explicit kSquared when provided", () => {
-    // kSquared = 20000 instead of default 10000
-    // p0 = 4900/20000 = 0.245
-    const result = computeProbabilities(["30", "70"], "100", "20000");
-    expect(result[0]).toBeCloseTo(0.245, 5);
-    expect(result[1]).toBeCloseTo(0.045, 5);
+  it("is exact at equilibrium (x_i proportional to p_i)", () => {
+    // x = [60, 40] (reserves = tm - x) → linear display returns exactly 0.6 / 0.4
+    const result = computeProbabilities(["40", "60"], "100");
+    expect(result[0]).toBeCloseTo(0.6, 5);
+    expect(result[1]).toBeCloseTo(0.4, 5);
   });
 
-  it("handles equal reserves", () => {
-    // reserves = [50, 50], totalMinted = 100 → kSq = 10000
-    // p0 = p1 = 2500/10000 = 0.25
+  it("returns 1/N for equal reserves", () => {
+    // reserves = [50, 50], tm = 100 → x = [50, 50] → 0.5 each
     const result = computeProbabilities(["50", "50"], "100");
-    expect(result[0]).toBeCloseTo(0.25, 5);
-    expect(result[1]).toBeCloseTo(0.25, 5);
+    expect(result[0]).toBeCloseTo(0.5, 5);
+    expect(result[1]).toBeCloseTo(0.5, 5);
   });
 
-  it("handles multi-outcome markets", () => {
-    // 3 outcomes, all at reserve 66 → x = 34, p = 34²/10000 = 0.1156
+  it("handles multi-outcome markets (uniform → 1/N)", () => {
+    // 3 outcomes, all at reserve 66 → x = 34 each → p = 1/3
     const result = computeProbabilities(["66", "66", "66"], "100");
     expect(result).toHaveLength(3);
     for (const p of result) {
-      expect(p).toBeCloseTo(0.1156, 3);
+      expect(p).toBeCloseTo(1 / 3, 5);
     }
   });
 
+  it("produces probabilities that sum to ~1", () => {
+    const result = computeProbabilities(["10", "55", "80", "20"], "100");
+    const sum = result.reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1, 5);
+  });
+
   it("works with large on-chain numbers (string inputs)", () => {
+    // x = [400B, 600B], sumX = 1000B → p = [0.4, 0.6]
     const reserves = ["600000000000", "400000000000"];
     const totalMinted = "1000000000000";
-    const kSquared = "1000000000000000000000000";
-    const result = computeProbabilities(reserves, totalMinted, kSquared);
-    expect(result[0]).toBeCloseTo(0.16, 5);
-    expect(result[1]).toBeCloseTo(0.36, 5);
+    const result = computeProbabilities(reserves, totalMinted);
+    expect(result[0]).toBeCloseTo(0.4, 5);
+    expect(result[1]).toBeCloseTo(0.6, 5);
   });
 
   it("accepts numeric totalMinted", () => {
     const result = computeProbabilities(["30", "70"], 100);
-    expect(result[0]).toBeCloseTo(0.49, 5);
+    expect(result[0]).toBeCloseTo(0.7, 5);
   });
 });
 

@@ -500,13 +500,13 @@ describe("computeAvgWinProbability", () => {
   it("computes non-zero probability when some bins exceed net cost", () => {
     // netCost = 5000000
     // holdings = [10000000, 5000000] → bin 0 (10000000 > 5000000) wins
-    // p[0] = 0.36 (with new mock data: x[0]²/k² = 15M²/25M² = 0.36)
+    // linear p[0] = x[0]/sumX = 15M/35M ≈ 0.4286 (x = [15M, 20M])
     const pos = makePosition({
       totalDeposited: "5000000",
       totalWithdrawn: "0",
     });
     const result = computeAvgWinProbability([pos], []);
-    expect(result).toBeCloseTo(0.36, 2);
+    expect(result).toBeCloseTo(0.4286, 3);
   });
 });
 
@@ -560,13 +560,13 @@ describe("computePositionWinProb", () => {
 
   it("returns probability of profitable bins", () => {
     // netCost = 5000000
-    // holdings[0] = 10000000 > 5000000 → includes prob[0] = 0.36
+    // holdings[0] = 10000000 > 5000000 → includes linear prob[0] = 15M/35M ≈ 0.4286
     // holdings[1] = 5000000 not > 5000000 → excluded
     const pos = makePosition({
       totalDeposited: "5000000",
       totalWithdrawn: "0",
     });
-    expect(computePositionWinProb(pos)).toBeCloseTo(0.36, 2);
+    expect(computePositionWinProb(pos)).toBeCloseTo(0.4286, 3);
   });
 });
 

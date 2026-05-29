@@ -105,7 +105,7 @@ export function MarketSlideshow() {
 }
 
 function SlideContent({ market }: { market: MarketSummary }) {
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);

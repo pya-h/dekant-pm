@@ -258,11 +258,14 @@ export class MarketService {
       return { probabilities: reserves.map(() => uniform) };
     }
 
-    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
-    const probabilities = reserves.map((r) => {
-      const x = totalMinted - r;
-      return (x * x) / kSq;
-    });
+    // Linear display: p_i = x_i / sum(x_j). See specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md.
+    const xs = reserves.map((r) => totalMinted - r);
+    const sumX = xs.reduce((acc, x) => acc + x, 0);
+    if (sumX === 0) {
+      const uniform = 1 / reserves.length;
+      return { probabilities: reserves.map(() => uniform) };
+    }
+    const probabilities = xs.map((x) => x / sumX);
 
     return { probabilities };
   }
@@ -339,19 +342,19 @@ export class MarketService {
     const rMax = Number(market.rangeMax) / SCALE;
     const range = rMax - rMin;
 
-    // Compute probabilities to find the peak bin
+    // Peak bin = outcome with the largest position x_i = totalMinted - reserves[i].
+    // That is the argmax of the displayed probability under either linear or quadratic
+    // display (both are monotonic in x_i), so the peak bin is the same regardless.
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
-    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
 
     let peakBin = 0;
-    if (totalMinted > 0 && kSq > 0) {
-      let maxProb = 0;
+    if (totalMinted > 0) {
+      let maxX = -Infinity;
       for (let i = 0; i < reserves.length; i++) {
         const x = totalMinted - reserves[i];
-        const prob = (x * x) / kSq;
-        if (prob > maxProb) {
-          maxProb = prob;
+        if (x > maxX) {
+          maxX = x;
           peakBin = i;
         }
       }

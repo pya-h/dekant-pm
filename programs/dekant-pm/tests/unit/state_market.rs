@@ -805,18 +805,19 @@ fn test_implied_probability_total_minted_zero() {
 fn test_implied_probability_skewed() {
     let mut m = blank_market();
     init_binary(&mut m);
-    // Use Pythagorean triple: tm=500K, h=[200K, 100K], x=[300K, 400K]
+    // tm=500K, h=[200K, 100K], x=[300K, 400K], sum_x=700K (linear display).
     m.total_minted = 500_000;
     m.reserves = vec![200_000, 100_000];
     m.recompute_k_squared().unwrap();
     let p0 = m.implied_probability(0).unwrap();
     let p1 = m.implied_probability(1).unwrap();
-    // p0 = 300K²/500K² * SCALE = 360M, p1 = 400K²/500K² * SCALE = 640M
+    // p0 = 300K/700K * SCALE = 428_571_428, p1 = 400K/700K * SCALE = 571_428_571
     // Lower reserve → bigger position → higher probability.
     assert!(p0 < p1, "p0={p0}, p1={p1}");
-    assert_eq!(p0, 360_000_000);
-    assert_eq!(p1, 640_000_000);
-    assert_eq!(p0 + p1, SCALE);
+    assert_eq!(p0, 428_571_428);
+    assert_eq!(p1, 571_428_571);
+    // Sum is SCALE minus per-term flooring (≤ n-1 = 1).
+    assert!(SCALE - (p0 + p1) <= 1, "sum={}", p0 + p1);
 }
 
 // ── mint/burn complete sets edge cases ───────────────────────────

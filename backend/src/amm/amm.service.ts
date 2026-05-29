@@ -749,15 +749,17 @@ export class AmmService {
     return Math.ceil(tokensIn);
   }
 
+  // Linear probability display: p_i = x_i / sum(x_j), where x_i = totalMinted - reserves[i].
+  // Exact at equilibrium; see specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md.
   private computeProbabilities(
     reserves: number[],
     totalMinted: number,
   ): number[] {
+    const n = reserves.length;
     if (totalMinted === 0) return reserves.map(() => 0);
-    const kSq = totalMinted * totalMinted;
-    return reserves.map((r) => {
-      const x = totalMinted - r;
-      return (x * x) / kSq;
-    });
+    const xs = reserves.map((r) => totalMinted - r);
+    const sumX = xs.reduce((acc, x) => acc + x, 0);
+    if (sumX === 0) return reserves.map(() => 1 / n);
+    return xs.map((x) => x / sumX);
   }
 }

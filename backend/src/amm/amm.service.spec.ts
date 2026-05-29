@@ -441,9 +441,11 @@ describe('AmmService', () => {
       expect(result.collateralNeeded).toBeGreaterThan(0);
       expect(result.tokensOut).toBeGreaterThan(0);
       expect(result.fee).toBeGreaterThanOrEqual(0);
-      // Resulting probability should be close to 70%
-      expect(result.newProbabilities[0]).toBeGreaterThan(0.65);
-      expect(result.newProbabilities[0]).toBeLessThan(0.75);
+      // Buy-to-price still targets the QUADRATIC prob (70%); the displayed LINEAR
+      // probability of that state is ~0.604. Reconciling the target interpretation
+      // with linear display is deferred (see IMPROVED_SMS_REFACTOR_TASKS.md, P1-4a).
+      expect(result.newProbabilities[0]).toBeGreaterThan(0.59);
+      expect(result.newProbabilities[0]).toBeLessThan(0.62);
     });
 
     it('should throw when target probability <= current probability', async () => {
@@ -490,10 +492,12 @@ describe('AmmService', () => {
       });
       marketService.findById.mockResolvedValue(market);
 
-      // Target 40% for outcome 2 (current ≈ 25%)
+      // Target 40% for outcome 2 (current ≈ 25%). Target is QUADRATIC; the displayed
+      // linear probability of that state is ~0.320 (see P1-4a, reconciliation deferred).
       const result = await service.estimateBuyToPrice(1, 2, 400_000_000, 0);
       expect(result.collateralNeeded).toBeGreaterThan(0);
-      expect(result.newProbabilities[2]).toBeGreaterThan(0.35);
+      expect(result.newProbabilities[2]).toBeGreaterThan(0.30);
+      expect(result.newProbabilities[2]).toBeLessThan(0.33);
     });
 
     it('should produce valid probabilities that sum close to 1', async () => {

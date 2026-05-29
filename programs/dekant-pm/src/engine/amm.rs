@@ -363,27 +363,39 @@ pub fn compute_sell_all(
 
 // ── Pricing ──────────────────────────────────────────────────────────
 
-/// Compute implied probabilities for all outcomes.
+/// Compute implied probabilities for all outcomes (linear display).
 ///
-/// Returns Vec of probabilities scaled to SCALE, summing to SCALE (±rounding).
-/// probability[i] = (total_minted - reserves[i])² * SCALE / total_minted².
+/// Returns Vec of probabilities scaled to SCALE, summing to SCALE (±n rounding).
+/// probability[i] = (total_minted - reserves[i]) * SCALE / sum_j(total_minted - reserves[j]).
 ///
-/// Returns all zeros if total_minted is 0 or if any intermediate overflows.
+/// This linear formula is exact at equilibrium (x_i ∝ p_i), unlike the previous
+/// quadratic formula which distorted toward the extremes. See
+/// `specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md`.
+///
+/// Returns all zeros if total_minted is 0 or if the sum overflows; returns a
+/// uniform distribution if no outcome carries any net position (sum_x == 0).
 pub fn compute_probabilities(reserves: &[u64], total_minted: u128) -> Vec<u128> {
-    if total_minted == 0 {
-        return vec![0; reserves.len()];
+    let n = reserves.len();
+    if total_minted == 0 || n == 0 {
+        return vec![0; n];
     }
-    let k_sq = match total_minted.checked_mul(total_minted) {
-        Some(v) => v,
-        None => return vec![0; reserves.len()],
-    };
+    let mut sum_x: u128 = 0;
+    for &h in reserves.iter() {
+        let x = total_minted.saturating_sub(h as u128);
+        sum_x = match sum_x.checked_add(x) {
+            Some(v) => v,
+            None => return vec![0; n],
+        };
+    }
+    if sum_x == 0 {
+        return vec![SCALE / n as u128; n];
+    }
     reserves
         .iter()
         .map(|&h| {
             let x = total_minted.saturating_sub(h as u128);
-            let x_sq = x.checked_mul(x);
-            match x_sq.and_then(|sq| sq.checked_mul(SCALE)) {
-                Some(v) => v / k_sq,
+            match x.checked_mul(SCALE) {
+                Some(v) => v / sum_x,
                 None => 0,
             }
         })

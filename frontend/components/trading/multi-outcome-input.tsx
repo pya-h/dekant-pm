@@ -94,7 +94,7 @@ export function MultiOutcomeInput({
     side === "buy" ? "collateral" : "shares",
   );
 
-  const probabilities = computeProbabilities(market.reserves, market.totalMinted, market.kSquared);
+  const probabilities = computeProbabilities(market.reserves, market.totalMinted);
   const labels =
     market.outcomeLabels ??
     Array.from({ length: market.numOutcomes }, (_, i) => `Outcome ${i + 1}`);

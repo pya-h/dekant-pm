@@ -46,7 +46,6 @@ export function BinaryInput({
   const probabilities = computeProbabilities(
     market.reserves,
     market.totalMinted,
-    market.kSquared,
   );
   const labels = market.outcomeLabels ?? ["Yes", "No"];
 

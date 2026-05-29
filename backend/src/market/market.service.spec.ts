@@ -402,11 +402,10 @@ describe('MarketService', () => {
       result.probabilities.forEach((p) => expect(p).toBeCloseTo(expected));
     });
 
-    it('should compute L2 norm probabilities from reserves', async () => {
+    it('should compute linear probabilities from reserves', async () => {
       // totalMinted = 1000, reserves = [400, 200]
-      // x0 = 1000-400 = 600, x1 = 1000-200 = 800
-      // p̂_i = x_i² / k² where k = totalMinted = 1000
-      // p0 = 600²/1000² = 0.36, p1 = 800²/1000² = 0.64
+      // x0 = 1000-400 = 600, x1 = 1000-200 = 800, sumX = 1400
+      // p_i = x_i / sumX → p0 = 600/1400 ≈ 0.4286, p1 = 800/1400 ≈ 0.5714
       const market = createMockMarket({
         reserves: ['400', '200'],
         kSquared: '1000000',
@@ -415,8 +414,8 @@ describe('MarketService', () => {
       marketRepo.findOne.mockResolvedValue(market);
 
       const result = await service.getPrices(1);
-      expect(result.probabilities[0]).toBeCloseTo(0.36);
-      expect(result.probabilities[1]).toBeCloseTo(0.64);
+      expect(result.probabilities[0]).toBeCloseTo(0.4286, 4);
+      expect(result.probabilities[1]).toBeCloseTo(0.5714, 4);
     });
 
     it('should throw when market not found', async () => {

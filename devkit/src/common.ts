@@ -247,13 +247,15 @@ export function formatProbability(prob: number): string {
   return `${(prob * 100).toFixed(2)}%`;
 }
 
+// Linear probability display: p_i = x_i / sum(x_j), where x_i = totalMinted - reserves[i].
+// Exact at equilibrium; see specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md.
 export function computeProbabilities(reserves: BN[], totalMinted: BN): number[] {
   const tm = Number(totalMinted.toString());
   if (tm === 0) return reserves.map(() => 0);
-  return reserves.map((r) => {
-    const x = tm - Number(r.toString());
-    return (x * x) / (tm * tm);
-  });
+  const xs = reserves.map((r) => tm - Number(r.toString()));
+  const sumX = xs.reduce((acc, x) => acc + x, 0);
+  if (sumX === 0) return reserves.map(() => 1 / reserves.length);
+  return xs.map((x) => x / sumX);
 }
 
 /** Parse deadline: relative (+1h, +30m, +7d) or absolute ISO 8601 or unix seconds. */
