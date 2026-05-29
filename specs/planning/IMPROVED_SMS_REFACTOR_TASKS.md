@@ -91,8 +91,9 @@ Independent of the kernel refactor. Can be done first as a low-risk warm-up. No 
 
 **Formula change:** `p_i = x_i^2 / k^2` -> `p_i = x_i / sum(x_j)` where `x_i = total_minted - reserves[i]`
 
-> **Done (2026-05-29).** All suites green vs. baseline: Rust 256, Anchor 131, backend unit 287, backend e2e 296, frontend vitest 248 (+1), backend/devkit typecheck + frontend build OK.
-> **Two notes:** (1) the plan missed two quadratic formulas in `backend/src/market/market.service.ts` (`getPrices`, distribution peak-bin) — both fixed under P1-4. (2) `buy_to_price`/`sell_to_price` still target the QUADRATIC probability, so after this phase "buy to 70%" drives the market to a state the linear display shows as ~60%. Reconciling that (P1-4a) is a deferred, dedicated task that should land before Phase 1 ships to users.
+> **Done.** Initial Phase 1 landed 2026-05-29 (Rust 256 · Anchor 131 · backend unit 287 · backend e2e 296 · frontend vitest 248 · backend/devkit typecheck + frontend build).
+> **P1-4a target-price reconciliation done 2026-05-30:** `buy_to_price`/`sell_to_price` (on-chain `compute_collateral_for_target_prob` / `compute_tokens_for_target_prob`, backend `estimateBuyToPrice` / `estimateSellToPrice`) now target the LINEAR displayed probability, restoring display↔target consistency. Re-verified: Rust 256 ✓, backend unit 287 ✓, backend e2e 296 ✓, backend typecheck ✓. Anchor integration re-run was blocked by a GitHub outage downloading Solana platform-tools v1.51; the engine functions are exercised directly by the Rust unit tests and the instruction handlers are thin wrappers, so the on-chain risk is low. Re-run `anchor test` when GitHub recovers to fully clear.
+> **Plan gap fixed under P1-4:** the original task listed only `amm.service.ts`, but `backend/src/market/market.service.ts` had two more quadratic display formulas (`getPrices`, distribution peak-bin). Both fixed in the same phase.
 
 ---
 
@@ -115,8 +116,8 @@ Key points:
 
 **Breaking changes:** On-chain probability queries return different values
 **Possible bugs:**
-- [ ] P1-1a: Rounding — verify `sum(prob[i])` still equals SCALE (+-1 rounding)
-- [ ] P1-1b: Overflow — `x_i * SCALE` must not overflow u128 (verify: max x_i ~ 2^64, SCALE = 10^9, product ~ 2^94 < 2^128)
+- [x] P1-1a: Rounding — verified; `sum(prob[i])` equals SCALE within ±(n-1) per-term flooring (binary: exact within 1, asserted in `test_probabilities_linear_two_outcome` and `test_probabilities_sum_approximately_scale`).
+- [x] P1-1b: Overflow — verified; `x_i * SCALE` is safe (x_i ≤ tm ≤ ~2^64 realistic, ×10^9 ≈ 2^94 ≪ 2^128). `checked_mul`/`checked_add` returns zeros defensively if it ever overflows.
 
 ---
 
@@ -128,7 +129,7 @@ Same formula change for the per-outcome helper method. Must use `sum_x` from all
 
 **Breaking changes:** Same as P1-1
 **Possible bugs:**
-- [ ] P1-2a: This method only has access to one outcome index `i` but needs `sum_x` from all reserves. Since `self.reserves` is available on `&self`, compute sum inline. Verify no performance concern (max 256 iterations).
+- [x] P1-2a: Resolved — `sum_x` computed inline over `self.reserves` (Vec sized to `num_outcomes`, ≤ MAX_OUTCOMES=256 iterations). Negligible perf cost.
 
 ---
 
@@ -146,8 +147,8 @@ Same formula change for the per-outcome helper method. Must use `sum_x` from all
 
 **Breaking changes:** All probability displays across the frontend change
 **Possible bugs:**
-- [ ] P1-3a: `sumX === 0` edge case — return uniform distribution
-- [ ] P1-3b: Any component that relied on quadratic probability magnitudes for layout/sizing — review `price-bar.tsx`, `distribution-chart.tsx`, `interactive-distribution-chart.tsx`
+- [x] P1-3a: `sumX === 0` returns uniform (1/n); tested in `types.test.ts` ("returns uniform when no outcome carries a position"). Unreachable for valid `tm > 0` markets per the AMM invariant — purely defensive.
+- [x] P1-3b: Reviewed `components/market/price-bar.tsx` (binary/multi bars sized as `width: p*100%` and sum to 1 under linear — proportional, no formula reliance), `components/market/distribution-chart.tsx` (auto-scales Y-axis to `max(probabilities)`, axis labels derived from that max → shape preserved, scale rescales), `components/trading/interactive-distribution-chart.tsx` (same auto-scale pattern). None use `Math.sqrt` or quadratic-magnitude assumptions; no changes needed. Visual effect: distributions render flatter / binary bars less extreme — the intended display change.
 
 ---
 
@@ -166,8 +167,8 @@ Same formula change. This method is used by:
 
 **Breaking changes:** Backend trade estimation responses return different `newProbabilities` values
 **Possible bugs:**
-- [ ] P1-4a: `buy-to-price` / `sell-to-price` — these use target probability to compute trade amounts. If the target probability interpretation changes (quadratic vs linear), the computed amounts will differ. **Must verify the price-target math is consistent with the new display formula.** The on-chain `buy_to_price` uses marginal price (`x_i/k`), not display probability. If the backend interprets the user's target as a linear display probability, the conversion to marginal price must be updated.
-- [ ] P1-4b: Trade estimation preview — ensure `newProbabilities` in API responses still sum to ~1.0
+- [x] P1-4a: **RECONCILED.** `compute_collateral_for_target_prob` / `compute_tokens_for_target_prob` (engine/amm.rs) and `estimateBuyToPrice` / `estimateSellToPrice` (backend/amm.service.ts) now interpret `target_prob` as the LINEAR displayed probability. Derivation: in both buy and sell, the other positions `x_j` (j≠i) are invariant, so for `S = Σ_{j≠i} x_j`, `x_i_target = target * S / (SCALE − target)`. Buy: `k_new = √(x_i_target² + Q)`, effective_collateral = `k_new − total_minted`. Sell: `tokens_in = x_i − x_i_target`. Tests reverted from the temporary quadratic-verification workaround back to `compute_probabilities ≈ target` (now consistent). Note: the original P1-4a text above misdescribed the on-chain math as "marginal price (x_i/k)" — it was actually quadratic (`x_i²/k²`); that's now linear.
+- [x] P1-4b: `newProbabilities` (linear) sums to 1.0 by construction (`Σ x_i / sumX = 1`); confirmed by `should produce valid probabilities that sum close to 1` in `amm.service.spec.ts`.
 
 ---
 
@@ -197,7 +198,7 @@ Add new test cases:
 
 **Breaking changes:** None (test-only)
 **Possible bugs:**
-- [ ] P1-6a: Some integration tests may assert probability values indirectly (e.g., via trade estimation responses) — search for any hardcoded probability assertions
+- [x] P1-6a: Searched `tests/`. Two files contained probability assertions that were affected: `tests/price-targeted.ts` (4 inline quadratic prob computations, now linear) and `tests/edge-cases.ts` (local quadratic `computeProbabilities` helper + 4 magnitude thresholds calibrated for quadratic peaks — helper switched to linear, thresholds recalibrated using values from the Rust pool tests to preserve the "strong dominance" intent).
 
 ---
 

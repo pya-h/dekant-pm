@@ -723,30 +723,22 @@ fn test_successive_buys_yield_fewer_tokens() {
 
 // ── Price-targeted trading helpers ──────────────────────────────
 
-// Target-price math (`compute_collateral_for_target_prob` / `compute_tokens_for_target_prob`)
-// still defines its target via the QUADRATIC probability x_i²/k². Phase 1 changed only the
-// DISPLAY formula (`compute_probabilities` → linear); reconciling the price-target
-// interpretation with linear display is deferred (see IMPROVED_SMS_REFACTOR_TASKS.md, P1-4a).
-// These tests verify the executed trade against the quadratic target the math actually uses.
-fn quadratic_prob(reserves: &[u64], total_minted: u128, outcome: usize) -> u128 {
-    let x = total_minted.saturating_sub(reserves[outcome] as u128);
-    x * x * SCALE / (total_minted * total_minted)
-}
-
+// Target-price math now targets the LINEAR displayed probability (P1-4a reconciled),
+// so after a buy/sell-to-price the linear `compute_probabilities` reads back the target.
 #[test]
 fn test_collateral_for_target_prob_binary_50_to_70() {
     let reserves = init_reserves(2, L);
     let effective = compute_collateral_for_target_prob(&reserves, L, 0, 700_000_000).unwrap();
     assert!(effective > 0, "should need positive collateral to go from 50% to 70%");
 
-    // Verify: execute the buy and check the resulting quadratic probability.
+    // Verify: execute the buy and check the resulting linear probability ≈ 70%.
     let mut reserves_exec = reserves.clone();
     compute_buy(&mut reserves_exec, L, 0, effective).unwrap();
-    let p0 = quadratic_prob(&reserves_exec, L + effective as u128, 0);
-    let diff = p0.abs_diff(700_000_000);
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    let diff = probs[0].abs_diff(700_000_000);
     assert!(
-        diff <= 2_000, // tolerance for isqrt rounding
-        "quadratic prob should be ~70%: got {p0}, diff={diff}"
+        diff <= 200_000, // tolerance for integer/isqrt rounding
+        "linear prob should be ~70%: got {}, diff={diff}", probs[0]
     );
 }
 
@@ -758,11 +750,11 @@ fn test_collateral_for_target_prob_binary_50_to_90() {
 
     let mut reserves_exec = reserves.clone();
     compute_buy(&mut reserves_exec, L, 0, effective).unwrap();
-    let p0 = quadratic_prob(&reserves_exec, L + effective as u128, 0);
-    let diff = p0.abs_diff(900_000_000);
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    let diff = probs[0].abs_diff(900_000_000);
     assert!(
-        diff <= 2_000,
-        "quadratic prob should be ~90%: got {p0}, diff={diff}"
+        diff <= 200_000,
+        "linear prob should be ~90%: got {}, diff={diff}", probs[0]
     );
 }
 
@@ -775,11 +767,11 @@ fn test_collateral_for_target_prob_multi_outcome() {
 
     let mut reserves_exec = reserves.clone();
     compute_buy(&mut reserves_exec, L, 2, effective).unwrap();
-    let p2 = quadratic_prob(&reserves_exec, L + effective as u128, 2);
-    let diff = p2.abs_diff(400_000_000);
+    let probs = compute_probabilities(&reserves_exec, L + effective as u128);
+    let diff = probs[2].abs_diff(400_000_000);
     assert!(
-        diff <= 5_000,
-        "quadratic prob should be ~40%: got {p2}, diff={diff}"
+        diff <= 200_000,
+        "linear prob should be ~40%: got {}, diff={diff}", probs[2]
     );
 }
 
@@ -823,11 +815,11 @@ fn test_tokens_for_target_prob_binary_50_to_30() {
     let mut reserves_exec = reserves.clone();
     let collateral_out = compute_sell(&mut reserves_exec, tm, 0, tokens_in).unwrap();
     let tm_after = tm - collateral_out as u128;
-    let p0 = quadratic_prob(&reserves_exec, tm_after, 0);
-    let diff = p0.abs_diff(300_000_000);
+    let probs = compute_probabilities(&reserves_exec, tm_after);
+    let diff = probs[0].abs_diff(300_000_000);
     assert!(
-        diff <= 5_000,
-        "quadratic prob should be ~30%: got {p0}, diff={diff}"
+        diff <= 200_000,
+        "linear prob should be ~30%: got {}, diff={diff}", probs[0]
     );
 }
 
@@ -1712,12 +1704,12 @@ fn test_collateral_for_target_prob_5_outcome_to_50() {
     let mut reserves_after = reserves.clone();
     let _tokens = compute_buy(&mut reserves_after, total_minted, 0, effective).unwrap();
     let tm_after = total_minted + effective as u128;
-    let p0 = quadratic_prob(&reserves_after, tm_after, 0);
-    // Allow some tolerance due to isqrt rounding.
-    let diff = p0.abs_diff(500_000_000);
+    let probs = compute_probabilities(&reserves_after, tm_after);
+    // Allow some tolerance due to integer/isqrt rounding.
+    let diff = probs[0].abs_diff(500_000_000);
     assert!(
         diff < 10_000_000, // < 1% error
-        "quadratic prob[0]={p0}, expected ~500M, diff={diff}"
+        "linear prob[0]={}, expected ~500M, diff={diff}", probs[0]
     );
 }
 

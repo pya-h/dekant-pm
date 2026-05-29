@@ -404,13 +404,18 @@ pub fn compute_probabilities(reserves: &[u64], total_minted: u128) -> Vec<u128> 
 
 // ── Price-Targeted Trading ───────────────────────────────────────────
 
-/// Compute the net collateral needed to buy outcome `i` up to `target_prob`.
+/// Compute the net collateral needed to buy outcome `i` up to `target_prob`,
+/// where `target_prob` is the LINEAR displayed probability `x_i / Σ_j x_j`.
 ///
 /// `target_prob` is scaled to SCALE (e.g. 700_000_000 = 70%).
 /// Returns effective_collateral (the amount entering the AMM, before fee markup).
 ///
-/// Math: k_new² = sum_others_x_sq * SCALE / (SCALE - target_prob)
-///       effective_collateral = k_new - total_minted
+/// A buy of outcome `i` leaves every other position `x_j` (j≠i) unchanged, so with
+/// `S = Σ_{j≠i} x_j` and `Q = Σ_{j≠i} x_j²` (both invariant):
+///   x_i_target = target_prob * S / (SCALE - target_prob)
+///   k_new      = isqrt(x_i_target² + Q)        // = total_minted after the buy
+///   effective_collateral = k_new - total_minted
+/// See `specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md`.
 pub fn compute_collateral_for_target_prob(
     reserves: &[u64],
     total_minted: u128,
@@ -425,56 +430,63 @@ pub fn compute_collateral_for_target_prob(
     );
 
     let x_i = total_minted.saturating_sub(reserves[outcome] as u128);
-    let k_sq = total_minted
-        .checked_mul(total_minted)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    let x_i_sq = x_i.checked_mul(x_i)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-    let current_prob = if k_sq > 0 {
-        x_i_sq.checked_mul(SCALE)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))? / k_sq
-    } else {
-        0
-    };
-    require!(target_prob > current_prob, DekantPmError::TargetAlreadyMet);
-
+    // S = Σ_{j≠i} x_j and Q = Σ_{j≠i} x_j² — both invariant under a buy of outcome i.
+    let mut sum_others_x: u128 = 0;
     let mut sum_others_x_sq: u128 = 0;
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
             let x = total_minted.saturating_sub(h as u128);
-            let x_sq = x.checked_mul(x)
+            sum_others_x = sum_others_x
+                .checked_add(x)
                 .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-            sum_others_x_sq = sum_others_x_sq.checked_add(x_sq)
+            let x_sq = x
+                .checked_mul(x)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+            sum_others_x_sq = sum_others_x_sq
+                .checked_add(x_sq)
                 .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         }
     }
-    require!(sum_others_x_sq > 0, DekantPmError::InsufficientLiquidity);
+    require!(sum_others_x > 0, DekantPmError::InsufficientLiquidity);
 
+    // x_i_target = target_prob * S / (SCALE - target_prob). Monotonic in target_prob,
+    // so x_i_target > x_i ⟺ target_prob > current linear probability.
     let denom = SCALE - target_prob; // > 0 since target_prob < SCALE
-    let k_new_sq = sum_others_x_sq
-        .checked_mul(SCALE)
+    let x_i_target = target_prob
+        .checked_mul(sum_others_x)
         .ok_or_else(|| error!(DekantPmError::MathOverflow))?
         / denom;
+    require!(x_i_target > x_i, DekantPmError::TargetAlreadyMet);
+
+    // k_new = isqrt(x_i_target² + Q). Since x_i² + Q = total_minted² (invariant),
+    // x_i_target > x_i guarantees k_new > total_minted.
+    let x_i_target_sq = x_i_target
+        .checked_mul(x_i_target)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
+    let k_new_sq = x_i_target_sq
+        .checked_add(sum_others_x_sq)
+        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
     let k_new = isqrt(k_new_sq);
 
-    require!(
-        k_new > total_minted,
-        DekantPmError::TargetAlreadyMet
-    );
+    require!(k_new > total_minted, DekantPmError::TargetAlreadyMet);
     let effective_collateral = (k_new - total_minted) as u64;
     require!(effective_collateral > 0, DekantPmError::TradeTooSmall);
 
     Ok(effective_collateral)
 }
 
-/// Compute the tokens to sell of outcome `i` to reduce its probability to `target_prob`.
+/// Compute the tokens to sell of outcome `i` to reduce its LINEAR displayed
+/// probability `x_i / Σ_j x_j` to `target_prob`.
 ///
-/// `target_prob` is scaled to SCALE (e.g. 300_000_000 = 30%).
+/// `target_prob` is scaled to SCALE (e.g. 300_000_000 = 30%); 0 = sell entire position.
 /// Returns tokens_in (the number of outcome tokens the trader must return).
 ///
-/// Math: x_target² = target_prob * sum_others_x_sq / (SCALE - target_prob)
-///       tokens_in = x_current - x_target
+/// A sell of outcome `i` leaves every other position `x_j` (j≠i) unchanged, so with
+/// `S = Σ_{j≠i} x_j` (invariant):
+///   x_i_target = target_prob * S / (SCALE - target_prob)
+///   tokens_in  = x_i - x_i_target
+/// See `specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md`.
 pub fn compute_tokens_for_target_prob(
     reserves: &[u64],
     total_minted: u128,
@@ -489,45 +501,32 @@ pub fn compute_tokens_for_target_prob(
     );
 
     let x_i = total_minted.saturating_sub(reserves[outcome] as u128);
-    let k_sq = total_minted
-        .checked_mul(total_minted)
-        .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
 
-    let current_prob = if k_sq > 0 {
-        x_i.checked_mul(x_i)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))?
-            .checked_mul(SCALE)
-            .ok_or_else(|| error!(DekantPmError::MathOverflow))? / k_sq
-    } else {
-        0
-    };
-    require!(target_prob < current_prob, DekantPmError::TargetAlreadyMet);
-
-    let mut sum_others_x_sq: u128 = 0;
+    // S = Σ_{j≠i} x_j — invariant under a sell of outcome i.
+    let mut sum_others_x: u128 = 0;
     for (j, &h) in reserves.iter().enumerate() {
         if j != outcome {
             let x = total_minted.saturating_sub(h as u128);
-            let x_sq = x.checked_mul(x)
-                .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
-            sum_others_x_sq = sum_others_x_sq.checked_add(x_sq)
+            sum_others_x = sum_others_x
+                .checked_add(x)
                 .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         }
     }
 
-    // target_prob == 0 means sell the entire position.
-    let x_target = if target_prob == 0 {
+    // x_i_target = target_prob * S / (SCALE - target_prob); target_prob == 0 → 0 (sell all).
+    let x_i_target = if target_prob == 0 {
         0u128
     } else {
         let denom = SCALE - target_prob;
-        let x_target_sq = target_prob
-            .checked_mul(sum_others_x_sq)
+        target_prob
+            .checked_mul(sum_others_x)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?
-            / denom;
-        isqrt(x_target_sq)
+            / denom
     };
 
-    require!(x_i > x_target, DekantPmError::TargetAlreadyMet);
-    let tokens_in = (x_i - x_target) as u64;
+    // x_i_target < x_i ⟺ target_prob < current linear probability.
+    require!(x_i > x_i_target, DekantPmError::TargetAlreadyMet);
+    let tokens_in = (x_i - x_i_target) as u64;
     require!(tokens_in > 0, DekantPmError::TradeTooSmall);
 
     Ok(tokens_in)

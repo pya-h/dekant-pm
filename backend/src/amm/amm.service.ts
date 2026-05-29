@@ -443,12 +443,12 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
-    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
-    // Current probability
+    // Current LINEAR probability: x_i / sum_j x_j.
     const xI = totalMinted - reserves[outcome];
-    const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
+    const sumX = reserves.reduce((s, r) => s + (totalMinted - r), 0);
+    const currentProb = sumX > 0 ? xI / sumX : 0;
 
     if (targetProb <= currentProb) {
       throw new BadRequestException(
@@ -459,18 +459,21 @@ export class AmmService {
       throw new BadRequestException('Target probability must be < 100%');
     }
 
-    // sum of x_j^2 for j != outcome
+    // S = sum of other positions, Q = sum of other squared positions
+    // (both invariant under a buy of `outcome`).
+    let sumOthersX = 0;
     let sumOthersXSq = 0;
     for (let j = 0; j < reserves.length; j++) {
       if (j !== outcome) {
         const x = totalMinted - reserves[j];
+        sumOthersX += x;
         sumOthersXSq += x * x;
       }
     }
 
-    // K_new^2 = sumOthersXSq / (1 - targetProb)
-    const kNewSq = sumOthersXSq / (1 - targetProb);
-    const kNew = Math.sqrt(kNewSq);
+    // x_i_target = targetProb * S / (1 - targetProb); k_new = sqrt(x_i_target^2 + Q).
+    const xITarget = (targetProb * sumOthersX) / (1 - targetProb);
+    const kNew = Math.sqrt(xITarget * xITarget + sumOthersXSq);
     const effectiveCollateral = Math.ceil(kNew - totalMinted);
 
     if (effectiveCollateral <= 0) {
@@ -523,12 +526,12 @@ export class AmmService {
 
     const reserves = market.reserves.map(Number);
     const totalMinted = Number(market.totalMinted);
-    const kSq = Number(market.kSquared) || totalMinted * totalMinted;
     const targetProb = targetProbability / SCALE;
 
-    // Current probability
+    // Current LINEAR probability: x_i / sum_j x_j.
     const xI = totalMinted - reserves[outcome];
-    const currentProb = kSq > 0 ? (xI * xI) / kSq : 0;
+    const sumX = reserves.reduce((s, r) => s + (totalMinted - r), 0);
+    const currentProb = sumX > 0 ? xI / sumX : 0;
 
     if (targetProb >= currentProb) {
       throw new BadRequestException(
@@ -539,23 +542,21 @@ export class AmmService {
       throw new BadRequestException('Target probability must be >= 0');
     }
 
-    // sum of x_j^2 for j != outcome
-    let sumOthersXSq = 0;
+    // S = sum of other positions (invariant under a sell of `outcome`).
+    let sumOthersX = 0;
     for (let j = 0; j < reserves.length; j++) {
       if (j !== outcome) {
-        const x = totalMinted - reserves[j];
-        sumOthersXSq += x * x;
+        sumOthersX += totalMinted - reserves[j];
       }
     }
 
-    // Compute tokens to sell
+    // x_i_target = targetProb * S / (1 - targetProb); tokens = x_i - x_i_target.
     let tokensToSell: number;
     if (targetProb === 0) {
       tokensToSell = Math.ceil(xI);
     } else {
-      const xTargetSq = (targetProb * sumOthersXSq) / (1 - targetProb);
-      const xTarget = Math.sqrt(xTargetSq);
-      tokensToSell = Math.ceil(xI - xTarget);
+      const xITarget = (targetProb * sumOthersX) / (1 - targetProb);
+      tokensToSell = Math.ceil(xI - xITarget);
     }
 
     if (tokensToSell <= 0) {

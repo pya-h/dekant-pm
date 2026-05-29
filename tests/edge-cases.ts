@@ -17,14 +17,15 @@ import {
   SCALE,
 } from "./helpers/constants";
 
+// Linear probability display: p_i = x_i / sum(x_j). Matches production
+// (see specs/details/improved/LINEAR_DISPLAY_EXPLAINED.md).
 function computeProbabilities(reserves: string[], totalMinted: string): number[] {
   const tm = Number(totalMinted);
   if (tm === 0) return reserves.map(() => 1 / reserves.length);
-  const kSq = tm * tm;
-  return reserves.map((r) => {
-    const x = tm - Number(r);
-    return (x * x) / kSq;
-  });
+  const xs = reserves.map((r) => tm - Number(r));
+  const sumX = xs.reduce((acc, x) => acc + x, 0);
+  if (sumX === 0) return reserves.map(() => 1 / reserves.length);
+  return xs.map((x) => x / sumX);
 }
 
 describe("Edge Cases", () => {
@@ -483,7 +484,8 @@ describe("Large Trades (trade >> pool)", () => {
     const probs = computeProbabilities(reserves, totalMinted);
     const sum = probs.reduce((a, b) => a + b, 0);
     expect(sum).to.be.closeTo(1.0, 0.001);
-    expect(probs[0]).to.be.greaterThan(0.8);
+    // Linear display reads lower than quadratic; a 2x buy still dominates (~0.80).
+    expect(probs[0]).to.be.greaterThan(0.75);
   });
 
   it("binary: buy with 10x pool liquidity succeeds", async () => {
@@ -515,7 +517,8 @@ describe("Large Trades (trade >> pool)", () => {
     const probs = computeProbabilities(reserves, totalMinted);
     const sum = probs.reduce((a, b) => a + b, 0);
     expect(sum).to.be.closeTo(1.0, 0.001);
-    expect(probs[1]).to.be.greaterThan(0.95);
+    // Linear display reads ~0.94 for a 10x buy (vs ~0.97 quadratic).
+    expect(probs[1]).to.be.greaterThan(0.9);
   });
 
   it("multi-outcome: buy with 20x pool liquidity succeeds", async () => {
@@ -547,11 +550,11 @@ describe("Large Trades (trade >> pool)", () => {
     const probs = computeProbabilities(reserves, totalMinted);
     const sum = probs.reduce((a, b) => a + b, 0);
     expect(sum).to.be.closeTo(1.0, 0.01);
-    expect(probs[3]).to.be.greaterThan(0.9);
+    expect(probs[3]).to.be.greaterThan(0.85);
 
     // Other outcomes should be small
     for (let i = 0; i < 5; i++) {
-      if (i !== 3) expect(probs[i]).to.be.lessThan(0.05);
+      if (i !== 3) expect(probs[i]).to.be.lessThan(0.06);
     }
   });
 

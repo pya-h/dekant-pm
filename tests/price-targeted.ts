@@ -60,7 +60,9 @@ describe("Price-Targeted Trading", () => {
     const market = await ctx.program.account.market.fetch(marketPda);
     const totalMinted = market.totalMinted.toNumber();
     const x0 = totalMinted - market.reserves[0].toNumber();
-    const prob0 = (x0 * x0 * 1_000_000_000) / (totalMinted * totalMinted);
+    // Linear displayed probability: x_0 / sum_j x_j.
+    const sumX = market.reserves.reduce((s, r) => s + (totalMinted - r.toNumber()), 0);
+    const prob0 = (x0 * 1_000_000_000) / sumX;
     expect(prob0).to.be.greaterThan(690_000_000);
     expect(prob0).to.be.lessThan(710_000_000);
 
@@ -91,7 +93,9 @@ describe("Price-Targeted Trading", () => {
     const market = await ctx.program.account.market.fetch(marketPda);
     const totalMinted = market.totalMinted.toNumber();
     const x0 = totalMinted - market.reserves[0].toNumber();
-    const prob0 = (x0 * x0 * 1_000_000_000) / (totalMinted * totalMinted);
+    // Linear displayed probability: x_0 / sum_j x_j.
+    const sumX = market.reserves.reduce((s, r) => s + (totalMinted - r.toNumber()), 0);
+    const prob0 = (x0 * 1_000_000_000) / sumX;
     expect(prob0).to.be.greaterThan(490_000_000);
     expect(prob0).to.be.lessThan(510_000_000);
   });
@@ -170,7 +174,8 @@ describe("Price-Targeted Trading", () => {
     const market = await ctx.program.account.market.fetch(marketPda);
     const totalMinted = market.totalMinted.toNumber();
     const x1 = totalMinted - market.reserves[1].toNumber();
-    const currentProb1 = Math.floor((x1 * x1 * 1_000_000_000) / (totalMinted * totalMinted));
+    const sumX = market.reserves.reduce((s, r) => s + (totalMinted - r.toNumber()), 0);
+    const currentProb1 = Math.floor((x1 * 1_000_000_000) / sumX);
 
     try {
       await ctx.program.methods
@@ -201,7 +206,8 @@ describe("Price-Targeted Trading", () => {
     const market = await ctx.program.account.market.fetch(marketPda);
     const totalMinted = market.totalMinted.toNumber();
     const x1 = totalMinted - market.reserves[1].toNumber();
-    const currentProb1 = Math.floor((x1 * x1 * 1_000_000_000) / (totalMinted * totalMinted));
+    const sumX = market.reserves.reduce((s, r) => s + (totalMinted - r.toNumber()), 0);
+    const currentProb1 = Math.floor((x1 * 1_000_000_000) / sumX);
     const targetProb = Math.max(currentProb1 - 50_000_000, 1);
 
     try {
