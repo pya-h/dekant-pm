@@ -82,6 +82,11 @@ export function StepReview() {
               {data.rangeMin} – {data.rangeMax}
             </ReviewRow>
             <ReviewRow label="Bins">{data.numBins}</ReviewRow>
+            <ReviewRow label="Kernel width">
+              {(data.kernelWidth ?? 0) === 0
+                ? "0 (winner-take-all)"
+                : data.kernelWidth}
+            </ReviewRow>
           </>
         )}
 

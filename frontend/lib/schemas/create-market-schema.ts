@@ -23,6 +23,11 @@ export const createMarketSchema = z
     rangeMin: z.number().optional(),
     rangeMax: z.number().optional(),
     numBins: z.number().min(2).max(256).optional(),
+    /**
+     * Smooth settlement kernel width (continuous markets only). 0 = winner-take-all.
+     * Must be < numBins; recommended starting value when smoothing is desired: 3.
+     */
+    kernelWidth: z.number().int().min(0).max(255).optional(),
 
     // Step 3: Parameters
     deadline: z.string().min(1, "Deadline is required"),
@@ -78,6 +83,18 @@ export const createMarketSchema = z
           path: ["numBins"],
         });
       }
+
+      // P2-7a: kernel width must be a non-negative integer strictly less
+      // than the bin count. 0 keeps WTA payout (backward-compatible default);
+      // values >= numBins always trigger solvency scaling and aren't allowed.
+      const kw = data.kernelWidth ?? 0;
+      if (data.numBins && kw >= data.numBins) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Kernel width must be less than the number of bins (${data.numBins})`,
+          path: ["kernelWidth"],
+        });
+      }
     }
 
     // Deadline must be in the future
@@ -111,7 +128,7 @@ export type CreateMarketFormData = z.infer<typeof createMarketSchema>;
 export const STEP_FIELDS: Record<number, (keyof CreateMarketFormData)[]> = {
   0: ["marketType"],
   1: ["title", "description", "category", "subject", "tags"],
-  2: ["outcomeLabels", "rangeMin", "rangeMax", "numBins"],
+  2: ["outcomeLabels", "rangeMin", "rangeMax", "numBins", "kernelWidth"],
   3: ["deadline", "oracle", "collateralMint", "initialLiquidity"],
   4: [],
 };
@@ -127,6 +144,7 @@ export const DEFAULT_VALUES: CreateMarketFormData = {
   rangeMin: undefined,
   rangeMax: undefined,
   numBins: 64,
+  kernelWidth: 0,
   deadline: "",
   oracle: "",
   collateralMint: "",

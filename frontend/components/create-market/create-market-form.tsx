@@ -115,6 +115,10 @@ export function CreateMarketForm({
       let numOutcomes: number;
       let rangeMin = new BN(0);
       let rangeMax = new BN(0);
+      // Kernel width is only meaningful for continuous markets; the on-chain
+      // handler force-zeros it for binary/multi but we mirror that here so the
+      // value we send matches the value we display in review.
+      let kernelWidth = 0;
 
       if (data.marketType === MarketType.Binary) {
         numOutcomes = 2;
@@ -124,6 +128,7 @@ export function CreateMarketForm({
         numOutcomes = data.numBins ?? 64;
         rangeMin = new BN(Math.round((data.rangeMin ?? 0) * SCALE));
         rangeMax = new BN(Math.round((data.rangeMax ?? 0) * SCALE));
+        kernelWidth = data.kernelWidth ?? 0;
       }
 
       // Send on-chain transaction
@@ -136,6 +141,7 @@ export function CreateMarketForm({
         initialLiquidity: liquidityBN,
         rangeMin,
         rangeMax,
+        kernelWidth,
         isSuperadmin,
         isAdmin,
       });

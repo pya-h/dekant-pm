@@ -67,4 +67,9 @@ pub const Z_CUTOFF: u64 = 5;
 
 // ── Schema Versions ──────────────────────────────────────────────────
 
-pub const SCHEMA_VERSION: u8 = 1;
+/// Schema version 2 introduces `kernel_width` and `scaling_factor` fields in
+/// the Market account (consumed from the existing `_padding`). Existing v1
+/// accounts deserialize unchanged with `kernel_width=0` (winner-take-all) and
+/// `scaling_factor=0`. See `specs/details/improved/` for the smooth kernel
+/// resolution model.
+pub const SCHEMA_VERSION: u8 = 2;

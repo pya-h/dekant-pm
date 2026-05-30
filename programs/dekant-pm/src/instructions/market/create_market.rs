@@ -30,6 +30,12 @@ pub struct CreateMarketArgs {
 
     /// Upper bound of continuous range (scaled 10^9). 0 for discrete.
     pub range_max: i64,
+
+    /// Smooth settlement kernel width for continuous markets — number of bins
+    /// on each side of the winning bin that receive partial payouts.
+    /// 0 = winner-take-all (default). Ignored (forced to 0) for binary/multi.
+    /// Must be < num_outcomes for continuous markets.
+    pub kernel_width: u16,
 }
 
 // ── Accounts ─────────────────────────────────────────────────────────
@@ -191,6 +197,15 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
     let market_id = ctx.accounts.protocol_config.market_count;
     let market = &mut ctx.accounts.market;
 
+    // Force kernel_width = 0 for non-continuous markets. Binary and multi
+    // markets are always winner-take-all; the smooth kernel is only meaningful
+    // for binned continuous markets.
+    let kernel_width = if args.market_type == MARKET_TYPE_CONTINUOUS {
+        args.kernel_width
+    } else {
+        0
+    };
+
     market.initialize(
         market_id,
         args.market_type,
@@ -204,6 +219,7 @@ pub fn handle_create_market(ctx: Context<CreateMarket>, args: CreateMarketArgs) 
         net_liquidity,
         args.range_min,
         args.range_max,
+        kernel_width,
         ctx.bumps.market,
         ctx.bumps.vault_authority,
     )?;

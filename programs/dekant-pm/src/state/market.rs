@@ -113,10 +113,23 @@ pub struct Market {
     /// Vault authority PDA bump seed (for CPI signing).
     pub vault_authority_bump: u8,
 
+    /// Smooth settlement kernel width (bins on each side of winner).
+    /// 0 = winner-take-all (default, backward-compatible — matches existing
+    /// markets whose padding deserializes as zero). Only meaningful for
+    /// continuous markets; binary/multi force this to 0 at initialization.
+    pub kernel_width: u16,
+
+    /// Solvency scaling factor for kernel resolution (SCALE-denominated).
+    /// 0 until the market is resolved; SCALE (10^9) once resolved when no
+    /// dilution is needed; < SCALE when raw kernel claims would exceed
+    /// `total_minted` (proportionally dilutes each claimant). Only meaningful
+    /// for continuous markets with `kernel_width > 0`.
+    pub scaling_factor: u64,
+
     /// Reserved for future schema versions. Consumed from the front
     /// when new fields are added; total byte offset of `reserves` stays
     /// constant for a given padding size.
-    pub _padding: [u8; 30],
+    pub _padding: [u8; 20],
 
     // ── Variable-Length ──────────────────────────────────────────────
 
@@ -161,7 +174,9 @@ impl Market {
         + 8   // resolved_value
         + 1   // bump
         + 1   // vault_authority_bump
-        + 30  // _padding
+        + 2   // kernel_width
+        + 8   // scaling_factor
+        + 20  // _padding
         + 4   // vec length prefix (reserves)
         + (n as usize) * 8  // reserves data
         + 4   // vec length prefix (trader_token_totals)
@@ -190,6 +205,7 @@ impl Market {
         initial_liquidity: u64,
         range_min: i64,
         range_max: i64,
+        kernel_width: u16,
         bump: u8,
         vault_authority_bump: u8,
     ) -> Result<()> {
@@ -208,6 +224,16 @@ impl Market {
 
         if mtype.is_continuous() {
             require!(range_max > range_min, DekantPmError::InvalidRange);
+            // P2-2a: kernel_width must be strictly less than num_outcomes —
+            // otherwise every bin gets non-zero kernel weight and the solvency
+            // scaling factor is forced to trigger regardless of trader positions.
+            require!(
+                (kernel_width as u16) < num_outcomes,
+                DekantPmError::InvalidKernelWidth
+            );
+        } else {
+            // Binary and multi-outcome markets are always winner-take-all.
+            require!(kernel_width == 0, DekantPmError::InvalidKernelWidth);
         }
 
         self.version = SCHEMA_VERSION;
@@ -228,7 +254,9 @@ impl Market {
         self.resolved_value = 0;
         self.bump = bump;
         self.vault_authority_bump = vault_authority_bump;
-        self._padding = [0u8; 30];
+        self.kernel_width = kernel_width;
+        self.scaling_factor = 0;
+        self._padding = [0u8; 20];
 
         if mtype.is_continuous() {
             self.range_min = range_min;

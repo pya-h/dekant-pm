@@ -56,6 +56,9 @@ pub enum DekantPmError {
     #[msg("Bin count exceeds maximum")]
     BinCountExceeded,
 
+    #[msg("kernel_width must be < num_outcomes for continuous markets, and 0 for binary/multi")]
+    InvalidKernelWidth,
+
     // ── Trading ──────────────────────────────────────────────────────
     #[msg("Insufficient collateral balance")]
     InsufficientBalance,

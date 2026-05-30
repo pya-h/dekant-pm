@@ -245,6 +245,13 @@ export interface CreateMarketParams {
   initialLiquidity: BN; // Token base units
   rangeMin: BN; // SCALE-denominated for continuous, BN(0) for discrete
   rangeMax: BN;
+  /**
+   * Smooth settlement kernel width for continuous markets — bins on each side
+   * of the winner that receive partial payouts. 0 = winner-take-all (default,
+   * matches legacy markets). Ignored (forced to 0 on-chain) for binary/multi.
+   * Must satisfy 0 ≤ kernelWidth < numOutcomes for continuous markets.
+   */
+  kernelWidth?: number;
   isSuperadmin: boolean;
   isAdmin: boolean;
 }
@@ -288,6 +295,7 @@ export async function executeCreateMarket(
       initialLiquidity: params.initialLiquidity,
       rangeMin: params.rangeMin,
       rangeMax: params.rangeMax,
+      kernelWidth: params.kernelWidth ?? 0,
     })
     .accountsPartial({
       creator,

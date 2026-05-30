@@ -32,7 +32,9 @@ fn blank_market() -> Market {
         resolved_value: 0,
         bump: 255,
         vault_authority_bump: 254,
-        _padding: [0u8; 30],
+        kernel_width: 0,
+        scaling_factor: 0,
+        _padding: [0u8; 20],
         reserves: vec![],
         trader_token_totals: vec![],
     }
@@ -52,6 +54,7 @@ fn init_binary(m: &mut Market) {
         TEST_LIQUIDITY,
         0,
         0,
+        0,   // kernel_width — always 0 for binary
         255,
         254,
     )
@@ -72,6 +75,7 @@ fn init_continuous(m: &mut Market, num_bins: u16) {
         TEST_LIQUIDITY,
         0,
         1_000_000_000, // range: [0, 10^9]
+        0,             // kernel_width — default 0 (WTA) for existing tests
         255,
         254,
     )
@@ -122,7 +126,7 @@ fn test_initialize_rejects_invalid_type() {
         .initialize(
             1, 255, Pubkey::default(), Pubkey::default(),
             Pubkey::default(), Pubkey::default(),
-            TEST_DEADLINE, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 255, 254,
+            TEST_DEADLINE, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 0, 255, 254,
         )
         .unwrap_err();
     assert_eq!(err, error!(DekantPmError::InvalidMarketType));
@@ -135,7 +139,7 @@ fn test_initialize_rejects_wrong_num_outcomes() {
         .initialize(
             1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
             Pubkey::default(), Pubkey::default(),
-            TEST_DEADLINE, TEST_CREATED_AT, 3, TEST_LIQUIDITY, 0, 0, 255, 254,
+            TEST_DEADLINE, TEST_CREATED_AT, 3, TEST_LIQUIDITY, 0, 0, 0, 255, 254,
         )
         .unwrap_err();
     assert_eq!(err, error!(DekantPmError::InvalidNumOutcomes));
@@ -148,7 +152,7 @@ fn test_initialize_rejects_low_liquidity() {
         .initialize(
             1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
             Pubkey::default(), Pubkey::default(),
-            TEST_DEADLINE, TEST_CREATED_AT, 2, 999, 0, 0, 255, 254,
+            TEST_DEADLINE, TEST_CREATED_AT, 2, 999, 0, 0, 0, 255, 254,
         )
         .unwrap_err();
     assert_eq!(err, error!(DekantPmError::LiquidityTooSmall));
@@ -161,7 +165,7 @@ fn test_initialize_rejects_invalid_deadline() {
         .initialize(
             1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
             Pubkey::default(), Pubkey::default(),
-            TEST_CREATED_AT, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 255, 254,
+            TEST_CREATED_AT, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0, 0, 255, 254,
         )
         .unwrap_err();
     assert_eq!(err, error!(DekantPmError::InvalidDeadline));
@@ -174,10 +178,173 @@ fn test_initialize_continuous_rejects_invalid_range() {
         .initialize(
             1, MARKET_TYPE_CONTINUOUS, Pubkey::default(), Pubkey::default(),
             Pubkey::default(), Pubkey::default(),
-            TEST_DEADLINE, TEST_CREATED_AT, 10, TEST_LIQUIDITY, 100, 50, 255, 254,
+            TEST_DEADLINE, TEST_CREATED_AT, 10, TEST_LIQUIDITY, 100, 50, 0, 255, 254,
         )
         .unwrap_err();
     assert_eq!(err, error!(DekantPmError::InvalidRange));
+}
+
+/// P2-2a: continuous market — kernel_width must be strictly less than num_outcomes.
+/// Equal to or greater than num_outcomes means every bin gets a non-zero kernel
+/// weight, which would always trigger solvency scaling regardless of trader positions.
+#[test]
+fn test_initialize_continuous_rejects_kernel_width_ge_num_outcomes() {
+    let mut m = blank_market();
+    let err = m
+        .initialize(
+            1, MARKET_TYPE_CONTINUOUS, Pubkey::default(), Pubkey::default(),
+            Pubkey::default(), Pubkey::default(),
+            TEST_DEADLINE, TEST_CREATED_AT, 10, TEST_LIQUIDITY, 0, 1_000_000_000,
+            10,  // kernel_width == num_outcomes
+            255, 254,
+        )
+        .unwrap_err();
+    assert_eq!(err, error!(DekantPmError::InvalidKernelWidth));
+
+    let mut m2 = blank_market();
+    let err2 = m2
+        .initialize(
+            1, MARKET_TYPE_CONTINUOUS, Pubkey::default(), Pubkey::default(),
+            Pubkey::default(), Pubkey::default(),
+            TEST_DEADLINE, TEST_CREATED_AT, 10, TEST_LIQUIDITY, 0, 1_000_000_000,
+            42,  // kernel_width > num_outcomes
+            255, 254,
+        )
+        .unwrap_err();
+    assert_eq!(err2, error!(DekantPmError::InvalidKernelWidth));
+}
+
+/// P2-2a: continuous market with a sane kernel_width (e.g. recommended W=3 on
+/// a 16-bin market) initializes successfully and stores the value.
+#[test]
+fn test_initialize_continuous_accepts_valid_kernel_width() {
+    let mut m = blank_market();
+    m.initialize(
+        1, MARKET_TYPE_CONTINUOUS, Pubkey::default(), Pubkey::default(),
+        Pubkey::default(), Pubkey::default(),
+        TEST_DEADLINE, TEST_CREATED_AT, 16, TEST_LIQUIDITY, 0, 1_000_000_000,
+        3,   // recommended starting kernel_width
+        255, 254,
+    )
+    .unwrap();
+    assert_eq!(m.kernel_width, 3);
+    assert_eq!(m.scaling_factor, 0, "scaling_factor stays 0 until resolution");
+    assert_eq!(m.version, SCHEMA_VERSION, "new markets carry schema v2");
+}
+
+/// P2-2a: binary/multi markets must always be WTA (kernel_width == 0).
+/// `initialize()` defends against non-zero kernel_width passed for discrete
+/// markets — the create_market handler also force-zeros it, this is belt-and-suspenders.
+#[test]
+fn test_initialize_binary_rejects_nonzero_kernel_width() {
+    let mut m = blank_market();
+    let err = m
+        .initialize(
+            1, MARKET_TYPE_BINARY, Pubkey::default(), Pubkey::default(),
+            Pubkey::default(), Pubkey::default(),
+            TEST_DEADLINE, TEST_CREATED_AT, 2, TEST_LIQUIDITY, 0, 0,
+            1,   // non-zero kernel_width on a binary market
+            255, 254,
+        )
+        .unwrap_err();
+    assert_eq!(err, error!(DekantPmError::InvalidKernelWidth));
+}
+
+#[test]
+fn test_initialize_multi_rejects_nonzero_kernel_width() {
+    let mut m = blank_market();
+    let err = m
+        .initialize(
+            1, MARKET_TYPE_MULTI, Pubkey::default(), Pubkey::default(),
+            Pubkey::default(), Pubkey::default(),
+            TEST_DEADLINE, TEST_CREATED_AT, 5, TEST_LIQUIDITY, 0, 0,
+            1,
+            255, 254,
+        )
+        .unwrap_err();
+    assert_eq!(err, error!(DekantPmError::InvalidKernelWidth));
+}
+
+// ── Borsh Layout / Backward Compatibility ────────────────────────
+
+/// P2-1a: The new `kernel_width: u16 + scaling_factor: u64 + _padding: [u8; 20]`
+/// layout consumes exactly the same 30 bytes as the old single `_padding: [u8; 30]`.
+/// Serialized size must equal `Market::space(n) - 8` (anchor discriminator excluded
+/// from the borsh payload).
+#[test]
+fn test_borsh_layout_size_matches_space_calculation() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    let bytes = m.try_to_vec().unwrap();
+    assert_eq!(bytes.len(), Market::space(2) - 8);
+
+    let mut m10 = blank_market();
+    init_continuous(&mut m10, 10);
+    let bytes10 = m10.try_to_vec().unwrap();
+    assert_eq!(bytes10.len(), Market::space(10) - 8);
+}
+
+/// P2-1a: When `kernel_width=0`, `scaling_factor=0`, `_padding=[0;20]`, the 30-byte
+/// tail region between `vault_authority_bump` and the trailing `reserves`/
+/// `trader_token_totals` Vecs is byte-for-byte identical to the old `_padding=[0;30]`.
+/// This is the all-zeros invariant that makes existing on-chain accounts
+/// deserialize unchanged under the new layout.
+#[test]
+fn test_borsh_zero_padding_region_all_zero_after_init() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    let bytes = m.try_to_vec().unwrap();
+
+    // Trailing Vec<u64> serializations: each is `4 (len prefix) + 8*n (data)`.
+    let n = m.num_outcomes as usize;
+    let trailing_vecs_len = (4 + 8 * n) * 2;
+    let tail_end = bytes.len() - trailing_vecs_len;
+    let tail_start = tail_end - 30; // 2 (kernel_width) + 8 (scaling_factor) + 20 (_padding)
+
+    assert!(
+        bytes[tail_start..tail_end].iter().all(|&b| b == 0),
+        "kernel_width + scaling_factor + _padding region must be all zeros at init"
+    );
+}
+
+/// P2-1b: An account created under the OLD layout (`_padding: [u8; 30]`, all zeros)
+/// must deserialize correctly under the NEW layout — yielding `kernel_width=0`,
+/// `scaling_factor=0`, `_padding=[0; 20]`. We simulate the old account by
+/// explicitly zeroing the 30-byte tail region (matching the on-chain bytes of any
+/// existing account) and then deserializing.
+#[test]
+fn test_borsh_old_layout_account_deserializes_with_zero_kernel() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    let mut bytes = m.try_to_vec().unwrap();
+
+    // Force the 30-byte tail to zero — this is the exact byte pattern any
+    // pre-P2-1 account presents on-chain.
+    let n = m.num_outcomes as usize;
+    let trailing_vecs_len = (4 + 8 * n) * 2;
+    let tail_end = bytes.len() - trailing_vecs_len;
+    let tail_start = tail_end - 30;
+    for b in &mut bytes[tail_start..tail_end] {
+        *b = 0;
+    }
+
+    let restored = Market::try_from_slice(&bytes).unwrap();
+
+    // New fields read back as zeros under the new layout.
+    assert_eq!(restored.kernel_width, 0, "old-layout account must read kernel_width as 0");
+    assert_eq!(restored.scaling_factor, 0, "old-layout account must read scaling_factor as 0");
+    assert_eq!(restored._padding, [0u8; 20]);
+
+    // Surrounding fields survived round-trip — confirms field offsets did not shift.
+    assert_eq!(restored.market_id, m.market_id);
+    assert_eq!(restored.market_type, m.market_type);
+    assert_eq!(restored.num_outcomes, m.num_outcomes);
+    assert_eq!(restored.k_squared, m.k_squared);
+    assert_eq!(restored.total_minted, m.total_minted);
+    assert_eq!(restored.bump, m.bump);
+    assert_eq!(restored.vault_authority_bump, m.vault_authority_bump);
+    assert_eq!(restored.reserves, m.reserves);
+    assert_eq!(restored.trader_token_totals, m.trader_token_totals);
 }
 
 // ── State Transitions ────────────────────────────────────────────
@@ -414,6 +581,7 @@ fn test_value_to_bin_large_i64_range() {
         TEST_LIQUIDITY,
         i64::MIN / 2,
         i64::MAX / 2,
+        0,
         255,
         254,
     )
@@ -860,6 +1028,7 @@ fn test_initialize_multi_outcome() {
         TEST_CREATED_AT,
         5,
         TEST_LIQUIDITY,
+        0,
         0,
         0,
         255,

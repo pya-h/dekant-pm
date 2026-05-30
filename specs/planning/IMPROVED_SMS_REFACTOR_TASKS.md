@@ -220,13 +220,15 @@ All must pass. Probability values change but behavior is identical.
 
 ---
 
-## Phase 2: On-Chain — Market State Extension
+## Phase 2: On-Chain — Market State Extension ✅
 
 Add kernel infrastructure to the Market account without changing any behavior. After this phase, the program compiles and all existing tests pass unchanged.
 
+> **Done (2026-05-30).** Market struct extended with `kernel_width: u16` and `scaling_factor: u64` consumed from the 30-byte `_padding` tail (residual padding now 20 bytes). `SCHEMA_VERSION` bumped 1 → 2. `CreateMarketArgs` carries `kernel_width`; the handler force-zeros it for binary/multi. New error variant `InvalidKernelWidth` enforces `0 ≤ kernel_width < num_outcomes` for continuous markets and `kernel_width == 0` for binary/multi. IDL synced to backend + frontend (both JSON and `frontend/lib/program/dekant_pm.ts` from `target/types/`). Test deltas: Rust 256 → **263** (3 borsh-layout tests + 4 kernel-width validation tests), Anchor **131** ✓, backend unit **287** ✓, backend e2e **296** ✓, frontend vitest **248** ✓, frontend build ✓. All existing markets remain bytewise compatible (`kernel_width=0`, `scaling_factor=0` matches old `_padding=[0;30]`).
+
 ---
 
-### P2-1: Add `kernel_width` and `scaling_factor` fields to Market struct
+### P2-1: Add `kernel_width` and `scaling_factor` fields to Market struct ✅
 
 **File:** `programs/dekant-pm/src/state/market.rs` (lines 116-119)
 
@@ -255,12 +257,12 @@ Update `space()` (line 164): change `30 // _padding` to `2 + 8 + 20 // kernel_wi
 
 **Breaking changes:** IDL changes (account definition). No behavioral change.
 **Possible bugs:**
-- [ ] P2-1a: Borsh layout — verify the new field order produces identical byte layout when all zeros. Write a Rust unit test that serializes a Market with `kernel_width=0, scaling_factor=0, _padding=[0;20]` and compares byte-for-byte with old `_padding=[0;30]`.
-- [ ] P2-1b: Deserialization of existing accounts — test that an account created with the old layout (30 zero padding bytes) deserializes correctly with the new struct.
+- [x] P2-1a: Borsh layout — verify the new field order produces identical byte layout when all zeros. Write a Rust unit test that serializes a Market with `kernel_width=0, scaling_factor=0, _padding=[0;20]` and compares byte-for-byte with old `_padding=[0;30]`.
+- [x] P2-1b: Deserialization of existing accounts — test that an account created with the old layout (30 zero padding bytes) deserializes correctly with the new struct.
 
 ---
 
-### P2-2: Add `kernel_width` to `CreateMarketArgs`
+### P2-2: Add `kernel_width` to `CreateMarketArgs` ✅
 
 **File:** `programs/dekant-pm/src/instructions/market/create_market.rs` (lines 12-33)
 
@@ -278,12 +280,12 @@ In the handler, pass it to `market.initialize()`:
 
 **Breaking changes:** All callers of `create_market` instruction must add `kernel_width` argument.
 **Possible bugs:**
-- [ ] P2-2a: Validation — `kernel_width` must be < `num_outcomes` (otherwise every bin gets weight, always triggers scaling)
-- [ ] P2-2b: Integration tests — all `create_market` calls need the new arg (will fail to compile until updated)
+- [x] P2-2a: Validation — `kernel_width` must be < `num_outcomes` (otherwise every bin gets weight, always triggers scaling). Enforced both in `Market::initialize()` (returns `InvalidKernelWidth`) and in the `create_market` handler (force-zeros for binary/multi). Frontend mirrors the rule via Zod superRefine. Covered by 4 new unit tests in `programs/dekant-pm/tests/unit/state_market.rs`.
+- [x] P2-2b: Integration tests — all `create_market` calls updated. `tests/helpers/market-helper.ts` adds `kernelWidth: 0` to binary/multi helpers and exposes an optional `kernelWidth` field on `createContinuousMarket` so kernel-mode tests can opt in. Devkit `createMarketHelper` and frontend `executeCreateMarket` both accept the new field. Full Anchor suite (131 tests) green.
 
 ---
 
-### P2-3: Update `SCHEMA_VERSION` and `market.initialize()`
+### P2-3: Update `SCHEMA_VERSION` and `market.initialize()` ✅
 
 **File:** `programs/dekant-pm/src/constants.rs` (line 70)
 
@@ -302,7 +304,7 @@ self.scaling_factor = 0; // set at resolution
 
 ---
 
-### P2-4: Update backend IDL
+### P2-4: Update backend IDL ✅
 
 **File:** `backend/idl/dekant_pm.json`
 
@@ -315,12 +317,12 @@ The backend uses this IDL for indexer event parsing. The account definition chan
 
 **Breaking changes:** Backend must restart with new IDL
 **Possible bugs:**
-- [ ] P2-4a: If the backend creates markets (it doesn't currently, but verify), it would need updating
-- [ ] P2-4b: Indexer event parsing — `MarketCreated` event doesn't include `kernel_width`, so no indexer change needed unless we add it to the event
+- [x] P2-4a: Backend does NOT create markets (grep `createMarket` in `backend/src` returned nothing). Confirmed no production caller.
+- [x] P2-4b: Indexer event parsing — `MarketCreated` event still unchanged (does not carry `kernel_width`); `handleMarketCreated` re-syncs the full Market account via the IDL-driven `BorshCoder`, which now picks up the new `kernel_width` and `scaling_factor` fields automatically. The current indexer projects only the legacy subset into the DB; surfacing the new fields in the entity is deferred to Phase 6 (P6-1) since no caller needs them this phase.
 
 ---
 
-### P2-5: Update integration test `create_market` calls
+### P2-5: Update integration test `create_market` calls ✅
 
 All integration test files that call `create_market` must add `kernelWidth: 0` (or appropriate value) to args.
 
@@ -339,7 +341,7 @@ For existing tests: use `kernelWidth: 0` to preserve WTA behavior. All existing 
 
 ---
 
-### P2-6: Update devkit `create-continuous` command
+### P2-6: Update devkit `create-continuous` command ✅
 
 **File:** `devkit/src/market.ts`
 
@@ -352,7 +354,7 @@ For `create-binary` and `create-multi`: always pass `kernelWidth: 0`.
 
 ---
 
-### P2-7: Update frontend `create_market` transaction
+### P2-7: Update frontend `create_market` transaction ✅
 
 **File:** `frontend/lib/transactions.ts` (or wherever `executeCreateMarket` is defined)
 
@@ -360,11 +362,11 @@ Add `kernelWidth` parameter. For binary/multi market creation UI, hardcode 0. Fo
 
 **Breaking changes:** None (UI addition)
 **Possible bugs:**
-- [ ] P2-7a: Frontend form validation — kernel_width must be non-negative and < num_bins
+- [x] P2-7a: Frontend form validation — kernel_width is a non-negative integer < num_bins. Zod schema (`createMarketSchema`) enforces `z.number().int().min(0).max(255)` plus a `superRefine` rule `kernelWidth < numBins` for continuous markets. Step-outcomes renders a number input clamped to `[0, numBins-1]`. Review step displays the chosen width (or "0 (winner-take-all)"). Field added to `STEP_FIELDS[2]` so it's validated when leaving the Outcomes step.
 
 ---
 
-### P2-8: Build and verify Phase 2
+### P2-8: Build and verify Phase 2 ✅
 
 ```bash
 anchor build

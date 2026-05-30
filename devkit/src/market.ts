@@ -98,11 +98,25 @@ program_
   .argument("<range-min>", "Lower bound of range (human-readable, e.g. 50)")
   .argument("<range-max>", "Upper bound of range (human-readable, e.g. 500)")
   .option("--bins <n>", "Number of bins (default: 64)", "64")
+  .option(
+    "--kernel-width <n>",
+    "Smooth settlement kernel width (0 = winner-take-all, default; recommended starting value is 3)",
+    "0",
+  )
   .option("--mint <address>", "Collateral mint address (creates new if omitted)")
   .action(async (oracleStr, liquidityStr, deadlineStr, rangeMinStr, rangeMaxStr, opts) => {
     const numBins = parseInt(opts.bins, 10);
     if (numBins < 2 || numBins > 256) {
       throw new Error("Number of bins must be 2-256");
+    }
+    const kernelWidth = parseInt(opts.kernelWidth, 10);
+    if (!Number.isFinite(kernelWidth) || kernelWidth < 0) {
+      throw new Error("kernel-width must be a non-negative integer");
+    }
+    if (kernelWidth >= numBins) {
+      throw new Error(
+        `kernel-width (${kernelWidth}) must be < number of bins (${numBins})`,
+      );
     }
     const rangeMin = new BN(rangeMinStr).mul(SCALE);
     const rangeMax = new BN(rangeMaxStr).mul(SCALE);
@@ -117,6 +131,7 @@ program_
       deadline: parseDeadline(deadlineStr),
       rangeMin,
       rangeMax,
+      kernelWidth,
       mintAddress: opts.mint ? new PublicKey(opts.mint) : undefined,
     });
   });
@@ -303,6 +318,13 @@ interface CreateOpts {
   deadline: number;
   rangeMin: BN;
   rangeMax: BN;
+  /**
+   * Smooth settlement kernel width for continuous markets — bins on each side
+   * of the winning bin that receive partial payouts. 0 = winner-take-all
+   * (default for existing markets). Must be < numOutcomes for continuous;
+   * the handler force-zeros it for binary/multi.
+   */
+  kernelWidth?: number;
   mintAddress?: PublicKey;
 }
 
@@ -353,6 +375,12 @@ async function createMarketHelper(opts: CreateOpts) {
       ? [
           ["Range min", (Number(opts.rangeMin.toString()) / Number(SCALE.toString())).toString()] as [string, string],
           ["Range max", (Number(opts.rangeMax.toString()) / Number(SCALE.toString())).toString()] as [string, string],
+          [
+            "Kernel width",
+            (opts.kernelWidth ?? 0) === 0
+              ? "0 (winner-take-all)"
+              : String(opts.kernelWidth),
+          ] as [string, string],
         ]
       : []),
   ]);
@@ -366,6 +394,7 @@ async function createMarketHelper(opts: CreateOpts) {
       initialLiquidity: opts.liquidity,
       rangeMin: opts.rangeMin,
       rangeMax: opts.rangeMax,
+      kernelWidth: opts.kernelWidth ?? 0,
     })
     .accountsPartial({
       creator: keypair.publicKey,

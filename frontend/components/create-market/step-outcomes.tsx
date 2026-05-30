@@ -137,6 +137,7 @@ function ContinuousOutcomes() {
     formState: { errors },
   } = useFormContext<CreateMarketFormData>();
   const numBins = watch("numBins") ?? 64;
+  const kernelWidth = watch("kernelWidth") ?? 0;
 
   return (
     <div className="space-y-6">
@@ -211,6 +212,34 @@ function ContinuousOutcomes() {
             </Button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          Smooth settlement kernel width:{" "}
+          <span className="font-semibold text-foreground">
+            {kernelWidth === 0 ? "0 (winner-take-all)" : kernelWidth}
+          </span>
+        </label>
+        <Input
+          type="number"
+          min={0}
+          max={Math.max(0, numBins - 1)}
+          step={1}
+          {...register("kernelWidth", { valueAsNumber: true })}
+          placeholder="0"
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          0 pays out only the winning bin (legacy behavior). Higher values smooth
+          payouts across {kernelWidth > 0 ? kernelWidth : "N"} bins on each side
+          of the winner. Must be less than {numBins}. Recommended starting value
+          when smoothing is desired: 3.
+        </p>
+        {errors.kernelWidth && (
+          <p className="mt-1 text-xs text-destructive">
+            {errors.kernelWidth.message}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -61,6 +61,7 @@ export async function createBinaryMarket(opts?: {
       initialLiquidity: liquidity,
       rangeMin: new BN(0),
       rangeMax: new BN(0),
+      kernelWidth: 0,
     })
     .accountsPartial({
       creator: ctx.creatorKp.publicKey,
@@ -124,6 +125,7 @@ export async function createMultiMarket(opts?: {
       initialLiquidity: liquidity,
       rangeMin: new BN(0),
       rangeMax: new BN(0),
+      kernelWidth: 0,
     })
     .accountsPartial({
       creator: ctx.creatorKp.publicKey,
@@ -153,6 +155,8 @@ export async function createContinuousMarket(opts?: {
   rangeMax?: BN;
   deadline?: number;
   liquidity?: BN;
+  /** Smooth settlement kernel width. 0 = winner-take-all (default). */
+  kernelWidth?: number;
 }): Promise<MarketAccounts> {
   const config = await ctx.program.account.protocolConfig.fetch(ctx.protocolConfig);
   const marketId = config.marketCount.toNumber();
@@ -161,6 +165,7 @@ export async function createContinuousMarket(opts?: {
   const numBins = opts?.numBins ?? 64;
   const rangeMin = opts?.rangeMin ?? new BN(100).mul(SCALE);
   const rangeMax = opts?.rangeMax ?? new BN(300).mul(SCALE);
+  const kernelWidth = opts?.kernelWidth ?? 0;
 
   const [marketPda] = findMarket(marketId, ctx.program.programId);
   const [vaultAuthority] = findVaultAuthority(marketPda, ctx.program.programId);
@@ -192,6 +197,7 @@ export async function createContinuousMarket(opts?: {
       initialLiquidity: liquidity,
       rangeMin,
       rangeMax,
+      kernelWidth,
     })
     .accountsPartial({
       creator: ctx.creatorKp.publicKey,
