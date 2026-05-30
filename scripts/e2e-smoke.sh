@@ -20,11 +20,18 @@
 #   - Dependencies installed (devkit, backend, frontend)
 #
 # Usage:
-#   ./scripts/e2e-smoke.sh                   # Full test (starts services)
+#   ./scripts/e2e-smoke.sh                   # Reuse validator state if present
+#   ./scripts/e2e-smoke.sh --reset           # Wipe ledger, redeploy, re-init protocol
 #   ./scripts/e2e-smoke.sh --no-infra        # Skip infrastructure (already running)
-#   ./scripts/e2e-smoke.sh --new-markets   # Also create 1-3 extra random markets
+#   ./scripts/e2e-smoke.sh --new-markets     # Also create 1-3 extra random markets
 #   ./scripts/e2e-smoke.sh --manual          # Print manual frontend checklist
 #   SEED=42 ./scripts/e2e-smoke.sh           # Reproducible run
+#
+# Reset behavior:
+#   By default the script preserves on-chain state across runs. It auto-resets
+#   when (a) no prior reset is recorded in scripts/.state/program.hash
+#   (bootstrap), or (b) the .so hash has changed since the last reset (defends
+#   against silent schema drift). Pass --reset to force a clean slate.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -36,22 +43,30 @@ source "$(dirname "$0")/lib.sh"
 START_INFRA=true
 MANUAL_ONLY=false
 EXTRA_MARKETS=false
+RESET_VALIDATOR=false
 
 for arg in "$@"; do
   case "$arg" in
     -n|--no-infra)       START_INFRA=false ;;
     -m|--manual)         MANUAL_ONLY=true ;;
     -nm|--new-markets)   EXTRA_MARKETS=true ;;
+    -r|--reset)          RESET_VALIDATOR=true ;;
     -h|--help)
-      echo "Usage: $0 [--no-infra] [--new-markets] [--manual]"
+      echo "Usage: $0 [--reset] [--no-infra] [--new-markets] [--manual]"
       echo ""
       echo "Runs the DekantPM end-to-end smoke test."
       echo ""
       echo "Options:"
+      echo "  -r, --reset           Wipe ledger, redeploy program, re-initialize protocol"
       echo "  -n, --no-infra        Skip starting validator/backend/frontend (already running)"
       echo "  -nm, --new-markets    Create 1-3 additional random markets (populates DB)"
       echo "  -m, --manual          Print manual frontend verification checklist only"
       echo "  -h, --help            Show this help"
+      echo ""
+      echo "Default reset behavior:"
+      echo "  The script preserves on-chain state across runs unless --reset is"
+      echo "  passed. It auto-resets when no prior reset is recorded or when"
+      echo "  the .so hash has changed since the last reset (schema-drift defense)."
       echo ""
       echo "Environment:"
       echo "  SEED=<n>     Set random seed for reproducible runs"
@@ -59,6 +74,13 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# --reset + --no-infra is contradictory: we can't reset a validator we don't manage.
+if [ "$RESET_VALIDATOR" = true ] && [ "$START_INFRA" = false ]; then
+  echo "Error: --reset and --no-infra are mutually exclusive" >&2
+  echo "  (--reset wipes the ledger; --no-infra reuses an externally managed validator)" >&2
+  exit 1
+fi
 
 # ── Manual Checklist ─────────────────────────────────────────────────────────
 
@@ -147,11 +169,18 @@ STAT_MARKETS=0
 STAT_TRADES=0
 STAT_CLAIMS=0
 STAT_ERRORS=0
+STAT_WARNINGS=0
 
-count_trade()  { STAT_TRADES=$((STAT_TRADES + 1)); }
-count_market() { STAT_MARKETS=$((STAT_MARKETS + 1)); }
-count_claim()  { STAT_CLAIMS=$((STAT_CLAIMS + 1)); }
-count_error()  { STAT_ERRORS=$((STAT_ERRORS + 1)); }
+count_trade()    { STAT_TRADES=$((STAT_TRADES + 1)); }
+count_market()   { STAT_MARKETS=$((STAT_MARKETS + 1)); }
+count_claim()    { STAT_CLAIMS=$((STAT_CLAIMS + 1)); }
+# Errors (✗) are hard failures — something the test expected to work didn't.
+count_error()    { STAT_ERRORS=$((STAT_ERRORS + 1)); }
+# Warnings (⚠) are notable but non-fatal — a sub-step failed without breaking
+# the run (e.g. one trade reverted, a loser hit NothingToClaim, an extra
+# market couldn't be created). Distinct from errors so the totals match the
+# visual log glyphs.
+count_warning()  { STAT_WARNINGS=$((STAT_WARNINGS + 1)); }
 
 # ── Timing ───────────────────────────────────────────────────────────────────
 
@@ -181,7 +210,10 @@ run_trade() {
     success "$desc"
   else
     warn "$desc"
-    count_error
+    # Surface the captured failure output (indented) so silent reverts like
+    # InsufficientHoldings or TargetAlreadyMet aren't swallowed.
+    echo "$_tout" | tail -10 | sed 's/^/    /' >&2
+    count_warning
   fi
   STAT_TRADE_TIME=$((STAT_TRADE_TIME + $(date +%s) - _t0))
   count_trade
@@ -197,9 +229,65 @@ run_claim() {
     success "Trader $n claimed"
   else
     warn "Trader $n: nothing to claim (no winning tokens)"
+    # Expected for traders who didn't hold the winning outcome — not an error,
+    # but still tracked as a warning so the totals match the visible glyphs.
+    count_warning
   fi
   STAT_CLAIM_TIME=$((STAT_CLAIM_TIME + $(date +%s) - _t0))
   count_claim
+}
+
+# ── Randomized Metadata Pools ────────────────────────────────────────────────
+#
+# The on-chain createMarket carries no subject/category/title; the backend
+# indexer auto-creates a DB row with hardcoded defaults (`subject: 'SOL'`,
+# `category: 'crypto'`, `title: "${type} Market #${id}"`). To surface a mix
+# of subjects on the frontend during smoke runs, we PATCH the DB row right
+# after each create via `devkit metadata.ts patch` (which JWT-auths as the
+# deployer wallet — Creator role granted in PHASE 2 reset).
+
+# Crypto-token symbols only. Keep this list focused (and ≤32 chars per DTO).
+METADATA_SUBJECTS=(
+  BTC ETH SOL USDC USDT BNB XRP ADA DOGE AVAX MATIC DOT
+  ATOM LINK NEAR ARB OP SUI APT LTC BCH ETC FIL TON
+  TRX SHIB UNI AAVE MKR LDO
+)
+
+# All markets in this pool are crypto-themed — keep categories aligned.
+METADATA_CATEGORIES=(
+  crypto defi layer-1 layer-2 memecoin stablecoin
+)
+
+METADATA_TAGS=(
+  q1 q2 q3 q4 2026 2027 near-term long-term high-risk low-risk
+  speculation data-driven binary-event multi-outcome distribution
+  trend-following macro micro consensus contrarian
+)
+
+# Patch a market's backend metadata with randomized subject/category/tags/desc.
+# Silent on success; warns + bumps STAT_WARNINGS on failure (does NOT abort
+# the run — the smoke test's core path doesn't depend on the metadata).
+# Usage: patch_random_metadata <market-id>
+patch_random_metadata() {
+  local market_id=$1
+  if [ -z "$market_id" ]; then return 0; fi
+  local subject category t1 t2 desc
+  subject=$(rand_choice "${METADATA_SUBJECTS[@]}")
+  category=$(rand_choice "${METADATA_CATEGORIES[@]}")
+  t1=$(rand_choice "${METADATA_TAGS[@]}")
+  t2=$(rand_choice "${METADATA_TAGS[@]}")
+  desc="Smoke-test market — randomized $category/$subject scenario."
+  if devkit metadata.ts patch "$market_id" \
+       --subject "$subject" \
+       --category "$category" \
+       --tags "$t1,$t2" \
+       --description "$desc" \
+       &>/dev/null; then
+    log "Patched market #$market_id: $category / $subject [$t1, $t2]"
+  else
+    warn "Metadata patch failed for market #$market_id"
+    count_warning
+  fi
 }
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
@@ -235,15 +323,52 @@ ensure_deps
 PHASE_PREFLIGHT_TIME=$(($(date +%s) - PHASE_PREFLIGHT_START))
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 2: Infrastructure
+# Reset decision — opt-in via --reset, auto-triggered by missing/changed program
+# ═════════════════════════════════════════════════════════════════════════════
+
+PROGRAM_SO="$ROOT/target/deploy/dekant_pm.so"
+PROGRAM_HASH_FILE="$STATE_DIR/program.hash"
+
+# Auto-reset triggers (only when --reset is not already set and we're managing
+# the validator). The .so itself is guaranteed present by preflight_check_program.
+if [ "$START_INFRA" = true ] && [ "$RESET_VALIDATOR" = false ]; then
+  if [ ! -f "$PROGRAM_HASH_FILE" ]; then
+    log "No prior reset recorded in $PROGRAM_HASH_FILE → forcing reset (bootstrap)"
+    RESET_VALIDATOR=true
+  else
+    CURRENT_SO_HASH=$(sha256sum "$PROGRAM_SO" | awk '{print $1}')
+    SAVED_SO_HASH=$(cat "$PROGRAM_HASH_FILE" 2>/dev/null || echo "")
+    if [ "$CURRENT_SO_HASH" != "$SAVED_SO_HASH" ]; then
+      log "Program .so changed since last reset → forcing reset (schema-drift defense)"
+      RESET_VALIDATOR=true
+    fi
+  fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PHASE 2: Infrastructure + Protocol Setup
+#
+# Delegated to scripts/setup.sh (the canonical setup path). With --reset it
+# also rebuilds the program, propagates PROGRAM_ID to every .env, wipes the
+# backend DB (npm run db:drop && migration:run), boots the validator with
+# --reset, and runs protocol init + role grants. With -b it detaches the
+# services (validator/backend/frontend) and exits, leaving their PIDs in
+# scripts/.state/*.pid so this script's cleanup_and_exit can stop them later.
 # ═════════════════════════════════════════════════════════════════════════════
 
 PHASE_INFRA_START=$(date +%s)
 if [ "$START_INFRA" = true ]; then
-  header "PHASE 1: STARTING INFRASTRUCTURE"
-  start_validator reset
-  start_backend
-  start_frontend
+  if [ "$RESET_VALIDATOR" = true ]; then
+    header "PHASE 1: SETUP (reset — rebuild, db wipe, validator reset, init, roles)"
+    bash "$ROOT/scripts/setup.sh" --reset --background
+    # Stamp the .so hash now that protocol state is in a known-good shape.
+    # Future runs use this to detect schema drift (a new .so against an old ledger).
+    sha256sum "$PROGRAM_SO" | awk '{print $1}' > "$PROGRAM_HASH_FILE"
+  else
+    header "PHASE 1: SETUP (resume — validator + backend + frontend, no init)"
+    bash "$ROOT/scripts/setup.sh" --background
+    log "Reusing existing ProtocolConfig, role PDAs, and DB rows from prior run"
+  fi
 else
   header "PHASE 1: SKIPPING INFRASTRUCTURE (--no-infra)"
   check_port 8899 && success "Validator :8899" || { fail "Validator not reachable on :8899"; exit 1; }
@@ -253,25 +378,8 @@ else
 fi
 PHASE_INFRA_TIME=$(($(date +%s) - PHASE_INFRA_START))
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PHASE 3: Protocol Setup
-# ═════════════════════════════════════════════════════════════════════════════
-
-PHASE_PROTOCOL_START=$(date +%s)
-header "PHASE 2: PROTOCOL SETUP"
-
-step "Initializing protocol"
-devkit setup.ts init 2>&1 | tail -3
-success "Protocol initialized"
-
-step "Assigning Oracle role to deployer"
-devkit setup.ts assign-role "$WALLET_ADDR" oracle 2>&1 | tail -2 || warn "May already be assigned"
-success "Oracle role set"
-
-step "Assigning Creator role to deployer"
-devkit setup.ts assign-role "$WALLET_ADDR" creator 2>&1 | tail -2 || warn "May already be assigned"
-success "Creator role set"
-PHASE_PROTOCOL_TIME=$(($(date +%s) - PHASE_PROTOCOL_START))
+# setup.sh covers init + role grants. Stats summary expects this var.
+PHASE_PROTOCOL_TIME=0
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 4: Generate Test Traders
@@ -320,7 +428,8 @@ if [ "$EXTRA_MARKETS" = true ]; then
     ETYPE=$(rand_choice "${MARKET_TYPES[@]}")
     ELIQ=$(rand 50 200)
     EDEADLINE_SEC=$(rand 300 900)
-    EDEADLINE=$(($(date +%s) + EDEADLINE_SEC))
+    # Anchor deadline to on-chain clock; the validator can lag host wallclock.
+    EDEADLINE=$(( $(on_chain_now) + EDEADLINE_SEC ))
 
     case "$ETYPE" in
       binary)
@@ -346,12 +455,14 @@ if [ "$EXTRA_MARKETS" = true ]; then
         fi
         ;;
       continuous)
-        ERMIN=$(rand 30 80)
-        ERMAX=$(rand 300 600)
+        read ERMIN ERMAX <<< "$(random_continuous_range)"
         EBINS=$(rand_choice 32 64 128)
         step "Extra $ei/$NUM_EXTRA: continuous market (range $ERMIN-$ERMAX, $EBINS bins, liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
-        ECMD=(devkit market.ts create-continuous "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" "$ERMIN" "$ERMAX" --bins "$EBINS")
+        # Options BEFORE `--`, positionals after — so commander.js doesn't
+        # misread a negative range-min like "-207" as an unknown option flag.
+        ECMD=(devkit market.ts create-continuous --bins "$EBINS")
         [ -n "${COLLATERAL_MINT:-}" ] && ECMD+=(--mint "$COLLATERAL_MINT")
+        ECMD+=(-- "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" "$ERMIN" "$ERMAX")
         if EOUT=$("${ECMD[@]}" 2>&1); then
           EID=$(echo "$EOUT" | grep "Market ID:" | awk '{print $NF}' || true)
           if [ -z "${COLLATERAL_MINT:-}" ]; then
@@ -365,6 +476,7 @@ if [ "$EXTRA_MARKETS" = true ]; then
       EXTRA_MARKET_IDS+=("$ETYPE:#$EID")
       success "Created $ETYPE market #$EID"
       count_market
+      patch_random_metadata "$EID"
 
       # Fund traders so they can interact via frontend
       EFUND=$(rand 50 150)
@@ -375,7 +487,7 @@ if [ "$EXTRA_MARKETS" = true ]; then
       success "Funded traders + deployer for market #$EID"
     else
       warn "Extra $ei: failed to create $ETYPE market"
-      count_error
+      count_warning
     fi
     EID=""
   done
@@ -392,10 +504,12 @@ PHASE_BINARY_START=$(date +%s)
 PHASE_BINARY_WAIT=0
 header "PHASE 4: BINARY MARKET"
 
-# Random parameters
+# Random parameters. Deadline is anchored to the validator's on-chain clock,
+# not host wallclock — a long-running validator can lag wallclock by minutes
+# after a resume, which would defer the on-chain deadline well past our wait.
 BIN_LIQUIDITY=$(rand 50 200)
 BIN_DEADLINE_SEC=$(rand 45 120)
-BIN_DEADLINE=$(($(date +%s) + BIN_DEADLINE_SEC))
+BIN_DEADLINE=$(( $(on_chain_now) + BIN_DEADLINE_SEC ))
 BIN_FUND_EACH=$(rand 100 300)
 
 step "4.1 Creating binary market (liquidity=$BIN_LIQUIDITY, deadline=${BIN_DEADLINE_SEC}s)"
@@ -414,6 +528,7 @@ if [ -z "$BINARY_ID" ]; then
 fi
 success "Binary market created: ID=$BINARY_ID, Mint=$COLLATERAL_MINT"
 count_market
+patch_random_metadata "$BINARY_ID"
 
 step "4.2 Funding all traders ($BIN_FUND_EACH tokens each)"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
@@ -480,8 +595,8 @@ step "4.12 Querying probabilities"
 devkit query.ts market "$BINARY_ID" 2>&1 | head -15 || true
 echo ""
 
-# Wait for deadline
-REMAINING=$((BIN_DEADLINE - $(date +%s) + 5))
+# Wait for deadline (against on-chain clock — see lib.sh::on_chain_now)
+REMAINING=$((BIN_DEADLINE - $(on_chain_now) + 5))
 if [ "$REMAINING" -gt 0 ]; then
   STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
   PHASE_BINARY_WAIT=$REMAINING
@@ -499,7 +614,8 @@ if _out=$(devkit resolve.ts market "$BINARY_ID" "$BIN_WINNING_OUTCOME" 2>&1); th
   success "Binary market resolved"
 else
   warn "Failed to resolve binary market"
-  count_error
+  echo "$_out" | tail -20 | sed 's/^/    /'
+  count_warning
 fi
 
 step "4.14 Checking resolved state"
@@ -532,7 +648,7 @@ header "PHASE 5: MULTI-OUTCOME MARKET (4 outcomes)"
 
 MULTI_LIQUIDITY=$(rand 50 200)
 MULTI_DEADLINE_SEC=$(rand 45 120)
-MULTI_DEADLINE=$(($(date +%s) + MULTI_DEADLINE_SEC))
+MULTI_DEADLINE=$(( $(on_chain_now) + MULTI_DEADLINE_SEC ))
 MULTI_FUND_EACH=$(rand 100 300)
 MULTI_OUTCOMES=4
 
@@ -551,6 +667,7 @@ if [ -z "$MULTI_ID" ]; then
 fi
 success "Multi-outcome market created: ID=$MULTI_ID"
 count_market
+patch_random_metadata "$MULTI_ID"
 
 step "5.2 Funding all traders ($MULTI_FUND_EACH tokens each)"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
@@ -598,8 +715,8 @@ step "5.10 Querying probabilities"
 devkit query.ts market "$MULTI_ID" 2>&1 | head -20 || true
 echo ""
 
-# Wait for deadline
-REMAINING=$((MULTI_DEADLINE - $(date +%s) + 5))
+# Wait for deadline (against on-chain clock — see lib.sh::on_chain_now)
+REMAINING=$((MULTI_DEADLINE - $(on_chain_now) + 5))
 if [ "$REMAINING" -gt 0 ]; then
   STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
   PHASE_MULTI_WAIT=$REMAINING
@@ -615,7 +732,8 @@ if _out=$(devkit resolve.ts market "$MULTI_ID" "$MULTI_WINNER" 2>&1); then
   success "Multi-outcome market resolved"
 else
   warn "Failed to resolve multi-outcome market"
-  count_error
+  echo "$_out" | tail -20 | sed 's/^/    /'
+  count_warning
 fi
 
 step "5.12 Checking resolved state"
@@ -639,16 +757,15 @@ PHASE_CONT_START=$(date +%s)
 PHASE_CONT_WAIT=0
 header "PHASE 6: CONTINUOUS MARKET (64 bins)"
 
-CONT_RANGE_MIN=$(rand 30 80)
-CONT_RANGE_MAX=$(rand 300 600)
+read CONT_RANGE_MIN CONT_RANGE_MAX <<< "$(random_continuous_range)"
 CONT_LIQUIDITY=$(rand 50 200)
 CONT_DEADLINE_SEC=$(rand 45 120)
-CONT_DEADLINE=$(($(date +%s) + CONT_DEADLINE_SEC))
+CONT_DEADLINE=$(( $(on_chain_now) + CONT_DEADLINE_SEC ))
 CONT_FUND_EACH=$(rand 200 400)
 CONT_BINS=64
 
 step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, liquidity=$CONT_LIQUIDITY)"
-if ! CONT_OUTPUT=$(devkit market.ts create-continuous "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" --bins $CONT_BINS --mint "$COLLATERAL_MINT" 2>&1); then
+if ! CONT_OUTPUT=$(devkit market.ts create-continuous --bins "$CONT_BINS" --mint "$COLLATERAL_MINT" -- "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" 2>&1); then
   echo "$CONT_OUTPUT"
   fail "Failed to create continuous market"
   exit 1
@@ -662,6 +779,7 @@ if [ -z "$CONT_ID" ]; then
 fi
 success "Continuous market created: ID=$CONT_ID"
 count_market
+patch_random_metadata "$CONT_ID"
 
 step "6.2 Funding all traders ($CONT_FUND_EACH tokens each)"
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
@@ -686,7 +804,7 @@ T1_SIGMA=$((T1_SIGMA_BASE + T1_SIGMA_EXTRA))
 if [ "$T1_SIGMA" -lt 5 ]; then T1_SIGMA=5; fi
 CONT_BUY1=$(rand 10 30)
 step "6.4 Trader 1: buy-dist N($T1_MU, $T1_SIGMA) with $CONT_BUY1 tokens"
-run_trade "Trader 1 bought distribution" devkit_as "$T1_KEY" trade.ts buy-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_BUY1"
+run_trade "Trader 1 bought distribution" devkit_as "$T1_KEY" trade.ts buy-dist -- "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_BUY1"
 
 # --- Trade 2: Trader 2 buys distribution (different center, narrower) ---
 T2_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
@@ -698,7 +816,7 @@ T2_SIGMA=$((T2_SIGMA_BASE + T2_SIGMA_EXTRA))
 if [ "$T2_SIGMA" -lt 5 ]; then T2_SIGMA=5; fi
 CONT_BUY2=$(rand 10 30)
 step "6.5 Trader 2: buy-dist N($T2_MU, $T2_SIGMA) with $CONT_BUY2 tokens"
-run_trade "Trader 2 bought distribution" devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_BUY2"
+run_trade "Trader 2 bought distribution" devkit_as "$T2_KEY" trade.ts buy-dist -- "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_BUY2"
 
 # --- Trade 3: Trader 3 buys distribution (wider sigma) ---
 T3_MU_OFFSET=$(rand 0 $((CONT_RANGE_WIDTH / 6)))
@@ -710,12 +828,12 @@ T3_SIGMA=$((T3_SIGMA_BASE + T3_SIGMA_EXTRA))
 if [ "$T3_SIGMA" -lt 5 ]; then T3_SIGMA=5; fi
 CONT_BUY3=$(rand 10 25)
 step "6.6 Trader 3: buy-dist N($T3_MU, $T3_SIGMA) with $CONT_BUY3 tokens"
-run_trade "Trader 3 bought distribution" devkit_as "$T3_KEY" trade.ts buy-dist "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3"
+run_trade "Trader 3 bought distribution" devkit_as "$T3_KEY" trade.ts buy-dist -- "$CONT_ID" "$T3_MU" "$T3_SIGMA" "$CONT_BUY3"
 
 # --- BUG-001 regression: large distribution buy ---
 CONT_LARGE_AMT=$(rand 80 150)
 step "6.7 BUG-001 regression: Trader 2 large buy-dist ($CONT_LARGE_AMT tokens)"
-run_trade "Trader 2 large dist buy (BUG-001)" devkit_as "$T2_KEY" trade.ts buy-dist "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_LARGE_AMT"
+run_trade "Trader 2 large dist buy (BUG-001)" devkit_as "$T2_KEY" trade.ts buy-dist -- "$CONT_ID" "$T2_MU" "$T2_SIGMA" "$CONT_LARGE_AMT"
 
 step "6.8 Querying Trader 1 position"
 devkit_as "$T1_KEY" trade.ts position "$CONT_ID" 2>&1 || true
@@ -730,14 +848,14 @@ CONT_SELL1_MAX=$((CONT_BUY1 / 3))
 if [ "$CONT_SELL1_MAX" -lt 2 ]; then CONT_SELL1_MAX=2; fi
 CONT_SELL1=$(rand 2 "$CONT_SELL1_MAX")
 step "6.10 Trader 1: sell-dist N($T1_MU, $T1_SIGMA) $CONT_SELL1 tokens"
-run_trade "Trader 1 sold distribution tokens" devkit_as "$T1_KEY" trade.ts sell-dist "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1"
+run_trade "Trader 1 sold distribution tokens" devkit_as "$T1_KEY" trade.ts sell-dist -- "$CONT_ID" "$T1_MU" "$T1_SIGMA" "$CONT_SELL1"
 
 step "6.11 Market after partial sell"
 devkit query.ts market "$CONT_ID" 2>&1 | head -25 || true
 echo ""
 
-# Wait for deadline
-REMAINING=$((CONT_DEADLINE - $(date +%s) + 5))
+# Wait for deadline (against on-chain clock — see lib.sh::on_chain_now)
+REMAINING=$((CONT_DEADLINE - $(on_chain_now) + 5))
 if [ "$REMAINING" -gt 0 ]; then
   STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
   PHASE_CONT_WAIT=$REMAINING
@@ -746,19 +864,24 @@ if [ "$REMAINING" -gt 0 ]; then
 fi
 
 # Resolve with a value near Trader 1's prediction center
-CONT_RESOLVE_OFFSET=$(rand -10 10)
+# Resolve-value noise scales with range width so wide markets get meaningful
+# jitter instead of a fixed ±10. Floors at ±5 for tight ranges.
+CONT_RESOLVE_NOISE=$((CONT_RANGE_WIDTH / 30))
+if [ "$CONT_RESOLVE_NOISE" -lt 5 ]; then CONT_RESOLVE_NOISE=5; fi
+CONT_RESOLVE_OFFSET=$(rand "-$CONT_RESOLVE_NOISE" "$CONT_RESOLVE_NOISE")
 CONT_RESOLVE_VALUE=$((T1_MU + CONT_RESOLVE_OFFSET))
 # Clamp to range
 if [ "$CONT_RESOLVE_VALUE" -lt "$CONT_RANGE_MIN" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MIN; fi
 if [ "$CONT_RESOLVE_VALUE" -gt "$CONT_RANGE_MAX" ]; then CONT_RESOLVE_VALUE=$CONT_RANGE_MAX; fi
 
 step "6.12 Resolving continuous market with value=$CONT_RESOLVE_VALUE"
-if _out=$(devkit resolve.ts market "$CONT_ID" --value "$CONT_RESOLVE_VALUE" 2>&1); then
+if _out=$(devkit resolve.ts market --value="$CONT_RESOLVE_VALUE" -- "$CONT_ID" 2>&1); then
   echo "$_out" | tail -2
   success "Continuous market resolved"
 else
   warn "Failed to resolve continuous market"
-  count_error
+  echo "$_out" | tail -20 | sed 's/^/    /'
+  count_warning
 fi
 
 step "6.13 Checking resolved state"
@@ -875,7 +998,8 @@ echo -e "${GREEN}Test Statistics:${NC}"
 echo -e "  Markets created:  ${BOLD}$STAT_MARKETS${NC} (binary + multi + continuous)"
 echo -e "  Trades executed:  ${BOLD}$STAT_TRADES${NC}"
 echo -e "  Claims processed: ${BOLD}$STAT_CLAIMS${NC}"
-echo -e "  Errors:           ${BOLD}$STAT_ERRORS${NC}"
+echo -e "  Warnings:         ${BOLD}$STAT_WARNINGS${NC} (${YELLOW}⚠${NC} expected reverts: NothingToClaim, soft trade failures)"
+echo -e "  Errors:           ${BOLD}$STAT_ERRORS${NC} (${RED}✗${NC} hard failures: e.g. backend health check)"
 echo -e "  Traders:          ${BOLD}$NUM_TRADERS${NC}"
 echo -e "  Random seed:      ${BOLD}$SEED${NC}"
 echo ""
@@ -950,7 +1074,8 @@ Statistics
   Markets created:    $STAT_MARKETS
   Trades executed:    $STAT_TRADES
   Claims processed:   $STAT_CLAIMS
-  Errors:             $STAT_ERRORS
+  Warnings:           $STAT_WARNINGS  (expected reverts and soft failures)
+  Errors:             $STAT_ERRORS  (hard failures)
   Traders:            $NUM_TRADERS
 
 Timing

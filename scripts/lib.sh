@@ -167,6 +167,51 @@ check_port() {
   nc -z localhost "$port" 2>/dev/null
 }
 
+# ── On-chain Clock ──────────────────────────────────────────────────────────
+#
+# The Solana program's Clock::get()?.unix_timestamp is what gates deadlines —
+# NOT the host wallclock. A long-running solana-test-validator can drift
+# minutes behind host wallclock between resets, so deadlines computed with
+# `date +%s` will be processed by the validator while its on-chain clock is
+# still well before that "future" timestamp — and the market never transitions
+# to PendingResolution, causing resolve_market to revert.
+#
+# Use this helper to anchor any deadline math (and any "wait for deadline"
+# loop) to the same clock the program will check against.
+#
+# Echoes the validator's actual on-chain unix_timestamp by reading the Clock
+# sysvar directly. This is the same value the program sees via Clock::get(),
+# so deadlines computed against it match exactly what require!(clock >=
+# deadline) will check inside the instruction.
+#
+# Avoided alternatives:
+#   - getBlockTime + finalized commitment: ~30s lag, deadlines end up too tight
+#   - getBlockTime + processed commitment: can return null for very fresh slots
+#
+# Clock sysvar layout (40 bytes total):
+#   bytes  0..8   slot                  u64 LE
+#   bytes  8..16  epoch_start_timestamp i64 LE
+#   bytes 16..24  epoch                 u64 LE
+#   bytes 24..32  leader_schedule_epoch u64 LE
+#   bytes 32..40  unix_timestamp        i64 LE   ← what we want
+#
+# Falls back to host wallclock if RPC is unreachable.
+on_chain_now() {
+  local rpc=${1:-http://localhost:8899}
+  local raw data ts
+  raw=$(curl -s "$rpc" -X POST -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["SysvarC1ock11111111111111111111111111111111",{"encoding":"base64","commitment":"processed"}]}' 2>/dev/null)
+  if [ -z "$raw" ]; then date +%s; return; fi
+  data=$(echo "$raw" | sed -n 's/.*"data":\["\([^"]*\)".*/\1/p')
+  if [ -z "$data" ]; then date +%s; return; fi
+  ts=$(printf '%s' "$data" | base64 -d 2>/dev/null \
+    | dd bs=1 skip=32 count=8 status=none 2>/dev/null \
+    | od -An -tu8 --endian=little 2>/dev/null \
+    | tr -d ' \n')
+  if [ -z "$ts" ]; then date +%s; return; fi
+  echo "$ts"
+}
+
 # ── Devkit Wrappers ─────────────────────────────────────────────────────────
 
 # Run a devkit command using the default keypair.
@@ -197,6 +242,42 @@ rand() {
 rand_choice() {
   local arr=("$@")
   echo "${arr[RANDOM % ${#arr[@]}]}"
+}
+
+# Random continuous-market range, printed as "MIN MAX" on stdout. The script
+# picks a "shape" first to vary not just the numbers but the geometry — narrow
+# windows, large dynamic ranges, ranges that cross zero, etc. Downstream μ/σ
+# and resolve-value computations in the smoke script use range_min/range_max
+# directly, so they auto-adapt to whatever this returns.
+#
+# Shapes (weighted by repetition for distribution control):
+#   tight     — narrow window (width 20–100), tests boundary bin sizing
+#   standard  — legacy smoke range, well-exercised baseline
+#   wide      — large dynamic range (width up to ~4000), tests Gaussian compute
+#   negative  — crosses zero, common for delta / "change from X" markets
+random_continuous_range() {
+  local shape min max width
+  shape=$(rand_choice tight standard standard wide negative)
+  case "$shape" in
+    tight)
+      min=$(rand 40 80)
+      width=$(rand 20 100)
+      max=$((min + width))
+      ;;
+    standard)
+      min=$(rand 30 80)
+      max=$(rand 300 600)
+      ;;
+    wide)
+      min=$(rand 0 50)
+      max=$(rand 1500 4000)
+      ;;
+    negative)
+      min=$(rand -300 -50)
+      max=$(rand 50 600)
+      ;;
+  esac
+  echo "$min $max"
 }
 
 # ── Keypair Management ──────────────────────────────────────────────────────
@@ -284,6 +365,16 @@ stop_tracked_pids() {
 
 # Start the Solana test validator (localnet only).
 # Pass "reset" as $1 to wipe the ledger; default is to keep existing state.
+#
+# Program loader selection:
+#   If the Solana CLI's default keypair (typically ~/.config/solana/id.json)
+#   is readable, the program is preloaded under the upgradeable BPF loader
+#   with that wallet as the upgrade authority — so `anchor upgrade` works
+#   against the running validator without needing a full --reset.
+#
+#   If no usable keypair is available, falls back to --bpf-program (BPF
+#   Loader v2, immutable). The fallback prints a notice so the surprise of
+#   "anchor upgrade rejects my authority" is one log line away.
 start_validator() {
   local do_reset="${1:-}"
   local program_id
@@ -313,8 +404,35 @@ start_validator() {
     log "Validator ledger will be wiped (--reset)"
   fi
 
+  # Resolve the upgrade authority. `solana address` reads the CLI-configured
+  # keypair directly (typically ~/.config/solana/id.json) and is the same
+  # source of truth the rest of this script uses — so no parsing of `solana
+  # config get` output (which formats path lines inconsistently across
+  # subcommands). Empty result → no usable keypair → immutable fallback.
+  local upgrade_authority
+  upgrade_authority=$(solana address 2>/dev/null || true)
+
+  # Best-effort: extract the keypair path for the log message. Strips leading
+  # spaces and the trailing space `solana config get` adds after the path.
+  local default_keypair=""
+  if [ -n "$upgrade_authority" ]; then
+    default_keypair=$(solana config get 2>/dev/null \
+      | sed -n 's/^Keypair Path:[[:space:]]*//p' \
+      | sed 's/[[:space:]]*$//')
+  fi
+
+  local program_load_args
+  if [ -n "$upgrade_authority" ]; then
+    log "Loading program as UPGRADEABLE (authority=$upgrade_authority, keypair=${default_keypair:-<solana CLI config>})"
+    program_load_args=(--upgradeable-program "$program_id" "$program_so" "$upgrade_authority")
+  else
+    warn "No default keypair resolved via 'solana address' → program will be IMMUTABLE"
+    warn "  Run 'solana-keygen new' or 'solana config set --keypair <path>' to enable upgrades"
+    program_load_args=(--bpf-program "$program_id" "$program_so")
+  fi
+
   solana-test-validator \
-    --bpf-program "$program_id" "$program_so" \
+    "${program_load_args[@]}" \
     $reset_flag \
     --quiet \
     &>/dev/null &
