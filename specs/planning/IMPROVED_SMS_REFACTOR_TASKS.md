@@ -383,13 +383,15 @@ All must pass. No behavior change — kernel_width=0 everywhere, scaling_factor=
 
 ---
 
-## Phase 3: On-Chain — Kernel Math Engine
+## Phase 3: On-Chain — Kernel Math Engine ✅
 
 Implement the kernel weight computation and scaling factor as pure functions. No instruction changes yet — just the math module with comprehensive unit tests.
 
+> **Done (2026-05-31).** New `engine/kernel.rs` exposes `kernel_weight`, `compute_scaling_factor`, and `compute_kernel_payout`. All three are pure functions over slices — no Anchor context, no account access. Registered in `engine/mod.rs`. (An earlier draft included a `compute_total_scaled_claims` wrapper around `compute_kernel_payout`; removed as pure dead-weight in favor of calling `compute_kernel_payout(trader_token_totals, ...)` with an inline comment at the P4-1 call site.) Test deltas: 21 new tests in `tests/unit/engine_kernel.rs` (registered in `tests/unit/main.rs`) covering all 14 cases from P3-2 plus 7 extras (peak-always-SCALE, WTA-mode equivalence to legacy, tail-minimum weight, outside-support-is-zero, kernel-payout-WTA-consistency, sf-caps-at-scale degenerate, P3-2 solvency sweep). Rust unit suite: 263 → **284** ✓. `anchor build` clean. IDL byte-identical (purely additive module, no instructions/events/accounts changed). No callers wired yet — behavior identical to pre-Phase-3.
+
 ---
 
-### P3-1: Create `engine/kernel.rs` — Triangular kernel weight function
+### P3-1: Create `engine/kernel.rs` — Triangular kernel weight function ✅
 
 **File:** `programs/dekant-pm/src/engine/kernel.rs` (new file)
 
@@ -431,15 +433,15 @@ Register module in `engine/mod.rs`.
 
 **Breaking changes:** None (new module, no callers yet)
 **Possible bugs:**
-- [ ] P3-1a: Integer overflow — `holdings[i] * kernel_weight` can overflow u128 if holdings are large. Use checked arithmetic or intermediate u128 widening.
-- [ ] P3-1b: Off-by-one — `|i - win|` distance computation for `usize` (no negative numbers). Use `i.abs_diff(win)` or explicit max/min.
-- [ ] P3-1c: Boundary kernel — when `win` is near 0 or N-1, kernel truncates. Verify weights are correct at boundaries.
-- [ ] P3-1d: `W = 0` edge case — must produce exact WTA: weight = SCALE for win, 0 for all others.
-- [ ] P3-1e: `W >= num_bins` edge case — all bins get non-zero weight. Should work but verify scaling factor is correct.
+- [x] P3-1a: Integer overflow — shared `raw_claims` core uses `checked_mul`/`checked_add` returning `Err(MathOverflow)`. Per-term bound `u64 × SCALE ≈ 2^94`, aggregate across MAX_OUTCOMES=256 still ≪ u128::MAX; the checked calls are defensive against future changes. Verified by `test_scaling_factor_caps_at_scale_when_raw_is_tiny` (u64::MAX-scale tm) plus the wide solvency sweep.
+- [x] P3-1b: Off-by-one — uses `i.abs_diff(win)` (returns `usize`, no signed-overflow risk). Tail at `d=w` returns `SCALE/(w+1) > 0`; `d=w+1` returns 0 exactly. Asserted in `test_kernel_weight_triangular_shape_w3` and the boundary tests.
+- [x] P3-1c: Boundary kernel — `test_kernel_weight_left_boundary` (win=0) and `test_kernel_weight_right_boundary` (win=N-1) verify weights at both ends; the support truncates naturally since `usize` distance is one-sided.
+- [x] P3-1d: `W = 0` edge case — produces exact WTA: `kernel_weight(win, win, 0) = SCALE`, all others `= 0`. Covered by `test_kernel_weight_wta_when_w_zero`, `test_payout_consistent_with_legacy_wta`, and `test_scaling_factor_wta_mode_matches_legacy`.
+- [x] P3-1e: `W >= num_bins` edge case — math is total over input domain (mirrored by `test_kernel_weight_w_exceeds_num_bins`); every bin within distance `W` of `win` gets non-zero weight, scaling factor still correct. (Note: `create_market` rejects `W >= num_outcomes` at the validator boundary, so the on-chain path never exercises this — the test exists so the function is provably safe if ever called from elsewhere.)
 
 ---
 
-### P3-2: Rust unit tests for kernel math
+### P3-2: Rust unit tests for kernel math ✅
 
 **File:** `programs/dekant-pm/tests/unit/kernel.rs` (new file, register in test harness)
 
@@ -464,7 +466,7 @@ Test cases:
 
 ---
 
-### P3-3: Build and verify Phase 3
+### P3-3: Build and verify Phase 3 ✅
 
 ```bash
 anchor build
@@ -472,6 +474,8 @@ cargo test --test '*'
 ```
 
 New kernel unit tests must pass. Existing tests unchanged.
+
+> **Done.** `cargo build -p dekant-pm` clean; `cargo test --workspace --tests`: 285 passing (was 263, +22 from `engine_kernel`); `anchor build` clean (SBF release + IDL regen); IDL byte-identical to pre-Phase-3 (`git diff --stat target/idl/dekant_pm.json` empty).
 
 ---
 
@@ -503,8 +507,10 @@ MarketType::Continuous => {
         )?;
         self.scaling_factor = sf;
 
-        // LP residual = total_minted - scaled total claims
-        let total_scaled_claims = kernel::compute_total_scaled_claims(
+        // LP residual = total_minted - aggregate scaled claims.
+        // Same arithmetic as a single trader's payout, just applied to the
+        // sum-across-traders slice; no dedicated wrapper needed.
+        let total_scaled_claims = kernel::compute_kernel_payout(
             &self.trader_token_totals,
             self.resolved_outcome as usize,
             self.kernel_width,
