@@ -22,15 +22,16 @@ type createMarketScreen struct {
 	phase Phase
 
 	// Form values
-	marketType    string
-	liquidity     string
-	deadline      string
-	numOutcomes   string
-	rangeMinStr   string
-	rangeMaxStr   string
-	oracleChoice  string
-	creatorChoice string
-	label         string
+	marketType     string
+	liquidity      string
+	deadline       string
+	numOutcomes    string
+	rangeMinStr    string
+	rangeMaxStr    string
+	kernelWidthStr string
+	oracleChoice   string
+	creatorChoice  string
+	label          string
 
 	// Mint selection
 	mintSource        string // "new", "native", "address", "network", "market"
@@ -73,13 +74,14 @@ const (
 
 func NewCreateMarketScreen(s *state.SessionState) tea.Model {
 	m := &createMarketScreen{
-		state:       s,
-		liquidity:   "100",
-		deadline:    "+1h",
-		numOutcomes: "4",
-		rangeMinStr: "50",
-		rangeMaxStr: "500",
-		execLog:     []string{},
+		state:          s,
+		liquidity:      "100",
+		deadline:       "+1h",
+		numOutcomes:    "4",
+		rangeMinStr:    "50",
+		rangeMaxStr:    "500",
+		kernelWidthStr: "0",
+		execLog:        []string{},
 	}
 
 	if s.RandomMode {
@@ -88,6 +90,11 @@ func NewCreateMarketScreen(s *state.SessionState) tea.Model {
 		m.deadline = s.Rand.Deadline()
 		m.numOutcomes = s.Rand.NumOutcomes(m.marketType)
 		m.rangeMinStr, m.rangeMaxStr = s.Rand.RangeValues()
+		if m.marketType == "continuous" {
+			if numBins, err := strconv.Atoi(m.numOutcomes); err == nil && numBins > 1 {
+				m.kernelWidthStr = s.Rand.KernelWidth(numBins - 1)
+			}
+		}
 	}
 
 	form := huh.NewForm(
@@ -367,6 +374,10 @@ func (m *createMarketScreen) advanceToParams() tea.Cmd {
 					Title("Number of bins (2-256)").
 					Value(&m.numOutcomes).
 					Placeholder("64"),
+				huh.NewInput().
+					Title("Kernel width (0 = winner-take-all, 1..numBins-1 = smooth kernel)").
+					Value(&m.kernelWidthStr).
+					Placeholder("0"),
 			),
 		)
 	default:
@@ -582,6 +593,7 @@ type marketExecCtx struct {
 	deadlineUnix int64
 	rangeMin     int64
 	rangeMax     int64
+	kernelWidth  uint16
 	roleType     uint8
 	marketID     uint64
 	marketPda    solana.PublicKey
@@ -622,6 +634,7 @@ func (m *createMarketScreen) execCreateMarket(doFunding bool) tea.Cmd {
 		}
 
 		var rangeMin, rangeMax int64
+		var kernelWidth uint16
 		if marketType == constants.MarketTypeContinuous {
 			rMin, errMin := strconv.ParseFloat(m.rangeMinStr, 64)
 			rMax, errMax := strconv.ParseFloat(m.rangeMaxStr, 64)
@@ -630,6 +643,15 @@ func (m *createMarketScreen) execCreateMarket(doFunding bool) tea.Cmd {
 			}
 			rangeMin = int64(rMin * float64(constants.SCALE))
 			rangeMax = int64(rMax * float64(constants.SCALE))
+
+			// kernel_width: 0 = WTA; > 0 enables the smooth kernel. Enforce the
+			// on-chain validator's rule (`kernel_width < num_outcomes`) client-side
+			// so the user gets a clean error instead of a generic Anchor revert.
+			kw, errKw := strconv.Atoi(m.kernelWidthStr)
+			if errKw != nil || kw < 0 || kw >= numOutcomes {
+				return errMsg{err: fmt.Errorf("invalid kernel-width '%s': must be an integer in [0..%d]", m.kernelWidthStr, numOutcomes-1)}
+			}
+			kernelWidth = uint16(kw)
 		}
 
 		// Derive creator role
@@ -662,6 +684,7 @@ func (m *createMarketScreen) execCreateMarket(doFunding bool) tea.Cmd {
 			deadlineUnix: deadlineUnix,
 			rangeMin:     rangeMin,
 			rangeMax:     rangeMax,
+			kernelWidth:  kernelWidth,
 			roleType:     roleType,
 			needsFunding: doFunding,
 		}
@@ -825,7 +848,10 @@ func (ec *marketExecCtx) stepSendCreateMarketTx() tea.Cmd {
 			return errMsg{err: fmt.Errorf("generate vault keypair: %w", err)}
 		}
 
-		// Build instruction args
+		// Build instruction args — field order must match CreateMarketArgs in
+		// programs/dekant-pm/src/instructions/market/create_market.rs. kernel_width
+		// is last; for binary/multi the on-chain handler force-zeros it but we
+		// still encode it from ec (which is 0 unless continuous).
 		args := make([]byte, 0)
 		args = append(args, chain.EncodeU8(ec.marketType)...)
 		args = append(args, chain.EncodeU16LE(uint16(ec.numOutcomes))...)
@@ -834,6 +860,7 @@ func (ec *marketExecCtx) stepSendCreateMarketTx() tea.Cmd {
 		args = append(args, chain.EncodeU64LE(ec.liquidityAmt)...)
 		args = append(args, chain.EncodeI64LE(ec.rangeMin)...)
 		args = append(args, chain.EncodeI64LE(ec.rangeMax)...)
+		args = append(args, chain.EncodeU16LE(ec.kernelWidth)...)
 
 		accounts := solana.AccountMetaSlice{
 			{PublicKey: ec.creator.Pubkey, IsSigner: true, IsWritable: true},

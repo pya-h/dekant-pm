@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computePositionValue,
   computeAmmSellProceeds,
+  computeKernelPayout,
   getPositionRange,
   categorizePositions,
   computePortfolioValue,
@@ -145,6 +146,56 @@ describe("computePositionValue", () => {
     });
     const pos = makePosition({ market });
     expect(computePositionValue(pos)).toBe(0);
+  });
+
+  it("uses the kernel payout for resolved continuous markets with kernelWidth > 0", () => {
+    // win=5, w=2, sf=SCALE (no scaling):
+    //   K(4,5,2) = K(6,5,2) = floor(SCALE * 2/3) = 666_666_666
+    //   K(5,5,2) = SCALE
+    //   raw = floor(100 * 666_666_666 / SCALE) + 1000 + floor(100 * 666_666_666 / SCALE)
+    //       = 66 + 1000 + 66 = 1132
+    //   payout = floor(1132 * SCALE / SCALE) = 1132
+    const market = makeMarket({
+      marketType: MarketType.Continuous,
+      state: MarketState.Resolved,
+      numOutcomes: 10,
+      resolvedOutcome: 5,
+      resolvedValue: null,
+      kernelWidth: 2,
+      scalingFactor: String(SCALE),
+    });
+    const holdings = ["0", "0", "0", "0", "100", "1000", "100", "0", "0", "0"];
+    const pos = makePosition({ market, holdings });
+    expect(computePositionValue(pos)).toBe(1132);
+  });
+});
+
+// ── computeKernelPayout ──
+
+describe("computeKernelPayout", () => {
+  it("returns holdings[win] when kernel_width=0 (pure WTA semantics)", () => {
+    // kernel_width=0 makes K(i,win,0) = SCALE iff i==win, else 0
+    expect(computeKernelPayout([0, 0, 500, 0], 2, 0, String(SCALE))).toBe(500);
+  });
+
+  it("dilutes payout proportionally when scalingFactor < SCALE", () => {
+    // win=5, w=2: raw = 333 + 2000 + 333 = 2666 (per kernel arithmetic)
+    // sf = SCALE/2 → payout = floor(2666 * 0.5) = 1333
+    const holdings = [0, 0, 0, 0, 500, 2000, 500, 0, 0, 0];
+    const sf = String(SCALE / 2);
+    expect(computeKernelPayout(holdings, 5, 2, sf)).toBe(1333);
+  });
+
+  it("truncates kernel support at the left boundary", () => {
+    // win=0, w=2 → K(0)=SCALE, K(1)=2/3·SCALE, K(2)=1/3·SCALE; bins -1,-2 are absent
+    // holdings = [0, 100, 100] → raw = 0 + 66 + 33 = 99; payout = 99 at sf=SCALE
+    expect(computeKernelPayout([0, 100, 100], 0, 2, String(SCALE))).toBe(99);
+  });
+
+  it("returns 0 when no holdings fall inside the kernel support", () => {
+    // win=10, w=2, support = bins {8,9,10,11,12}; holdings live at bin 0
+    const holdings = [1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    expect(computeKernelPayout(holdings, 10, 2, String(SCALE))).toBe(0);
   });
 });
 

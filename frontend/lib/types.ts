@@ -58,6 +58,12 @@ export interface MarketSummary {
   lpSharesTotal: string;
   lpFeeAccumulated: string;
   protocolFeeAccumulated: string;
+  // Smooth-kernel resolution (continuous markets only).
+  // `kernelWidth = 0` ⇒ winner-take-all; `> 0` ⇒ triangular kernel.
+  // `scalingFactor` is SCALE-denominated (10^9), set at resolution.
+  // Optional for transitional API compatibility — default to 0 / "0" at use sites.
+  kernelWidth?: number;
+  scalingFactor?: string;
 }
 
 // Same as MarketSummary -- the backend returns the full entity for both list and detail.

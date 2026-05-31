@@ -21,7 +21,7 @@ import {
   timeUntil,
   type UserPosition,
 } from "@/lib/types";
-import { computeAmmSellProceeds } from "@/lib/portfolio-utils";
+import { computePositionValue } from "@/lib/portfolio-utils";
 import { cn } from "@/lib/utils";
 
 interface PositionCardProps {
@@ -45,8 +45,10 @@ export function PositionCard({ position, variant = "grid" }: PositionCardProps) 
   const deposited = Number(position.totalDeposited);
   const withdrawn = Number(position.totalWithdrawn);
 
-  // Liquidation value (what you'd get selling now, after fees)
-  const currentValue = computeCurrentValue(holdingsNum, market);
+  // Liquidation value (what you'd get selling now, after fees).
+  // Routes through the shared helper so the smooth-kernel branch fires for
+  // resolved continuous markets with `kernelWidth > 0`.
+  const currentValue = computePositionValue(position);
   const paidPrice = deposited - withdrawn;
   const pnl = currentValue - paidPrice;
   const pnlPct = paidPrice > 0 ? (pnl / paidPrice) * 100 : 0;
@@ -170,40 +172,6 @@ function getResolutionLabel(
     return labels[winIdx];
   }
   return "—";
-}
-
-function computeCurrentValue(
-  holdings: number[],
-  market: UserPosition["market"],
-): number {
-  // For resolved markets: winning tokens are worth face value
-  if (market.state === MarketState.Resolved) {
-    if (market.marketType === MarketType.Continuous) {
-      if (market.resolvedValue != null && market.rangeMin != null && market.rangeMax != null) {
-        const resolved = Number(market.resolvedValue) / SCALE;
-        const rMin = Number(market.rangeMin) / SCALE;
-        const rMax = Number(market.rangeMax) / SCALE;
-        const binWidth = (rMax - rMin) / market.numOutcomes;
-        const winBin = Math.max(
-          0,
-          Math.min(
-            Math.floor((resolved - rMin) / binWidth),
-            market.numOutcomes - 1,
-          ),
-        );
-        return holdings[winBin] ?? 0;
-      }
-      return 0;
-    }
-    const winIdx = market.resolvedOutcome;
-    if (winIdx != null && winIdx >= 0 && winIdx < holdings.length) {
-      return holdings[winIdx];
-    }
-    return 0;
-  }
-
-  // Active/Paused markets: AMM sell proceeds after fees
-  return computeAmmSellProceeds(market.reserves, market.totalMinted, holdings);
 }
 
 const OUTCOME_COLORS = [

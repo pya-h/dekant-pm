@@ -48,6 +48,17 @@ class RandomGenerator {
     return { min: String(min), max: String(min + spread) };
   }
 
+  /**
+   * Kernel width for continuous markets. Returns a value in {0..maxWidth},
+   * with 0 (WTA) chosen ~25% of the time so randomized runs still exercise
+   * the legacy path. Caller must clamp to numBins-1 before submission.
+   */
+  kernelWidth(maxWidth) {
+    const cap = Math.max(0, Math.min(maxWidth, 9));
+    if (Math.random() < 0.25) return "0";
+    return String(1 + Math.floor(Math.random() * cap));
+  }
+
   tradeAmount() {
     return String(5 + Math.floor(Math.random() * 26)); // 5-30
   }

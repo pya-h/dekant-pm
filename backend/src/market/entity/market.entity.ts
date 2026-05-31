@@ -86,6 +86,12 @@ export class MarketEntity {
   @Column({ type: 'bigint', nullable: true, name: 'range_max' })
   rangeMax!: string | null;
 
+  @Column({ type: 'smallint', default: 0, name: 'kernel_width' })
+  kernelWidth!: number;
+
+  @Column({ type: 'numeric', default: '0', name: 'scaling_factor' })
+  scalingFactor!: string;
+
   // On-chain fee & LP tracking
   @Column({ type: 'numeric', default: '0', name: 'protocol_fee_accumulated' })
   protocolFeeAccumulated!: string;

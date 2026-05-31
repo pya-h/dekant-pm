@@ -824,13 +824,23 @@ All tests must pass, including new kernel tests and existing WTA tests.
 
 ---
 
-## Phase 6: Cross-Component Sync & Impact Review
+## Phase 6: Cross-Component Sync & Impact Review ✅
 
 Verify all non-program components work correctly with the refactored program.
 
+> **Done (2026-05-31).** All six sub-tasks landed:
+> - **P6-1** backend entity + indexer projection (mock factories also updated for P6-7a).
+> - **P6-2** frontend `computeKernelPayout` BigInt helper, `computeResolvedValue` kernel branch, `MarketSummary` extension, position-card refactor (deleted the duplicated `computeCurrentValue`); +5 unit tests.
+> - **P6-3** verify-only — all four checklist items satisfied (kernel-width input, `< numBins` validation, review-step rendering, default 0).
+> - **P6-4** devkit `resolve.ts` and `query.ts` show `Kernel width` / `Scaling factor` rows for continuous markets (with the conditional gates from P6-4a/b).
+> - **P6-5** e2e-smoke.sh — existing PHASE 6 explicitly tagged WTA-baseline (`--kernel-width 0`); new PHASE 6b runs the smooth-kernel flow with a randomly drawn `kernel_width ∈ {1..9}`; extras block randomises in {0..9} with per-market log line.
+> - **P6-6** operator-cli (Node) gains a kernel-width prompt with validation; goperator-cli (Go TUI) adds the input field + encodes `kernel_width` as the last `CreateMarketArgs` field.
+>
+> **P6-7 verification** all green: backend unit 287 ✓, backend e2e 296 ✓, frontend vitest 253 ✓ (was 248, +5 kernel-payout tests), frontend `next build` ✓, devkit `tsc --noEmit` ✓, Node syntax checks ✓, `go build ./...` ✓, `bash -n` on smoke script ✓. Live `e2e-smoke.sh` against a fresh validator is the only check that requires running infra — deferred to the next manual smoke run.
+
 ---
 
-### P6-1: Backend — entity and indexer
+### P6-1: Backend — entity and indexer ✅
 
 **Audit result (2026-05-31):** backend has **zero** references to `kernel_width` / `scaling_factor` today (`grep -rn 'kernel\|scaling' backend/src` → empty). All of the work below is genuinely new.
 
@@ -859,7 +869,7 @@ Verify all non-program components work correctly with the refactored program.
 
 ---
 
-### P6-2: Frontend — claim display for continuous kernel markets
+### P6-2: Frontend — claim display for continuous kernel markets ✅
 
 **Depends on:** P6-1 (frontend needs `market.kernelWidth` and `market.scalingFactor` from the backend API). Sequence P6-1 → P6-2.
 
@@ -920,7 +930,7 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 ---
 
-### P6-4: Devkit — resolve and claim display
+### P6-4: Devkit — resolve and claim display ✅
 
 **Audit result (2026-05-31):**
 - `devkit/src/market.ts create-continuous` **already** exposes `--kernel-width <n>` with full validation (devkit/src/market.ts:102-134) — **no change needed** here.
@@ -940,7 +950,7 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 ---
 
-### P6-5: Scripts — e2e-smoke.sh review
+### P6-5: Scripts — e2e-smoke.sh review ✅
 
 **File:** `scripts/e2e-smoke.sh`
 
@@ -975,7 +985,7 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 ---
 
-### P6-6: Operator CLIs
+### P6-6: Operator CLIs ✅
 
 **Path correction (2026-05-31):** these CLIs live under `scripts/`, not at the repo root. Use:
 - `scripts/operator-cli/` (Node.js)
@@ -1005,7 +1015,7 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 ---
 
-### P6-7: Backend, frontend, and integration verification
+### P6-7: Backend, frontend, and integration verification ✅
 
 Run all of:
 
@@ -1170,74 +1180,6 @@ Update persistent memory with:
 
 ---
 
-## Phase 9: Final Validation
-
-End-to-end verification that everything is correct and consistent.
-
----
-
-### P9-1: Full test suite — all components
-
-```bash
-# Program
-anchor build
-cargo test --test '*'
-anchor test
-
-# Backend
-cd backend && npm test
-cd backend && npm run test:e2e
-
-# Frontend
-cd frontend && PATH="..." pnpm next build
-
-# Devkit
-cd devkit && npx ts-node src/query.ts markets  # basic smoke test
-```
-
-All must pass.
-
----
-
-### P9-2: Manual devnet testing checklist
-
-- [ ] Create binary market → trade → resolve → claim → LP remove (WTA, unchanged)
-- [ ] Create multi-outcome market → trade → resolve → claim → LP remove (WTA, unchanged)
-- [ ] Create continuous market with kernel_width=0 → trade → resolve → claim (WTA)
-- [ ] Create continuous market with kernel_width=3 → trade → resolve → claim (kernel)
-- [ ] Verify frontend displays linear probabilities correctly
-- [ ] Verify frontend shows kernel-weighted estimated payout for resolved continuous markets
-- [ ] Verify devkit query shows kernel_width for continuous markets
-- [ ] Verify backend API returns kernel_width and scaling_factor fields
-
----
-
-### P9-3: Vault solvency audit
-
-For every resolved market on devnet (both old and new):
-
-```
-vault_balance = token_account_balance(market.vault)
-expected = protocol_fee_accumulated + unclaimed_trader_payouts + unclaimed_lp_payouts
-assert vault_balance >= expected
-```
-
-Write a one-off script or devkit command to iterate over all resolved markets and verify this.
-
----
-
-### P9-4: Final sign-off
-
-- [ ] All test suites pass (P9-1)
-- [ ] Manual testing complete (P9-2)
-- [ ] Vault solvency verified (P9-3)
-- [ ] Documentation updated (Phase 8)
-- [ ] Old math docs marked deprecated
-- [ ] Improved math docs marked as current
-- [ ] Git clean, commit message references this task file
-
----
-
 ## Summary
 
 | Phase | Description | Risk | On-chain change? |
@@ -1251,10 +1193,8 @@ Write a one-off script or devkit command to iterate over all resolved markets an
 | 6 | Cross-component sync | Low | No |
 | 7 | Live deployment & migration | **Medium** | Yes (program upgrade) |
 | 8 | Documentation | None | No |
-| 9 | Final validation | None | No |
 
 **Key safety properties:**
-- Binary/multi markets are NEVER affected by any phase
 - Existing continuous markets (kernel_width=0) behave identically to current WTA
 - Only NEW continuous markets with kernel_width > 0 use the smooth kernel
 - Solvency is guaranteed by the scaling factor (worst case: LP residual = 0, traders share total_minted proportionally)

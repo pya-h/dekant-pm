@@ -78,6 +78,24 @@ func (g *Generator) RangeValues() (string, string) {
 	return fmt.Sprintf("%d", min), fmt.Sprintf("%d", min+spread)
 }
 
+// KernelWidth generates a kernel width in {0..min(maxWidth, 9)} for
+// continuous markets. Returns "0" (WTA) ~25% of the time so the WTA path
+// stays in the rotation; otherwise returns a value in {1..cap}.
+// Caller is responsible for clamping to numBins-1.
+func (g *Generator) KernelWidth(maxWidth int) string {
+	cap := maxWidth
+	if cap > 9 {
+		cap = 9
+	}
+	if cap <= 0 {
+		return "0"
+	}
+	if g.rng.Float64() < 0.25 {
+		return "0"
+	}
+	return fmt.Sprintf("%d", 1+g.rng.Intn(cap))
+}
+
 // TradeAmount generates a random trade amount (5-30 USDC).
 func (g *Generator) TradeAmount() string {
 	amount := 5 + g.rng.Intn(26) // 5-30

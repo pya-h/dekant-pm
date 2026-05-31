@@ -185,6 +185,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       // Only store range for continuous markets (type 2); non-continuous have 0 on-chain → null in DB
       rangeMin: Number(d.market_type) === 2 ? String(d.range_min) : null,
       rangeMax: Number(d.market_type) === 2 ? String(d.range_max) : null,
+      kernelWidth: Number(d.kernel_width ?? 0),
+      scalingFactor: String(d.scaling_factor ?? 0),
       resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
       resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
       resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,

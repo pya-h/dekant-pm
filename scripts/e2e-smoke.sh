@@ -457,10 +457,15 @@ if [ "$EXTRA_MARKETS" = true ]; then
       continuous)
         read ERMIN ERMAX <<< "$(random_continuous_range)"
         EBINS=$(rand_choice 32 64 128)
-        step "Extra $ei/$NUM_EXTRA: continuous market (range $ERMIN-$ERMAX, $EBINS bins, liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
+        # Kernel width: uniform in {0..9}; 0 keeps the WTA path in the rotation.
+        # Clamp to EBINS-1 (the on-chain validator's hard cap), though for the
+        # bin counts above the clamp never binds.
+        EKERNEL_W=$(rand 0 9)
+        if [ "$EKERNEL_W" -ge "$EBINS" ]; then EKERNEL_W=$((EBINS - 1)); fi
+        step "Extra $ei/$NUM_EXTRA: continuous market (range $ERMIN-$ERMAX, $EBINS bins, kernel_width=$EKERNEL_W, liquidity=$ELIQ, deadline=${EDEADLINE_SEC}s)"
         # Options BEFORE `--`, positionals after — so commander.js doesn't
         # misread a negative range-min like "-207" as an unknown option flag.
-        ECMD=(devkit market.ts create-continuous --bins "$EBINS")
+        ECMD=(devkit market.ts create-continuous --bins "$EBINS" --kernel-width "$EKERNEL_W")
         [ -n "${COLLATERAL_MINT:-}" ] && ECMD+=(--mint "$COLLATERAL_MINT")
         ECMD+=(-- "$WALLET_ADDR" "$ELIQ" "$EDEADLINE" "$ERMIN" "$ERMAX")
         if EOUT=$("${ECMD[@]}" 2>&1); then
@@ -755,7 +760,7 @@ PHASE_MULTI_TIME=$(($(date +%s) - PHASE_MULTI_START - PHASE_MULTI_WAIT))
 
 PHASE_CONT_START=$(date +%s)
 PHASE_CONT_WAIT=0
-header "PHASE 6: CONTINUOUS MARKET (64 bins)"
+header "PHASE 6: CONTINUOUS MARKET (64 bins, WTA baseline — kernel_width=0)"
 
 read CONT_RANGE_MIN CONT_RANGE_MAX <<< "$(random_continuous_range)"
 CONT_LIQUIDITY=$(rand 50 200)
@@ -764,8 +769,10 @@ CONT_DEADLINE=$(( $(on_chain_now) + CONT_DEADLINE_SEC ))
 CONT_FUND_EACH=$(rand 200 400)
 CONT_BINS=64
 
-step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, liquidity=$CONT_LIQUIDITY)"
-if ! CONT_OUTPUT=$(devkit market.ts create-continuous --bins "$CONT_BINS" --mint "$COLLATERAL_MINT" -- "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" 2>&1); then
+step "6.1 Creating continuous market (range $CONT_RANGE_MIN-$CONT_RANGE_MAX, $CONT_BINS bins, kernel_width=0, liquidity=$CONT_LIQUIDITY)"
+# Explicit --kernel-width 0 documents the WTA baseline. PHASE 6b below
+# exercises the smooth-kernel path with a randomly-chosen non-zero width.
+if ! CONT_OUTPUT=$(devkit market.ts create-continuous --bins "$CONT_BINS" --kernel-width 0 --mint "$COLLATERAL_MINT" -- "$WALLET_ADDR" "$CONT_LIQUIDITY" "$CONT_DEADLINE" "$CONT_RANGE_MIN" "$CONT_RANGE_MAX" 2>&1); then
   echo "$CONT_OUTPUT"
   fail "Failed to create continuous market"
   exit 1
@@ -902,6 +909,104 @@ success "Continuous market E2E flow complete!"
 PHASE_CONT_TIME=$(($(date +%s) - PHASE_CONT_START - PHASE_CONT_WAIT))
 
 # ═════════════════════════════════════════════════════════════════════════════
+# PHASE 6b: Continuous Market — Smooth-Kernel Flow
+# ═════════════════════════════════════════════════════════════════════════════
+
+PHASE_CONTK_START=$(date +%s)
+PHASE_CONTK_WAIT=0
+CONTK_BINS=64
+# Random kernel_width in {1..9}; clamp to BINS-1 defensively (the clamp never
+# binds for BINS=64, but the on-chain validator's hard rule is `< num_outcomes`).
+CONTK_KERNEL_W=$(rand 1 9)
+if [ "$CONTK_KERNEL_W" -ge "$CONTK_BINS" ]; then CONTK_KERNEL_W=$((CONTK_BINS - 1)); fi
+header "PHASE 6b: CONTINUOUS MARKET — smooth kernel (kernel_width=$CONTK_KERNEL_W, $CONTK_BINS bins)"
+log "kernel_width=$CONTK_KERNEL_W chosen for this run (re-run with the same seed to reproduce)"
+
+read CONTK_RANGE_MIN CONTK_RANGE_MAX <<< "$(random_continuous_range)"
+CONTK_LIQUIDITY=$(rand 50 200)
+CONTK_DEADLINE_SEC=$(rand 45 120)
+CONTK_DEADLINE=$(( $(on_chain_now) + CONTK_DEADLINE_SEC ))
+CONTK_FUND_EACH=$(rand 200 400)
+
+step "6b.1 Creating kernel-mode continuous market (range $CONTK_RANGE_MIN-$CONTK_RANGE_MAX, kernel_width=$CONTK_KERNEL_W)"
+if ! CONTK_OUTPUT=$(devkit market.ts create-continuous --bins "$CONTK_BINS" --kernel-width "$CONTK_KERNEL_W" --mint "$COLLATERAL_MINT" -- "$WALLET_ADDR" "$CONTK_LIQUIDITY" "$CONTK_DEADLINE" "$CONTK_RANGE_MIN" "$CONTK_RANGE_MAX" 2>&1); then
+  echo "$CONTK_OUTPUT"
+  fail "Failed to create kernel continuous market"
+  exit 1
+fi
+echo "$CONTK_OUTPUT"
+CONTK_ID=$(echo "$CONTK_OUTPUT" | grep "Market ID:" | awk '{print $NF}' || true)
+if [ -z "$CONTK_ID" ]; then
+  fail "Failed to parse kernel continuous market ID from output"
+  exit 1
+fi
+success "Kernel continuous market created: ID=$CONTK_ID (kernel_width=$CONTK_KERNEL_W)"
+count_market
+patch_random_metadata "$CONTK_ID"
+
+step "6b.2 Funding all traders ($CONTK_FUND_EACH tokens each)"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  devkit trade.ts fund "$CONTK_ID" "$CONTK_FUND_EACH" --wallet "${TRADER_ADDRS[$i]}" 2>&1 | tail -1
+done
+success "All traders funded"
+
+# Distribution trades clustered near the same center so kernel-weighted claims
+# from neighboring bins exercise the cross-bin payout path (not just holdings[win]).
+CONTK_RANGE_WIDTH=$((CONTK_RANGE_MAX - CONTK_RANGE_MIN))
+CONTK_CENTER=$((CONTK_RANGE_MIN + CONTK_RANGE_WIDTH / 2))
+CONTK_SIGMA=$((CONTK_RANGE_WIDTH / 10))
+if [ "$CONTK_SIGMA" -lt 5 ]; then CONTK_SIGMA=5; fi
+
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  TK_KEY="${TRADER_KEYS[$i]}"
+  TK_MU_OFFSET=$(rand 0 $((CONTK_RANGE_WIDTH / 8)))
+  TK_MU=$((CONTK_CENTER - CONTK_RANGE_WIDTH / 16 + TK_MU_OFFSET))
+  if [ "$TK_MU" -lt "$CONTK_RANGE_MIN" ]; then TK_MU=$((CONTK_RANGE_MIN + 10)); fi
+  if [ "$TK_MU" -gt "$CONTK_RANGE_MAX" ]; then TK_MU=$((CONTK_RANGE_MAX - 10)); fi
+  TK_BUY=$(rand 30 80)
+  step "6b.$((3 + i)) Trader $((i + 1)): buy-dist N($TK_MU, $CONTK_SIGMA) with $TK_BUY tokens"
+  run_trade "Trader $((i + 1)) bought kernel distribution" devkit_as "$TK_KEY" trade.ts buy-dist -- "$CONTK_ID" "$TK_MU" "$CONTK_SIGMA" "$TK_BUY"
+done
+
+REMAINING=$((CONTK_DEADLINE - $(on_chain_now) + 5))
+if [ "$REMAINING" -gt 0 ]; then
+  STAT_WAIT_TIME=$((STAT_WAIT_TIME + REMAINING))
+  PHASE_CONTK_WAIT=$REMAINING
+  log "Waiting ${REMAINING}s for kernel continuous market deadline..."
+  sleep "$REMAINING"
+fi
+
+CONTK_RESOLVE_VALUE=$CONTK_CENTER
+step "6b.X Resolving kernel continuous market with value=$CONTK_RESOLVE_VALUE"
+# devkit resolve.ts now surfaces "Kernel width" and "Scaling factor" in its
+# output table (P6-4); the scaling_factor row is the load-bearing signal that
+# the on-chain smooth-kernel branch executed.
+if _out=$(devkit resolve.ts market --value="$CONTK_RESOLVE_VALUE" -- "$CONTK_ID" 2>&1); then
+  echo "$_out" | tail -10
+  success "Kernel continuous market resolved (look for 'Scaling factor' row above)"
+else
+  warn "Failed to resolve kernel continuous market"
+  echo "$_out" | tail -20 | sed 's/^/    /'
+  count_warning
+fi
+
+step "6b.Y Querying resolved state (should include Kernel width + Scaling factor rows)"
+devkit query.ts market "$CONTK_ID" 2>&1 | head -30 || true
+echo ""
+
+step "6b.Z All traders claim kernel-weighted payouts"
+for i in $(seq 0 $((NUM_TRADERS - 1))); do
+  run_claim "$((i + 1))" "$CONTK_ID" "${TRADER_KEYS[$i]}"
+done
+
+step "6b.Final Vault solvency check (kernel market)"
+devkit query.ts vault "$CONTK_ID" 2>&1 || true
+echo ""
+
+success "Kernel continuous market E2E flow complete (kernel_width=$CONTK_KERNEL_W)"
+PHASE_CONTK_TIME=$(($(date +%s) - PHASE_CONTK_START - PHASE_CONTK_WAIT))
+
+# ═════════════════════════════════════════════════════════════════════════════
 # PHASE 8: Backend API Verification
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1020,7 +1125,8 @@ if [ "$PHASE_EXTRA_TIME" -gt 0 ]; then
 fi
 echo -e "  Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)"
 echo -e "  Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)"
-echo -e "  Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)"
+echo -e "  Continuous (WTA):   $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)"
+echo -e "  Continuous (kern):  $(format_duration $PHASE_CONTK_TIME)  (+ $(format_duration $PHASE_CONTK_WAIT) wait)  kernel_width=$CONTK_KERNEL_W"
 echo -e "  Backend API:        $(format_duration $PHASE_API_TIME)"
 echo ""
 
@@ -1093,7 +1199,8 @@ Phase Breakdown
   Extra markets:      $(format_duration $PHASE_EXTRA_TIME)
   Binary market:      $(format_duration $PHASE_BINARY_TIME)  (+ $(format_duration $PHASE_BINARY_WAIT) wait)
   Multi-outcome:      $(format_duration $PHASE_MULTI_TIME)  (+ $(format_duration $PHASE_MULTI_WAIT) wait)
-  Continuous:         $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)
+  Continuous (WTA):   $(format_duration $PHASE_CONT_TIME)  (+ $(format_duration $PHASE_CONT_WAIT) wait)
+  Continuous (kern):  $(format_duration $PHASE_CONTK_TIME)  (+ $(format_duration $PHASE_CONTK_WAIT) wait)  kernel_width=$CONTK_KERNEL_W
   Backend API:        $(format_duration $PHASE_API_TIME)
 
 Trade Performance

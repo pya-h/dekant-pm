@@ -149,6 +149,8 @@ program_
       const rangeMin = Number(market.rangeMin.toString()) / Number(SCALE.toString());
       const rangeMax = Number(market.rangeMax.toString()) / Number(SCALE.toString());
       console.log(`\n  Range: [${rangeMin}, ${rangeMax}]`);
+      const kw = market.kernelWidth;
+      console.log(`  Kernel width: ${kw === 0 ? "0 (winner-take-all)" : kw}`);
     }
 
     if (market.state === 3) {
@@ -156,6 +158,10 @@ program_
       if (market.marketType === MARKET_TYPE_CONTINUOUS) {
         const resolvedVal = Number(market.resolvedValue.toString()) / Number(SCALE.toString());
         console.log(`  Resolved value: ${resolvedVal}`);
+        // Only meaningful when the kernel branch ran (kernel_width > 0); WTA leaves it 0.
+        if (market.kernelWidth > 0) {
+          console.log(`  Scaling factor: ${market.scalingFactor.toString()}`);
+        }
       }
       console.log(`  Resolved at: ${formatTimestamp(market.resolvedAt.toNumber())}`);
     }

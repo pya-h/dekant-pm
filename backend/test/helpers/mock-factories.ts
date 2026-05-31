@@ -31,6 +31,8 @@ export function mockMarket(
     resolvedValue: null,
     rangeMin: null,
     rangeMax: null,
+    kernelWidth: 0,
+    scalingFactor: '0',
     totalVolume: '0',
     totalTraders: 0,
     lastTradeAt: null,

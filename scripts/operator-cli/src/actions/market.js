@@ -72,6 +72,9 @@ async function createMarket(state) {
   let rangeMin = new BN(0);
   let rangeMax = new BN(0);
   let rangeMinHuman, rangeMaxHuman;
+  // kernel_width is only meaningful for continuous markets; binary/multi force 0
+  // (the on-chain handler also forces it, but we keep the client honest).
+  let kernelWidth = 0;
 
   if (marketType === MARKET_TYPE_MULTI) {
     const numStr = await input({
@@ -110,6 +113,22 @@ async function createMarket(state) {
     rangeMax = new BN(Math.round(parseFloat(maxStr) * 1e9).toString());
     if (rangeMin.gte(rangeMax)) {
       console.log(chalk.red("  Invalid: range-min must be < range-max"));
+      await pressKey();
+      return;
+    }
+    // Step 3b: kernel width (continuous only)
+    const kwDefault = state.randomMode
+      ? state.rand.kernelWidth(numOutcomes - 1)
+      : "0";
+    const kwStr = await input({
+      message: `Kernel width [0..${numOutcomes - 1}] (0 = winner-take-all):`,
+      default: kwDefault,
+    });
+    kernelWidth = parseInt(kwStr, 10);
+    if (!Number.isFinite(kernelWidth) || kernelWidth < 0 || kernelWidth >= numOutcomes) {
+      console.log(
+        chalk.red(`  Invalid: kernel-width must be an integer in [0..${numOutcomes - 1}]`),
+      );
       await pressKey();
       return;
     }
@@ -285,7 +304,13 @@ async function createMarket(state) {
         `${oracle.label} (${oracle.pubkey.toBase58().slice(0, 12)}...)`,
       ],
       ...(marketType === MARKET_TYPE_CONTINUOUS
-        ? [["Range", `[${rangeMinHuman}, ${rangeMaxHuman}]`]]
+        ? [
+            ["Range", `[${rangeMinHuman}, ${rangeMaxHuman}]`],
+            [
+              "Kernel width",
+              kernelWidth === 0 ? "0 (winner-take-all)" : kernelWidth.toString(),
+            ],
+          ]
         : []),
       [
         "Token",
@@ -353,6 +378,7 @@ async function createMarket(state) {
         deadline: parseDeadline(deadlineStr),
         rangeMin,
         rangeMax,
+        kernelWidth,
         creator,
         selectedMint,
         isNewMint,
@@ -545,6 +571,7 @@ async function executeCreateMarket(state, opts) {
       initialLiquidity: opts.liquidity,
       rangeMin: opts.rangeMin,
       rangeMax: opts.rangeMax,
+      kernelWidth: opts.kernelWidth ?? 0,
     })
     .accountsPartial({
       creator: opts.creator.pubkey,

@@ -87,9 +87,37 @@ function computeResolvedValue(
   holdings: number[],
   market: UserPosition["market"],
 ): number {
+  // Continuous markets: route through the kernel branch when the market
+  // opted into smooth settlement (`kernelWidth > 0`). Pre-kernel markets
+  // (and any explicitly-WTA continuous market) still pay `holdings[winBin]`.
+  if (market.marketType === MarketType.Continuous) {
+    const winBin = continuousWinBin(market);
+    if (winBin == null) return 0;
+    if ((market.kernelWidth ?? 0) > 0) {
+      return computeKernelPayout(
+        holdings,
+        winBin,
+        market.kernelWidth!,
+        market.scalingFactor ?? "0",
+      );
+    }
+    return holdings[winBin] ?? 0;
+  }
+  // Binary / multi: winner takes all, indexed by resolvedOutcome.
   if (market.resolvedOutcome != null) {
     return holdings[market.resolvedOutcome] ?? 0;
   }
+  return 0;
+}
+
+/**
+ * Resolves a continuous market's winning bin. Prefers the on-chain
+ * `resolvedOutcome` (set by `value_to_bin` during `resolve()`); falls back
+ * to re-deriving from `resolvedValue + rangeMin/Max` for any market whose
+ * indexer projection predates that field being surfaced.
+ */
+function continuousWinBin(market: UserPosition["market"]): number | null {
+  if (market.resolvedOutcome != null) return market.resolvedOutcome;
   if (
     market.resolvedValue != null &&
     market.rangeMin != null &&
@@ -99,16 +127,57 @@ function computeResolvedValue(
     const rMin = Number(market.rangeMin) / SCALE;
     const rMax = Number(market.rangeMax) / SCALE;
     const binWidth = (rMax - rMin) / market.numOutcomes;
-    const winBin = Math.max(
+    return Math.max(
       0,
       Math.min(
         Math.floor((resolved - rMin) / binWidth),
         market.numOutcomes - 1,
       ),
     );
-    return holdings[winBin] ?? 0;
   }
-  return 0;
+  return null;
+}
+
+// ── Kernel payout (continuous markets, kernel_width > 0) ──
+
+const SCALE_BIG = BigInt(SCALE);
+const ZERO_BIG = BigInt(0);
+const ONE_BIG = BigInt(1);
+
+/** Triangular kernel weight K(i, win, w) scaled to SCALE. */
+function kernelWeight(i: number, win: number, kernelWidth: number): bigint {
+  const d = BigInt(Math.abs(i - win));
+  const w = BigInt(kernelWidth);
+  if (d > w) return ZERO_BIG;
+  const denom = w + ONE_BIG;
+  return (SCALE_BIG * (denom - d)) / denom;
+}
+
+/**
+ * Mirrors on-chain `compute_kernel_payout` (engine/kernel.rs) bit-for-bit:
+ *
+ *   raw    = Σ_i floor( holdings[i] * K(i, win, w) / SCALE )
+ *   payout = floor( raw * scalingFactor / SCALE )
+ *
+ * Uses BigInt throughout — `number` desyncs from the u128 chain math
+ * once `holdings × kernel × scalingFactor` crosses ~2^53.
+ */
+export function computeKernelPayout(
+  holdings: number[],
+  winBin: number,
+  kernelWidth: number,
+  scalingFactor: string,
+): number {
+  let raw = ZERO_BIG;
+  for (let i = 0; i < holdings.length; i++) {
+    const h = holdings[i];
+    if (!h) continue;
+    const weight = kernelWeight(i, winBin, kernelWidth);
+    if (weight === ZERO_BIG) continue;
+    raw += (BigInt(h) * weight) / SCALE_BIG;
+  }
+  const sf = BigInt(scalingFactor);
+  return Number((raw * sf) / SCALE_BIG);
 }
 
 // ── Position range helpers (for continuous markets) ──
