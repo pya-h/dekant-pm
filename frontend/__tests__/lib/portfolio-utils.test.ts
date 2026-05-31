@@ -3,6 +3,8 @@ import {
   computePositionValue,
   computeAmmSellProceeds,
   computeKernelPayout,
+  computeKernelPeakPayout,
+  kernelPayoutPerWin,
   getPositionRange,
   categorizePositions,
   computePortfolioValue,
@@ -196,6 +198,70 @@ describe("computeKernelPayout", () => {
     // win=10, w=2, support = bins {8,9,10,11,12}; holdings live at bin 0
     const holdings = [1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     expect(computeKernelPayout(holdings, 10, 2, String(SCALE))).toBe(0);
+  });
+});
+
+// ── kernelPayoutPerWin / computeKernelPeakPayout ──
+
+describe("kernelPayoutPerWin", () => {
+  it("returns identity holdings when kernelWidth=0 (WTA fallback)", () => {
+    const holdings = [10, 20, 30, 5];
+    expect(kernelPayoutPerWin(holdings, 0)).toEqual(holdings);
+  });
+
+  it("computes Σ_i holdings[i] · K(i, w, W) per winning bin", () => {
+    // W=2 → K(i, w, 2): denom=3, weights at distance 0/1/2 are 3/3, 2/3, 1/3
+    // (BigInt floor of SCALE * (3-d)/3 = SCALE, ~0.667·SCALE, ~0.333·SCALE).
+    // holdings = [0, 0, 100, 0, 0] at bin 2.
+    // For winner w=2: payout = floor(100·SCALE/SCALE) = 100.
+    // For winner w=3: payout = floor(100·(2/3)·SCALE/SCALE) = 66 (BigInt floor).
+    // For winner w=4: payout = floor(100·(1/3)·SCALE/SCALE) = 33.
+    // For winner w=0 (distance 2): payout = floor(100·(1/3)) = 33.
+    // For winner w=1 (distance 1): payout = floor(100·(2/3)) = 66.
+    const perWin = kernelPayoutPerWin([0, 0, 100, 0, 0], 2);
+    expect(perWin).toEqual([33, 66, 100, 66, 33]);
+  });
+
+  it("sums neighbour contributions for a Gaussian-shaped distribution buy", () => {
+    // Triangular-style buy [10, 30, 60, 30, 10] at bin 2 with W=2.
+    // For winner w=2 (center): all bins contribute fully or partially.
+    //   K=[1/3, 2/3, 1, 2/3, 1/3] → terms: 10·1/3 + 30·2/3 + 60·1 + 30·2/3 + 10·1/3
+    //   BigInt floors per term: floor(10·333333333/1e9)=3, floor(30·666666666/1e9)=19,
+    //     floor(60·1e9/1e9)=60, floor(30·666666666/1e9)=19, floor(10·333333333/1e9)=3
+    //   raw = 3 + 19 + 60 + 19 + 3 = 104.
+    const perWin = kernelPayoutPerWin([10, 30, 60, 30, 10], 2);
+    expect(perWin[2]).toBe(104);
+    // Edge bin (w=0): K=[1, 2/3, 1/3, 0, 0] → 10·1 + 30·2/3 + 60·1/3 = 10 + 19 + 19 = 48
+    expect(perWin[0]).toBe(48);
+    // Symmetry: w=2 should be the peak (any other w must be ≤).
+    expect(Math.max(...perWin)).toBe(perWin[2]);
+  });
+});
+
+describe("computeKernelPeakPayout", () => {
+  it("matches max(holdings) when kernelWidth=0 (WTA)", () => {
+    expect(computeKernelPeakPayout([10, 50, 30], 0)).toBe(50);
+  });
+
+  it("returns 0 for empty holdings", () => {
+    expect(computeKernelPeakPayout([], 0)).toBe(0);
+    expect(computeKernelPeakPayout([], 3)).toBe(0);
+  });
+
+  it("greatly exceeds max(holdings) for a Gaussian-shaped buy when W>0", () => {
+    // Same fixture as above. max(holdings) = 60, kernel-aware peak = 104.
+    const holdings = [10, 30, 60, 30, 10];
+    expect(computeKernelPeakPayout(holdings, 2)).toBeGreaterThan(
+      Math.max(...holdings),
+    );
+    expect(computeKernelPeakPayout(holdings, 2)).toBe(104);
+  });
+
+  it("equals max(holdings) when all holdings are in a single bin (kernel adds nothing)", () => {
+    // Single concentrated holding — neighbouring bins contribute 0.
+    // For winner w == position, payout = holdings[w]. For any other w, payout < holdings[w].
+    const holdings = [0, 0, 100, 0, 0];
+    expect(computeKernelPeakPayout(holdings, 2)).toBe(100);
   });
 });
 
@@ -437,6 +503,41 @@ describe("computeMaxPotentialGain", () => {
     // total = 5000000 + 6000000 = 11000000
     expect(computeMaxPotentialGain([pos1], [pos2])).toBe(11000000);
   });
+
+  it("uses kernel-aware peak (not max(holdings)) for continuous markets with kernelWidth>0", () => {
+    // Same Gaussian fixture: max(holdings)=60, kernel peak=104.
+    // netCost=60 → WTA would give 0 net gain; kernel-aware gives 104-60=44.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 2,
+      reserves: ["100", "100", "100", "100", "100"],
+      totalMinted: "100",
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["10", "30", "60", "30", "10"],
+      totalDeposited: "60",
+      totalWithdrawn: "0",
+    });
+    expect(computeMaxPotentialGain([pos], [])).toBe(44);
+  });
+
+  it("falls back to WTA peak for continuous markets with kernelWidth=0", () => {
+    // Same fixture but no kernel — peak = max(holdings) = 60, netCost=60 → 0 gain.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 0,
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["10", "30", "60", "30", "10"],
+      totalDeposited: "60",
+      totalWithdrawn: "0",
+    });
+    expect(computeMaxPotentialGain([pos], [])).toBe(0);
+  });
 });
 
 // ── computeMaxPotentialLoss ──
@@ -559,6 +660,31 @@ describe("computeAvgWinProbability", () => {
     const result = computeAvgWinProbability([pos], []);
     expect(result).toBeCloseTo(0.4286, 3);
   });
+
+  it("counts kernel-neighbour bins as winning for continuous markets with kernelWidth>0", () => {
+    // 5-bin continuous, kernel W=2, holdings concentrated at bin 2.
+    // netCost = 40, kernel payout if bin 1 (neighbour) wins = floor(100·2/3) = 66 > 40 → counts.
+    // Without kernel-awareness, bin 1 would NOT count (single-bin holdings[1]=0).
+    // Symmetric: bins 0,1,2,3,4 all yield kernel payouts {33, 66, 100, 66, 33}.
+    // Winning bins where payout > 40: {1, 2, 3} → sum p_{1}+p_{2}+p_{3}.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 2,
+      // Equal reserves → uniform probability 0.2 each.
+      reserves: ["100", "100", "100", "100", "100"],
+      totalMinted: "100",
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["0", "0", "100", "0", "0"],
+      totalDeposited: "40",
+      totalWithdrawn: "0",
+    });
+    // uniform reserves → x_i = 0 each, computeProbabilities falls back to 1/n = 0.2
+    // Three winning bins {1, 2, 3} → totalProb = 0.6
+    expect(computeAvgWinProbability([pos], [])).toBeCloseTo(0.6, 5);
+  });
 });
 
 // ── computePnl ──
@@ -618,6 +744,45 @@ describe("computePositionWinProb", () => {
       totalWithdrawn: "0",
     });
     expect(computePositionWinProb(pos)).toBeCloseTo(0.4286, 3);
+  });
+
+  it("includes kernel-neighbour bins for continuous markets with kernelWidth>0", () => {
+    // Concentrated holding at bin 2 (100), W=2, netCost=40.
+    // payoutPerWin = [33, 66, 100, 66, 33]; > 40 at bins {1,2,3}.
+    // Uniform reserves → each p_i = 0.2 → totalWin = 0.6.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 2,
+      reserves: ["100", "100", "100", "100", "100"],
+      totalMinted: "100",
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["0", "0", "100", "0", "0"],
+      totalDeposited: "40",
+      totalWithdrawn: "0",
+    });
+    expect(computePositionWinProb(pos)).toBeCloseTo(0.6, 5);
+  });
+
+  it("matches WTA behaviour when kernelWidth=0 on a continuous market", () => {
+    // Same fixture, kernelWidth=0 → kernelPayoutPerWin returns holdings unchanged.
+    // Only bin 2 has holdings>0 and 100 > 40, so winProb = p_2 = 0.2.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 0,
+      reserves: ["100", "100", "100", "100", "100"],
+      totalMinted: "100",
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["0", "0", "100", "0", "0"],
+      totalDeposited: "40",
+      totalWithdrawn: "0",
+    });
+    expect(computePositionWinProb(pos)).toBeCloseTo(0.2, 5);
   });
 });
 

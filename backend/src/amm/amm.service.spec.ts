@@ -657,4 +657,56 @@ describe('AmmService', () => {
       expect(result.fee).toBe(0);
     });
   });
+
+  // ── Linear probability formula (smooth-kernel refactor: p_i = x_i / Σ x_j) ──
+  //
+  // The legacy quadratic formula was p_i = x_i² / k². These tests pin the
+  // backend to the linear display so a regression would diverge sharply on
+  // asymmetric reserves (where the two formulas differ).
+  describe('computeProbabilities (linear formula)', () => {
+    function probs(reserves: number[], totalMinted: number): number[] {
+      // The function is private; reach in for direct unit-test coverage so
+      // the assertion isn't muddied by trade-side AMM math.
+      return (service as unknown as {
+        computeProbabilities: (r: number[], tm: number) => number[];
+      }).computeProbabilities(reserves, totalMinted);
+    }
+
+    it('returns p_i = x_i / Σ x_j (linear, not x_i² / k²)', () => {
+      // reserves=[200, 800], totalMinted=1000 → x=[800, 200], sum=1000.
+      // Linear:    p[0] = 0.8
+      // Quadratic: p[0] = 800² / (800² + 200²) = 640_000 / 680_000 ≈ 0.941
+      // Linear and quadratic disagree by ~14pp here — pinning prevents regression.
+      const p = probs([200, 800], 1000);
+      expect(p[0]).toBeCloseTo(0.8, 6);
+      expect(p[1]).toBeCloseTo(0.2, 6);
+      expect(p[0] + p[1]).toBeCloseTo(1, 9);
+    });
+
+    it('returns equal probabilities when reserves are symmetric', () => {
+      const p = probs([500, 500], 1000);
+      expect(p[0]).toBeCloseTo(0.5, 9);
+      expect(p[1]).toBeCloseTo(0.5, 9);
+    });
+
+    it('returns uniform 1/n when sumX = 0 (degenerate equilibrium)', () => {
+      // reserves == totalMinted on every outcome → x_i = 0 everywhere.
+      const p = probs([1000, 1000, 1000], 1000);
+      expect(p).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    });
+
+    it('handles a 5-outcome continuous-style market', () => {
+      // x = [10, 30, 60, 30, 10], sum=140 → linear normalization.
+      const reserves = [90, 70, 40, 70, 90];
+      const tm = 100;
+      const xs = reserves.map((r) => tm - r);
+      const sumX = xs.reduce((a, b) => a + b, 0);
+      const expected = xs.map((x) => x / sumX);
+      expect(probs(reserves, tm)).toEqual(expected);
+    });
+
+    it('returns all zeros when totalMinted is 0', () => {
+      expect(probs([0, 0], 0)).toEqual([0, 0]);
+    });
+  });
 });

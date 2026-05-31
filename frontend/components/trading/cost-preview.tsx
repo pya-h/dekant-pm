@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 import { USDC_DECIMALS, SCALE } from "@/lib/types";
+import { computeKernelPeakPayout } from "@/lib/portfolio-utils";
 
 interface CostPreviewProps {
   marketId: string;
@@ -19,6 +20,12 @@ interface CostPreviewProps {
   onEstimate?: (computedAmount: number | null) => void;
   /** Display ticker for the collateral token (e.g. "USDC"). Defaults to "USDC". */
   tokenName?: string | null;
+  /**
+   * Continuous-market kernel width. When > 0, distribution-buy peak payout
+   * sums payouts across neighbour bins via the triangular kernel instead of
+   * assuming a single winning bin (WTA).
+   */
+  kernelWidth?: number;
 }
 
 interface BuyEstimate {
@@ -84,6 +91,7 @@ export function CostPreview({
   sigma,
   onEstimate,
   tokenName,
+  kernelWidth,
 }: CostPreviewProps) {
   const ticker = tokenName || "USDC";
   const [estimate, setEstimate] = useState<Estimate | null>(null);
@@ -371,8 +379,9 @@ export function CostPreview({
               <PreviewRow
                 label="Peak payout"
                 value={formatUsdcRaw(
-                  Math.max(
-                    ...(estimate as DistributionBuyEstimate).tokensPerBin,
+                  computeKernelPeakPayout(
+                    (estimate as DistributionBuyEstimate).tokensPerBin,
+                    kernelWidth ?? 0,
                   ),
                 )}
                 highlight

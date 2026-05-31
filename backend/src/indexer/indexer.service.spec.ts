@@ -251,6 +251,120 @@ describe('IndexerService', () => {
     });
   });
 
+  describe('fetchAndSyncMarket (kernel field persistence)', () => {
+    // BN-like stub matching what @coral-xyz/anchor returns. fetchAndSyncMarket
+    // funnels everything through Number(...) / String(...), so a minimal
+    // toString() is enough — we don't need a real BN instance.
+    const bn = (v: number | string) => ({
+      toString: () => String(v),
+      toNumber: () => Number(v),
+      valueOf: () => Number(v),
+    });
+
+    function stubDecode(svc: IndexerService, market: Record<string, any>) {
+      (svc as any).coder.accounts.decode = jest.fn().mockReturnValue(market);
+    }
+
+    it('persists kernelWidth and scalingFactor for a kernel continuous market', async () => {
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      stubDecode(service, {
+        num_outcomes: 5,
+        state: 3, // Resolved
+        market_type: 2, // Continuous
+        creator: SystemProgram.programId,
+        oracle: SystemProgram.programId,
+        collateral_mint: SystemProgram.programId,
+        deadline: bn(Math.floor(Date.now() / 1000) - 1000),
+        reserves: [bn(100), bn(100), bn(100), bn(100), bn(100)],
+        k_squared: bn('100000000'),
+        total_minted: bn('100'),
+        protocol_fee_accumulated: bn(0),
+        lp_fee_accumulated: bn(0),
+        lp_shares_total: bn(0),
+        range_min: bn(0),
+        range_max: bn('100000000000'),
+        kernel_width: 3,
+        scaling_factor: bn('500000000'),
+        resolved_outcome: 2,
+        resolved_value: bn('40000000000'),
+        resolved_at: bn(Math.floor(Date.now() / 1000)),
+      });
+
+      await (service as any).fetchAndSyncMarket(7);
+
+      // New market path (existing=null) → marketRepo.create then save
+      expect(marketRepo.create).toHaveBeenCalled();
+      const created = marketRepo.create.mock.calls[0][0];
+      expect(created.kernelWidth).toBe(3);
+      expect(created.scalingFactor).toBe('500000000');
+      expect(created.resolvedOutcome).toBe(2);
+    });
+
+    it('defaults kernelWidth=0 and scalingFactor="0" when IDL is stale (fields missing)', async () => {
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      stubDecode(service, {
+        num_outcomes: 2,
+        state: 0,
+        market_type: 0, // Binary
+        creator: SystemProgram.programId,
+        oracle: SystemProgram.programId,
+        collateral_mint: SystemProgram.programId,
+        deadline: bn(Math.floor(Date.now() / 1000) + 86_400),
+        reserves: [bn(500), bn(500)],
+        k_squared: bn('1000000'),
+        total_minted: bn('1000'),
+        protocol_fee_accumulated: bn(0),
+        lp_fee_accumulated: bn(0),
+        lp_shares_total: bn(0),
+        // kernel_width and scaling_factor intentionally omitted to simulate stale IDL
+      });
+
+      await (service as any).fetchAndSyncMarket(8);
+
+      expect(marketRepo.create).toHaveBeenCalled();
+      const created = marketRepo.create.mock.calls[0][0];
+      expect(created.kernelWidth).toBe(0);
+      expect(created.scalingFactor).toBe('0');
+    });
+
+    it('updates kernel fields on an existing market (resolve flow)', async () => {
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      marketRepo.findOne.mockResolvedValueOnce({ id: '9' });
+
+      stubDecode(service, {
+        num_outcomes: 5,
+        state: 3,
+        market_type: 2,
+        creator: SystemProgram.programId,
+        oracle: SystemProgram.programId,
+        collateral_mint: SystemProgram.programId,
+        deadline: bn(Math.floor(Date.now() / 1000) - 1000),
+        reserves: [bn(100), bn(100), bn(100), bn(100), bn(100)],
+        k_squared: bn('100000000'),
+        total_minted: bn('100'),
+        protocol_fee_accumulated: bn(0),
+        lp_fee_accumulated: bn(0),
+        lp_shares_total: bn(0),
+        range_min: bn(0),
+        range_max: bn('100000000000'),
+        kernel_width: 2,
+        scaling_factor: bn('750000000'),
+        resolved_outcome: 4,
+        resolved_value: bn('80000000000'),
+        resolved_at: bn(Math.floor(Date.now() / 1000)),
+      });
+
+      await (service as any).fetchAndSyncMarket(9);
+
+      // Existing path → marketRepo.update(id, fields)
+      expect(marketRepo.update).toHaveBeenCalled();
+      const updateArgs = marketRepo.update.mock.calls[0];
+      expect(updateArgs[0]).toBe('9');
+      expect(updateArgs[1].kernelWidth).toBe(2);
+      expect(updateArgs[1].scalingFactor).toBe('750000000');
+    });
+  });
+
   describe('trade idempotency', () => {
     it('should skip duplicate trades by txSignature', async () => {
       // Simulate the handleTradePlaced path — if a trade with same

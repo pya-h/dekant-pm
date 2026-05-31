@@ -180,6 +180,50 @@ export function computeKernelPayout(
   return Number((raw * sf) / SCALE_BIG);
 }
 
+/**
+ * Per-winning-bin payout array, assuming `scaling_factor = SCALE` (upper bound).
+ * Pre-resolution we don't know the real `scaling_factor` — at claim time the
+ * chain may scale this down by `s / SCALE` where `s ∈ [0, SCALE]`. So treat
+ * the values returned here as a best-case ceiling, not a guarantee.
+ *
+ * Falls back to `holdings.slice()` when `kernelWidth = 0` (pure WTA):
+ * `K(i, w, 0) = SCALE` iff `i == w`, else 0 → payout if bin w wins = holdings[w].
+ */
+export function kernelPayoutPerWin(
+  holdings: number[],
+  kernelWidth: number,
+): number[] {
+  const n = holdings.length;
+  if (kernelWidth <= 0) return holdings.slice();
+  const out = new Array<number>(n);
+  for (let w = 0; w < n; w++) {
+    let acc = ZERO_BIG;
+    for (let i = 0; i < n; i++) {
+      const h = holdings[i];
+      if (!h) continue;
+      const weight = kernelWeight(i, w, kernelWidth);
+      if (weight === ZERO_BIG) continue;
+      acc += (BigInt(h) * weight) / SCALE_BIG;
+    }
+    out[w] = Number(acc);
+  }
+  return out;
+}
+
+/**
+ * Best-case payout across all possible winning bins, kernel-aware.
+ * For `kernelWidth = 0` this is just `max(holdings)` (WTA). For kernel
+ * markets it's `max_w Σ_i holdings[i] · K(i, w, W)` — the upper bound
+ * assuming `scaling_factor = SCALE`.
+ */
+export function computeKernelPeakPayout(
+  holdings: number[],
+  kernelWidth: number,
+): number {
+  const perWin = kernelPayoutPerWin(holdings, kernelWidth);
+  return perWin.length ? Math.max(...perWin) : 0;
+}
+
 // ── Position range helpers (for continuous markets) ──
 
 /** Returns the bin indices that have non-zero holdings */
@@ -329,8 +373,11 @@ export function computeTotalAtRisk(
 }
 
 /**
- * Max Potential Gain: For each undecided position, find the best-case net profit
- * (the bin with maximum holdings minus net cost).
+ * Max Potential Gain: For each undecided position, find the best-case net profit.
+ * - WTA (binary/multi/continuous-with-kernelWidth=0): max bin payout = `max(holdings)`.
+ * - Smooth kernel (continuous, kernelWidth>0): `max_w Σ_i holdings[i] · K(i,w,W)`
+ *   assuming `scaling_factor = SCALE` (the pre-resolution upper bound — at claim
+ *   time the chain may scale this down).
  */
 export function computeMaxPotentialGain(
   open: UserPosition[],
@@ -339,11 +386,23 @@ export function computeMaxPotentialGain(
   let total = 0;
   for (const pos of [...open, ...expired]) {
     const holdings = pos.holdings.map((h) => Number(h));
-    const maxHolding = Math.max(...holdings, 0);
+    const peak = bestCaseGrossPayout(holdings, pos.market);
     const netCost = Math.max(0, Number(pos.totalDeposited) - Number(pos.totalWithdrawn));
-    total += Math.max(0, maxHolding - netCost);
+    total += Math.max(0, peak - netCost);
   }
   return total;
+}
+
+/** Best-case gross payout for a position, branching on kernel mode. */
+function bestCaseGrossPayout(
+  holdings: number[],
+  market: UserPosition["market"],
+): number {
+  const w = market.kernelWidth ?? 0;
+  if (market.marketType === MarketType.Continuous && w > 0) {
+    return computeKernelPeakPayout(holdings, w);
+  }
+  return Math.max(...holdings, 0);
 }
 
 /**
@@ -398,7 +457,10 @@ export function computeOverlappingPositions(positions: UserPosition[]): number {
 /**
  * Average Win Probability: For each undecided position,
  * compute the probability that its holdings would produce a positive return.
- * Uses current market probabilities weighted by holdings.
+ * Uses current market probabilities weighted by which winning bins would clear
+ * net cost. For kernel markets, neighbor bins contribute to payout via the
+ * triangular kernel, so the profitability check is per-winning-bin total
+ * payout, not the single bin's holding.
  */
 export function computeAvgWinProbability(
   open: UserPosition[],
@@ -409,26 +471,7 @@ export function computeAvgWinProbability(
 
   let totalProb = 0;
   for (const pos of undecided) {
-    const { market } = pos;
-    const holdings = pos.holdings.map((h) => Number(h));
-    const probabilities = computeProbabilities(
-      market.reserves,
-      market.totalMinted,
-    );
-    const netCost = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
-    if (netCost <= 0) {
-      totalProb += 1; // Already in profit
-      continue;
-    }
-
-    // Sum probabilities of bins where holdings > netCost (would be profitable)
-    let winProb = 0;
-    for (let i = 0; i < holdings.length; i++) {
-      if (holdings[i] > netCost) {
-        winProb += probabilities[i] ?? 0;
-      }
-    }
-    totalProb += Math.min(winProb, 1);
+    totalProb += positionWinProb(pos);
   }
 
   return totalProb / undecided.length;
@@ -459,8 +502,15 @@ export function computePnl(pos: UserPosition): { pnl: number; pnlPct: number } {
 
 /**
  * Compute win probability for a single position based on current market state.
+ * Kernel-aware: for continuous markets with kernelWidth>0, a winning bin w
+ * pays `Σ_i holdings[i] · K(i,w,W)` (upper bound, scaling_factor=SCALE) — so
+ * the user is "profitable if w wins" iff that sum exceeds net cost.
  */
 export function computePositionWinProb(pos: UserPosition): number {
+  return positionWinProb(pos);
+}
+
+function positionWinProb(pos: UserPosition): number {
   const { market } = pos;
   const holdings = pos.holdings.map((h) => Number(h));
   const probabilities = computeProbabilities(
@@ -470,9 +520,11 @@ export function computePositionWinProb(pos: UserPosition): number {
   const netCost = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
   if (netCost <= 0) return 1;
 
+  const payoutPerWin = kernelPayoutPerWin(holdings, market.kernelWidth ?? 0);
+
   let winProb = 0;
-  for (let i = 0; i < holdings.length; i++) {
-    if (holdings[i] > netCost) {
+  for (let i = 0; i < payoutPerWin.length; i++) {
+    if (payoutPerWin[i] > netCost) {
       winProb += probabilities[i] ?? 0;
     }
   }
