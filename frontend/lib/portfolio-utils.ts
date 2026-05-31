@@ -211,16 +211,100 @@ export function kernelPayoutPerWin(
 }
 
 /**
+ * Estimate the per-bin scaling factor `s_w` the program will apply if bin
+ * `w` resolves as the winner. Mirrors `engine::kernel::compute_scaling_factor`:
+ *
+ *   raw_w = Σ_j floor( trader_totals[j] * K(j, w, kernelWidth) / SCALE )
+ *   s_w   = min(SCALE, totalMinted * SCALE / raw_w)   (SCALE when raw_w == 0)
+ *
+ * The chain freezes `trader_totals` at `transition_to_pending`, so an estimate
+ * from current state matches the resolution-time value *unless* trades land
+ * between the preview and the resolve call. That's the same drift the
+ * gross-payout preview already had; this estimator only ever reduces the
+ * shown number, never inflates it past `s = SCALE` (the prior upper bound).
+ *
+ * Returns SCALE (no dilution) when:
+ *   - kernelWidth == 0 (WTA — s is unused; `claim_payout` reads holdings[win])
+ *   - traderTotals is empty / all zero (no claims to dilute)
+ *   - totalMinted is 0 (degenerate; preview falls back to gross)
+ */
+export function estimateScalingFactor(
+  traderTotals: number[],
+  winBin: number,
+  kernelWidth: number,
+  totalMinted: number,
+): bigint {
+  if (kernelWidth <= 0) return SCALE_BIG;
+  if (!traderTotals.length || totalMinted <= 0) return SCALE_BIG;
+
+  let raw = ZERO_BIG;
+  for (let j = 0; j < traderTotals.length; j++) {
+    const t = traderTotals[j];
+    if (!t) continue;
+    const weight = kernelWeight(j, winBin, kernelWidth);
+    if (weight === ZERO_BIG) continue;
+    raw += (BigInt(t) * weight) / SCALE_BIG;
+  }
+  if (raw === ZERO_BIG) return SCALE_BIG;
+
+  const cap = (BigInt(totalMinted) * SCALE_BIG) / raw;
+  return cap < SCALE_BIG ? cap : SCALE_BIG;
+}
+
+/**
+ * Per-winning-bin payout array, estimating `scaling_factor` per bin from the
+ * provided `traderTotals` snapshot. Returns the same shape as
+ * `kernelPayoutPerWin` but each entry is `floor(gross_w * s_w / SCALE)` —
+ * i.e. what the chain would actually pay if bin `w` won *given current
+ * trader totals*.
+ *
+ * When `traderTotals` is missing (empty / undefined), every `s_w` is `SCALE`
+ * and the result equals `kernelPayoutPerWin(holdings, kernelWidth)` — same
+ * upper-bound behaviour as before this estimator existed.
+ */
+export function kernelPayoutPerWinEstimated(
+  holdings: number[],
+  kernelWidth: number,
+  traderTotals: number[] | undefined,
+  totalMinted: number,
+): number[] {
+  const n = holdings.length;
+  if (kernelWidth <= 0) return holdings.slice();
+  const totals = traderTotals && traderTotals.length === n ? traderTotals : [];
+  const out = new Array<number>(n);
+  for (let w = 0; w < n; w++) {
+    let gross = ZERO_BIG;
+    for (let i = 0; i < n; i++) {
+      const h = holdings[i];
+      if (!h) continue;
+      const weight = kernelWeight(i, w, kernelWidth);
+      if (weight === ZERO_BIG) continue;
+      gross += (BigInt(h) * weight) / SCALE_BIG;
+    }
+    const s = estimateScalingFactor(totals, w, kernelWidth, totalMinted);
+    out[w] = Number((gross * s) / SCALE_BIG);
+  }
+  return out;
+}
+
+/**
  * Best-case payout across all possible winning bins, kernel-aware.
  * For `kernelWidth = 0` this is just `max(holdings)` (WTA). For kernel
- * markets it's `max_w Σ_i holdings[i] · K(i, w, W)` — the upper bound
- * assuming `scaling_factor = SCALE`.
+ * markets it's `max_w (Σ_i holdings[i] · K(i, w, W)) · s_w / SCALE`, where
+ * `s_w` is estimated from `traderTotals + totalMinted` when provided
+ * (matching what `claim_payout` would actually pay), or the SCALE upper
+ * bound when those aren't available.
  */
 export function computeKernelPeakPayout(
   holdings: number[],
   kernelWidth: number,
+  traderTotals?: number[],
+  totalMinted?: number,
 ): number {
-  const perWin = kernelPayoutPerWin(holdings, kernelWidth);
+  const perWin =
+    traderTotals && totalMinted != null
+      ? kernelPayoutPerWinEstimated(holdings, kernelWidth, traderTotals, totalMinted)
+      : kernelPayoutPerWin(holdings, kernelWidth);
   return perWin.length ? Math.max(...perWin) : 0;
 }
 
@@ -393,14 +477,18 @@ export function computeMaxPotentialGain(
   return total;
 }
 
-/** Best-case gross payout for a position, branching on kernel mode. */
+/** Best-case payout for a position, branching on kernel mode.
+ *  When the market exposes `traderTokenTotals + totalMinted`, the kernel
+ *  branch returns the estimated post-dilution payout (matches what the chain
+ *  would actually pay at claim time) instead of the SCALE upper bound. */
 function bestCaseGrossPayout(
   holdings: number[],
   market: UserPosition["market"],
 ): number {
   const w = market.kernelWidth ?? 0;
   if (market.marketType === MarketType.Continuous && w > 0) {
-    return computeKernelPeakPayout(holdings, w);
+    const totals = (market.traderTokenTotals ?? []).map((t) => Number(t));
+    return computeKernelPeakPayout(holdings, w, totals, Number(market.totalMinted));
   }
   return Math.max(...holdings, 0);
 }
@@ -520,7 +608,17 @@ function positionWinProb(pos: UserPosition): number {
   const netCost = Number(pos.totalDeposited) - Number(pos.totalWithdrawn);
   if (netCost <= 0) return 1;
 
-  const payoutPerWin = kernelPayoutPerWin(holdings, market.kernelWidth ?? 0);
+  const kernelW = market.kernelWidth ?? 0;
+  const totals = (market.traderTokenTotals ?? []).map((t) => Number(t));
+  const payoutPerWin =
+    kernelW > 0
+      ? kernelPayoutPerWinEstimated(
+          holdings,
+          kernelW,
+          totals,
+          Number(market.totalMinted),
+        )
+      : kernelPayoutPerWin(holdings, kernelW);
 
   let winProb = 0;
   for (let i = 0; i < payoutPerWin.length; i++) {

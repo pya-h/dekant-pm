@@ -26,6 +26,22 @@ interface CostPreviewProps {
    * assuming a single winning bin (WTA).
    */
   kernelWidth?: number;
+  /**
+   * Aggregate trader holdings per bin (from on-chain Market.trader_token_totals).
+   * Required together with `totalMinted` for the kernel preview to match the
+   * resolution-time payout — without them, the preview falls back to the
+   * SCALE upper bound (pre-fix behaviour). Used only when `kernelWidth > 0`.
+   * Note: includes the user's *current* holdings; the preview's "what if I
+   * also buy this" payout uses (current + simulated) to mirror what the chain
+   * would see one transaction later.
+   */
+  traderTokenTotals?: string[];
+  /** On-chain `Market.total_minted` (raw collateral units, decimal string). */
+  totalMinted?: string;
+  /** Current user's holdings per bin (raw token units). When provided, the
+   *  estimator folds the simulated tokens into the existing trader totals so
+   *  the displayed peak reflects post-buy dilution. */
+  currentHoldings?: string[];
 }
 
 interface BuyEstimate {
@@ -92,6 +108,9 @@ export function CostPreview({
   onEstimate,
   tokenName,
   kernelWidth,
+  traderTokenTotals,
+  totalMinted,
+  currentHoldings,
 }: CostPreviewProps) {
   const ticker = tokenName || "USDC";
   const [estimate, setEstimate] = useState<Estimate | null>(null);
@@ -379,9 +398,12 @@ export function CostPreview({
               <PreviewRow
                 label="Peak payout"
                 value={formatUsdcRaw(
-                  computeKernelPeakPayout(
+                  computeDistributionPeakPayout(
                     (estimate as DistributionBuyEstimate).tokensPerBin,
                     kernelWidth ?? 0,
+                    currentHoldings,
+                    traderTokenTotals,
+                    totalMinted,
                   ),
                 )}
                 highlight
@@ -500,6 +522,50 @@ function formatTokens(raw: number): string {
 function formatUsdcRaw(raw: number): string {
   const n = raw / 10 ** USDC_DECIMALS;
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
+/**
+ * Distribution-buy peak payout:
+ *   1) the user's *full* post-buy holdings = current + simulated buy
+ *   2) the *post-buy* trader totals = pre-buy totals + simulated buy (the
+ *      buy mints fresh tokens, so it adds to both the user's bin holdings
+ *      and the aggregate trader_token_totals)
+ *   3) post-buy `total_minted` = pre-buy + sum(simulated buy)
+ *
+ * Feeding (1), (2), (3) into computeKernelPeakPayout mirrors what the chain
+ * would compute at resolution time if the buy is the last trade. Without
+ * those snapshots the helper falls back to the pre-fix SCALE upper bound.
+ */
+function computeDistributionPeakPayout(
+  simulatedTokensPerBin: number[],
+  kernelWidth: number,
+  currentHoldings: string[] | undefined,
+  traderTokenTotals: string[] | undefined,
+  totalMinted: string | undefined,
+): number {
+  const n = simulatedTokensPerBin.length;
+  const current = currentHoldings && currentHoldings.length === n
+    ? currentHoldings.map((h) => Number(h))
+    : new Array<number>(n).fill(0);
+  const fullHoldings = simulatedTokensPerBin.map((t, i) => t + current[i]);
+
+  if (kernelWidth <= 0 || !traderTokenTotals || totalMinted == null) {
+    return computeKernelPeakPayout(fullHoldings, kernelWidth);
+  }
+
+  const totals = traderTokenTotals.length === n
+    ? traderTokenTotals.map((t, i) => Number(t) + simulatedTokensPerBin[i])
+    : simulatedTokensPerBin.slice();
+  const totalMintedAfter =
+    Number(totalMinted) +
+    simulatedTokensPerBin.reduce((acc, t) => acc + t, 0);
+
+  return computeKernelPeakPayout(
+    fullHoldings,
+    kernelWidth,
+    totals,
+    totalMintedAfter,
+  );
 }
 
 /** Estimated slippage = how much worse the output is compared to the input, minus fees */

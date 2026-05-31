@@ -92,6 +92,14 @@ export class MarketEntity {
   @Column({ type: 'numeric', default: '0', name: 'scaling_factor' })
   scalingFactor!: string;
 
+  // Aggregate trader holdings per outcome bin, mirrored from on-chain
+  // Market.trader_token_totals. Used client-side to *estimate* the
+  // resolution-time scaling factor for the trading preview (and any other
+  // pre-resolution payout display). Empty array until the indexer first
+  // syncs the market; never null.
+  @Column({ type: 'bigint', array: true, default: '{}', name: 'trader_token_totals' })
+  traderTokenTotals!: string[];
+
   // On-chain fee & LP tracking
   @Column({ type: 'numeric', default: '0', name: 'protocol_fee_accumulated' })
   protocolFeeAccumulated!: string;

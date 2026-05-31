@@ -5,6 +5,8 @@ import {
   computeKernelPayout,
   computeKernelPeakPayout,
   kernelPayoutPerWin,
+  kernelPayoutPerWinEstimated,
+  estimateScalingFactor,
   getPositionRange,
   categorizePositions,
   computePortfolioValue,
@@ -262,6 +264,141 @@ describe("computeKernelPeakPayout", () => {
     // For winner w == position, payout = holdings[w]. For any other w, payout < holdings[w].
     const holdings = [0, 0, 100, 0, 0];
     expect(computeKernelPeakPayout(holdings, 2)).toBe(100);
+  });
+
+  it("dilutes the peak when traderTotals/totalMinted indicate the vault is under-funded", () => {
+    // Same Gaussian fixture as above: kernel-only peak at bin 2 = 104. With
+    // the user as sole trader, raw_claims[2] = 104. totalMinted = 50 gives
+    //   s_2 = floor(50·SCALE/104)         = 480_769_230
+    //   estimated[2] = floor(104·s_2/SCALE) = 49  (two integer floors away from 50)
+    // The estimator must match the chain's two-step floor exactly, NOT round
+    // up to totalMinted — the chain's claim_payout pays 49, not 50.
+    const holdings = [10, 30, 60, 30, 10];
+    const peak = computeKernelPeakPayout(holdings, 2, holdings, 50);
+    expect(peak).toBe(49);
+  });
+
+  it("never inflates above the SCALE-upper-bound peak", () => {
+    // If totalMinted is huge relative to raw_claims, s is capped at SCALE
+    // and the estimator equals the kernelPayoutPerWin upper bound.
+    const holdings = [10, 30, 60, 30, 10];
+    const uncapped = computeKernelPeakPayout(holdings, 2);
+    const estimated = computeKernelPeakPayout(holdings, 2, holdings, 10_000_000);
+    expect(estimated).toBe(uncapped);
+  });
+});
+
+// ── estimateScalingFactor ──
+
+describe("estimateScalingFactor", () => {
+  it("returns SCALE when kernelWidth=0 (WTA — scaling unused)", () => {
+    expect(estimateScalingFactor([100, 200, 50], 1, 0, 100)).toBe(BigInt(SCALE));
+  });
+
+  it("returns SCALE when traderTotals is empty", () => {
+    expect(estimateScalingFactor([], 0, 3, 1_000_000)).toBe(BigInt(SCALE));
+  });
+
+  it("returns SCALE when totalMinted is 0 (degenerate market)", () => {
+    expect(estimateScalingFactor([100, 100, 100], 1, 2, 0)).toBe(BigInt(SCALE));
+  });
+
+  it("returns SCALE when raw_claims (Σ t·K) is zero (no claims to dilute)", () => {
+    // All trader holdings are outside the kernel support of bin 0 with W=1.
+    // Support = {0,1}; holdings at bins {3,4} → raw = 0 → no scaling needed.
+    const sf = estimateScalingFactor([0, 0, 0, 50, 50], 0, 1, 1_000_000);
+    expect(sf).toBe(BigInt(SCALE));
+  });
+
+  it("dilutes proportionally when total claims exceed totalMinted", () => {
+    // 5-bin market, W=2, traderTotals concentrated at center bin 2 = 1000.
+    // For win=2: raw = 1000·K(2,2,2) + 0 = 1000.
+    // totalMinted = 500 → s_2 = floor(500 · SCALE / 1000) = SCALE/2.
+    const sf = estimateScalingFactor([0, 0, 1000, 0, 0], 2, 2, 500);
+    expect(sf).toBe(BigInt(SCALE) / BigInt(2));
+  });
+
+  it("caps at SCALE when claims are below totalMinted", () => {
+    // raw_claims = 1000, totalMinted = 5000 → uncapped sf would be 5·SCALE,
+    // but the function caps at SCALE so trader payouts never get inflated.
+    const sf = estimateScalingFactor([0, 0, 1000, 0, 0], 2, 2, 5000);
+    expect(sf).toBe(BigInt(SCALE));
+  });
+
+  it("sums weighted contributions across multiple bins", () => {
+    // W=2, win=2, traderTotals = [0, 600, 0, 600, 0]:
+    //   K(1,2,2) = floor(SCALE·2/3) = 666_666_666
+    //   K(3,2,2) = floor(SCALE·2/3) = 666_666_666
+    //   raw = floor(600·666_666_666/SCALE) + floor(600·666_666_666/SCALE) = 399 + 399 = 798
+    // totalMinted = 600 → s = floor(600·SCALE/798)
+    const sf = estimateScalingFactor([0, 600, 0, 600, 0], 2, 2, 600);
+    const expected = (BigInt(600) * BigInt(SCALE)) / BigInt(798);
+    expect(sf).toBe(expected);
+  });
+});
+
+// ── kernelPayoutPerWinEstimated ──
+
+describe("kernelPayoutPerWinEstimated", () => {
+  it("matches kernelPayoutPerWin when traderTotals is undefined", () => {
+    const holdings = [10, 30, 60, 30, 10];
+    const unscaled = kernelPayoutPerWin(holdings, 2);
+    const estimated = kernelPayoutPerWinEstimated(holdings, 2, undefined, 0);
+    expect(estimated).toEqual(unscaled);
+  });
+
+  it("matches kernelPayoutPerWin when traderTotals length mismatches holdings", () => {
+    // Length guard: ignore corrupt input and fall back to no-scaling.
+    const holdings = [10, 30, 60, 30, 10];
+    const unscaled = kernelPayoutPerWin(holdings, 2);
+    const estimated = kernelPayoutPerWinEstimated(holdings, 2, [10, 20], 1000);
+    expect(estimated).toEqual(unscaled);
+  });
+
+  it("equals identity holdings when kernelWidth=0", () => {
+    const holdings = [10, 20, 30];
+    const estimated = kernelPayoutPerWinEstimated(holdings, 0, [100, 100, 100], 100);
+    expect(estimated).toEqual(holdings);
+  });
+
+  it("dilutes each bin by its own s_w when trader totals saturate the vault", () => {
+    // 5-bin, W=2, user IS the entire trader_token_totals.
+    // For each candidate winner w, gross_w = traderRaw_w (since holdings = traderTotals),
+    // so estimated[w] = floor(gross_w · totalMinted · SCALE / gross_w / SCALE)
+    //                ≈ totalMinted (clamped to totalMinted when raw > totalMinted).
+    const holdings = [10, 30, 60, 30, 10];
+    const totalMinted = 50;
+    const estimated = kernelPayoutPerWinEstimated(holdings, 2, holdings, totalMinted);
+    // For interior winning bins (1..3), raw_w >= 60 > 50 → s_w caps payout at 50.
+    // Edge bins (0, 4) have smaller raw — only diluted if their raw > 50.
+    // Edge raw for w=0: K=[1, 2/3, 1/3, 0, 0] · holdings = 10 + 19 + 19 = 48 < 50 → no dilution.
+    // So expected: estimated[0] = 48, estimated[1..3] caps at ~50, estimated[4] = 48.
+    expect(estimated[0]).toBe(48);
+    expect(estimated[4]).toBe(48);
+    expect(estimated[1]).toBeLessThanOrEqual(50);
+    expect(estimated[2]).toBeLessThanOrEqual(50);
+    expect(estimated[3]).toBeLessThanOrEqual(50);
+    // Peak must still be ≥ any individual bin's WTA payout from the user (sanity).
+    expect(Math.max(...estimated)).toBeGreaterThan(0);
+  });
+
+  it("never inflates payouts above the SCALE upper bound", () => {
+    // Large totalMinted → s caps at SCALE → estimated[w] == unscaled[w] for every w.
+    const holdings = [10, 30, 60, 30, 10];
+    const unscaled = kernelPayoutPerWin(holdings, 2);
+    const estimated = kernelPayoutPerWinEstimated(holdings, 2, holdings, 1_000_000);
+    expect(estimated).toEqual(unscaled);
+  });
+
+  it("dilutes a single-bin position the same as on-chain claim_payout would", () => {
+    // User has 1000 at bin 2; two OTHER traders also hold 1000 at bin 2.
+    // trader_totals = [0,0,3000,0,0]. W=2, win=2 → raw = 3000.
+    // totalMinted = 1500 → s_2 = floor(1500·SCALE/3000) = SCALE/2.
+    // User's gross at win=2 = 1000, estimated = floor(1000·0.5) = 500.
+    const holdings = [0, 0, 1000, 0, 0];
+    const traderTotals = [0, 0, 3000, 0, 0];
+    const estimated = kernelPayoutPerWinEstimated(holdings, 2, traderTotals, 1500);
+    expect(estimated[2]).toBe(500);
   });
 });
 
@@ -529,6 +666,28 @@ describe("computeMaxPotentialGain", () => {
       ...mockContinuousMarket,
       numOutcomes: 5,
       kernelWidth: 0,
+    });
+    const pos = makePosition({
+      market,
+      holdings: ["10", "30", "60", "30", "10"],
+      totalDeposited: "60",
+      totalWithdrawn: "0",
+    });
+    expect(computeMaxPotentialGain([pos], [])).toBe(0);
+  });
+
+  it("dilutes the kernel peak when traderTokenTotals saturate the vault", () => {
+    // Same Gaussian fixture, but trader_totals (= holdings — user is sole trader)
+    // make raw_claims[2] = 104 vs totalMinted = 50 → estimated peak = 50.
+    // netCost = 60 → max(0, 50 - 60) = 0 (kernel would otherwise show 104 - 60 = 44).
+    // This matches the chain: claim_payout would pay floor(104·50·SCALE/104/SCALE)=50
+    // and the user would still be underwater.
+    const market = makeMarket({
+      ...mockContinuousMarket,
+      numOutcomes: 5,
+      kernelWidth: 2,
+      totalMinted: "50",
+      traderTokenTotals: ["10", "30", "60", "30", "10"],
     });
     const pos = makePosition({
       market,

@@ -163,6 +163,15 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     for (let i = 0; i < numOutcomes; i++) {
       reserves.push(String(d.reserves[i]));
     }
+    // Mirror the on-chain Vec<u64> 1:1. Length always == numOutcomes by
+    // the program's `initialize_market` invariant; pad defensively if a
+    // stale IDL produced a shorter slice (treated as zero, same as the chain).
+    const traderTokenTotals: string[] = new Array(numOutcomes).fill('0');
+    if (Array.isArray(d.trader_token_totals)) {
+      for (let i = 0; i < numOutcomes && i < d.trader_token_totals.length; i++) {
+        traderTokenTotals[i] = String(d.trader_token_totals[i]);
+      }
+    }
 
     // If on-chain state is Active but deadline has passed, the market should
     // be PendingResolution. The on-chain program enforces this lazily (on next
@@ -203,6 +212,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       rangeMax: Number(d.market_type) === 2 ? String(d.range_max) : null,
       kernelWidth: Number(d.kernel_width ?? 0),
       scalingFactor: String(d.scaling_factor ?? 0),
+      traderTokenTotals,
       resolvedOutcome: effectiveState === 3 ? Number(d.resolved_outcome) : null,
       resolvedValue: effectiveState === 3 ? String(d.resolved_value) : null,
       resolvedAt: effectiveState === 3 ? new Date(Number(d.resolved_at) * 1000) : null,

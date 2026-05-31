@@ -363,6 +363,67 @@ describe('IndexerService', () => {
       expect(updateArgs[1].kernelWidth).toBe(2);
       expect(updateArgs[1].scalingFactor).toBe('750000000');
     });
+
+    it('persists trader_token_totals 1:1 with the on-chain Vec<u64>', async () => {
+      // The frontend uses this snapshot to estimate the resolution-time scaling
+      // factor pre-resolution. Drift between on-chain `trader_token_totals` and
+      // the DB column would silently mis-display Peak Payout.
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      stubDecode(service, {
+        num_outcomes: 5,
+        state: 0,
+        market_type: 2,
+        creator: SystemProgram.programId,
+        oracle: SystemProgram.programId,
+        collateral_mint: SystemProgram.programId,
+        deadline: bn(Math.floor(Date.now() / 1000) + 86_400),
+        reserves: [bn(100), bn(100), bn(100), bn(100), bn(100)],
+        k_squared: bn('100000000'),
+        total_minted: bn('1000'),
+        protocol_fee_accumulated: bn(0),
+        lp_fee_accumulated: bn(0),
+        lp_shares_total: bn(0),
+        range_min: bn(0),
+        range_max: bn('100000000000'),
+        kernel_width: 3,
+        scaling_factor: bn(0),
+        trader_token_totals: [bn(10), bn(30), bn(60), bn(30), bn(10)],
+      });
+
+      await (service as any).fetchAndSyncMarket(11);
+
+      expect(marketRepo.create).toHaveBeenCalled();
+      const created = marketRepo.create.mock.calls[0][0];
+      expect(created.traderTokenTotals).toEqual(['10', '30', '60', '30', '10']);
+    });
+
+    it('defaults trader_token_totals to a zero-filled array when the IDL is stale', async () => {
+      // Mirrors the kernel_width/scaling_factor stale-IDL guard. Length must
+      // equal num_outcomes so downstream `traderTotals.length === holdings.length`
+      // checks succeed; zeros mean "no dilution" (estimator returns SCALE).
+      connection.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(0) });
+      stubDecode(service, {
+        num_outcomes: 3,
+        state: 0,
+        market_type: 0,
+        creator: SystemProgram.programId,
+        oracle: SystemProgram.programId,
+        collateral_mint: SystemProgram.programId,
+        deadline: bn(Math.floor(Date.now() / 1000) + 86_400),
+        reserves: [bn(100), bn(100), bn(100)],
+        k_squared: bn('100000000'),
+        total_minted: bn('1000'),
+        protocol_fee_accumulated: bn(0),
+        lp_fee_accumulated: bn(0),
+        lp_shares_total: bn(0),
+        // trader_token_totals omitted to simulate stale IDL
+      });
+
+      await (service as any).fetchAndSyncMarket(12);
+
+      const created = marketRepo.create.mock.calls[0][0];
+      expect(created.traderTokenTotals).toEqual(['0', '0', '0']);
+    });
   });
 
   describe('trade idempotency', () => {

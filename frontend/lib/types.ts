@@ -64,6 +64,11 @@ export interface MarketSummary {
   // Optional for transitional API compatibility — default to 0 / "0" at use sites.
   kernelWidth?: number;
   scalingFactor?: string;
+  // Aggregate trader holdings per bin, mirrored from on-chain
+  // `Market.trader_token_totals`. Drives the pre-resolution scaling-factor
+  // estimator (see `estimateScalingFactor` in portfolio-utils). Empty array
+  // when the backend hasn't backfilled yet — treat as "no dilution".
+  traderTokenTotals?: string[];
 }
 
 // Same as MarketSummary -- the backend returns the full entity for both list and detail.

@@ -521,6 +521,9 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   onEstimate={handleEstimate}
                   tokenName={ticker}
                   kernelWidth={market.kernelWidth}
+                  traderTokenTotals={market.traderTokenTotals}
+                  totalMinted={market.totalMinted}
+                  currentHoldings={position?.holdings}
                 />
               )}
               {validationError && (
@@ -580,6 +583,9 @@ function TradingPanelInner({ market, distributionParams, onSideChange }: Trading
                   onEstimate={handleEstimate}
                   tokenName={ticker}
                   kernelWidth={market.kernelWidth}
+                  traderTokenTotals={market.traderTokenTotals}
+                  totalMinted={market.totalMinted}
+                  currentHoldings={position?.holdings}
                 />
               )}
               {validationError && (
