@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
 use crate::state::*;
 use crate::constants::*;
+use crate::engine::kernel;
 use crate::errors::DekantPmError;
 use crate::events::PayoutClaimed;
 
@@ -69,12 +70,31 @@ pub fn handle_claim_payout(ctx: Context<ClaimPayout>) -> Result<()> {
     market.require_resolved()?;
     require!(!position.claimed, DekantPmError::AlreadyClaimed);
 
-    let winning_outcome = market.resolved_outcome as usize;
-    let winning_tokens = position.holdings[winning_outcome];
-    require!(winning_tokens > 0, DekantPmError::NothingToClaim);
+    let win = market.resolved_outcome as usize;
 
-    // 1:1 fixed payout: each winning token redeems for exactly 1 unit of collateral.
-    let gross_payout = winning_tokens as u128;
+    // Branch on kernel mode. Binary/multi always force kernel_width = 0 at
+    // market creation, so they take the WTA path here unconditionally; only
+    // continuous markets with kernel_width > 0 enter the smooth-kernel branch.
+    let gross_payout: u128 = if market.market_type == MARKET_TYPE_CONTINUOUS
+        && market.kernel_width > 0
+    {
+        // Smooth kernel: each bin contributes `holdings[i] * K(i, win, w)`,
+        // then the per-market scaling factor (set at resolution) dilutes the
+        // aggregate to keep the vault solvent. A trader whose holdings are
+        // all outside the kernel's support gets 0 and falls through to the
+        // NothingToClaim guard below.
+        kernel::compute_kernel_payout(
+            &position.holdings,
+            win,
+            market.kernel_width,
+            market.scaling_factor,
+        )?
+    } else {
+        // WTA 1:1: only the winning bin pays, one collateral unit per token.
+        position.holdings[win] as u128
+    };
+
+    require!(gross_payout > 0, DekantPmError::NothingToClaim);
 
     let gross_payout_u64 = u64::try_from(gross_payout)
         .map_err(|_| error!(DekantPmError::MathOverflow))?;

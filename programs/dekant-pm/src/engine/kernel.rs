@@ -43,7 +43,12 @@ pub fn kernel_weight(i: usize, win: usize, w: u16) -> u128 {
 ///
 /// Inputs:
 ///   - `trader_token_totals[i]`: aggregate trader holdings in bin `i` at
-///     resolution time (frozen by `freeze_trader_token_totals_for_resolution`)
+///     resolution time. Implicitly frozen at the `transition_to_pending`
+///     state change: every instruction that mutates `trader_token_totals`
+///     (buy / sell / sell_all / buy_to_price / sell_to_price /
+///     buy_distribution / sell_distribution) calls `require_trading_allowed`,
+///     which fails outside `STATE_ACTIVE`. So by the time `resolve()` runs
+///     (only from `STATE_PENDING_RESOLUTION`), the totals are stable.
 ///   - `win`: resolved outcome bin index
 ///   - `w`: market's kernel width
 ///   - `total_minted`: AMM `total_minted` at resolution (the collateral pool

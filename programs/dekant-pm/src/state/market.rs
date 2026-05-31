@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::DekantPmError;
 use crate::engine::fixed_point::mul_div;
+use crate::engine::kernel;
 use crate::engine::sqrt::isqrt;
 
 // ── Fee Computation ──────────────────────────────────────────────────────
@@ -388,13 +389,50 @@ impl Market {
         // LP operations (add/remove liquidity) scale positions proportionally,
         // further widening the gap between positions and actual trader holdings.
         //
-        // The correct LP residual is: total_minted - Σ traders' holdings in win bin.
-        // This ensures LPs get back everything that isn't owed to traders.
+        // The correct LP residual is: total_minted - (aggregate trader claims).
+        // For WTA (kernel_width == 0) that's just the winning-bin holdings; for
+        // the smooth kernel it's the sum of kernel-weighted, scaling-applied
+        // claims across every bin within the kernel's support.
         let win = self.resolved_outcome as usize;
-        let trader_tokens = self.trader_token_totals[win] as u128;
+        let total_claims: u128 = if self.market_type == MARKET_TYPE_CONTINUOUS
+            && self.kernel_width > 0
+        {
+            // Smooth kernel: freeze the scaling factor from the resolution-time
+            // trader_token_totals snapshot. The snapshot is stable here because
+            // `trader_token_totals` mutations are gated on STATE_ACTIVE, which
+            // no longer holds (we're in PendingResolution).
+            //
+            // `compute_scaling_factor` already returns the unscaled aggregate
+            // `total_raw_claims` as its second tuple element, so the aggregate
+            // LP residual is just `total_raw * sf / SCALE` — no need to walk
+            // `trader_token_totals` a second time via `compute_kernel_payout`.
+            let (sf, total_raw) = kernel::compute_scaling_factor(
+                &self.trader_token_totals,
+                win,
+                self.kernel_width,
+                self.total_minted,
+            )?;
+            self.scaling_factor = sf;
+
+            total_raw
+                .checked_mul(sf as u128)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?
+                .checked_div(SCALE)
+                .ok_or_else(|| error!(DekantPmError::MathOverflow))?
+        } else {
+            // WTA path (binary, multi, or continuous with kernel_width == 0).
+            // scaling_factor stays 0 — its only consumer is the kernel claim
+            // branch, which we don't enter.
+            self.trader_token_totals[win] as u128
+        };
+
+        // Floor here is safe: when scaling triggers (raw claims > total_minted),
+        // `compute_scaling_factor` caps the factor so `total_claims <= total_minted`
+        // up to per-bin flooring error. Any sub-unit shortfall stays with the LP,
+        // never goes negative.
         let residual = self
             .total_minted
-            .checked_sub(trader_tokens)
+            .checked_sub(total_claims)
             .ok_or_else(|| error!(DekantPmError::MathOverflow))?;
         self.reserves[win] = u64::try_from(residual)
             .map_err(|_| error!(DekantPmError::MathOverflow))?;
@@ -668,9 +706,16 @@ impl Market {
 
     /// Compute LP collateral payout from a **resolved** market.
     ///
-    /// After resolution with 1:1 trader payouts, the LP's claim is the
-    /// residual winning-outcome reserves: `reserves[resolved_outcome]`.
-    /// Each LP gets a proportional share: `residual * shares / lp_shares_total`.
+    /// `resolve()` fixes `reserves[resolved_outcome]` to the true LP residual
+    /// (`total_minted − aggregate trader claims`), so each LP simply takes a
+    /// proportional slice: `residual * shares / lp_shares_total`.
+    ///
+    /// "Aggregate trader claims" is the WTA winning-bin holdings for binary,
+    /// multi, and continuous-with-`kernel_width=0`; for continuous markets with
+    /// `kernel_width > 0` it's the kernel-weighted, scaling-applied sum across
+    /// all bins. When the scaling factor caps below SCALE (raw claims exceeded
+    /// `total_minted`), the residual is zero and LPs receive nothing —
+    /// expected behavior, traders take the whole pool.
     pub fn compute_lp_resolved_payout(&self, shares: u128) -> Result<u128> {
         require!(
             shares <= self.lp_shares_total,
