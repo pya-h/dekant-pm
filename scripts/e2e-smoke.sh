@@ -237,6 +237,40 @@ run_claim() {
   count_claim
 }
 
+# Execute a claim and verify the net payout matches the on-chain formula.
+# Uses `devkit verify-claim.ts` to compute the expected kernel-weighted (or
+# WTA) payout from on-chain state and compare against the observed balance
+# delta. Mismatches are tracked as warnings (not hard fail) so a single
+# unexpected market doesn't abort the whole smoke run.
+# Usage: run_claim_verified <trader_num> <market_id> <keypair_path> <trader_address>
+run_claim_verified() {
+  local n=$1 market_id=$2 keypair=$3 trader_addr=$4
+  local _t0=$(date +%s)
+  if _cout=$(devkit_as "$keypair" market.ts claim "$market_id" 2>&1); then
+    echo "$_cout" | tail -3
+    success "Trader $n claimed"
+
+    # The claim command emits `NET_PAYOUT_RAW=<n>` for parsing; missing line
+    # means a no-op (already claimed / nothing to claim) — skip verification.
+    local net_raw
+    net_raw=$(echo "$_cout" | grep -oE "NET_PAYOUT_RAW=[0-9]+" | head -1 | cut -d= -f2)
+    if [ -n "$net_raw" ] && [ "$net_raw" != "0" ]; then
+      if _vout=$(devkit verify-claim.ts "$market_id" "$trader_addr" "$net_raw" 2>&1); then
+        echo "  $(echo "$_vout" | tail -1)"
+      else
+        warn "Trader $n: verify-claim MISMATCH"
+        echo "$_vout" | tail -5 | sed 's/^/    /'
+        count_warning
+      fi
+    fi
+  else
+    warn "Trader $n: nothing to claim (no winning tokens)"
+    count_warning
+  fi
+  STAT_CLAIM_TIME=$((STAT_CLAIM_TIME + $(date +%s) - _t0))
+  count_claim
+}
+
 # ── Randomized Metadata Pools ────────────────────────────────────────────────
 #
 # The on-chain createMarket carries no subject/category/title; the backend
@@ -994,9 +1028,12 @@ step "6b.Y Querying resolved state (should include Kernel width + Scaling factor
 devkit query.ts market "$CONTK_ID" 2>&1 | head -30 || true
 echo ""
 
-step "6b.Z All traders claim kernel-weighted payouts"
+step "6b.Z All traders claim kernel-weighted payouts (with verify-claim assertion)"
+# Each successful claim is cross-checked against the BigInt kernel formula
+# in devkit/src/verify-claim.ts. Mismatches surface as warnings so a single
+# market drift doesn't kill the run — investigate in the log if any appear.
 for i in $(seq 0 $((NUM_TRADERS - 1))); do
-  run_claim "$((i + 1))" "$CONTK_ID" "${TRADER_KEYS[$i]}"
+  run_claim_verified "$((i + 1))" "$CONTK_ID" "${TRADER_KEYS[$i]}" "${TRADER_ADDRS[$i]}"
 done
 
 step "6b.Final Vault solvency check (kernel market)"

@@ -864,8 +864,8 @@ Verify all non-program components work correctly with the refactored program.
 **Breaking changes:** Backend entity schema gains two columns (auto-created when `DB_SYNCHRONIZE=true`; otherwise a one-shot migration).
 **Possible bugs:**
 - [x] P6-1a: ~~If backend reads market accounts directly~~ — confirmed: it does, see `fetchAndSyncMarket` at indexer.service.ts:142. The new fields are mandatory, not conditional.
-- [ ] P6-1b: TypeORM migration — if `DB_SYNCHRONIZE=true`, new columns auto-created. Otherwise add a TypeORM migration that defaults both columns to 0 for existing rows (legacy WTA markets settle as `kernel_width = 0` per the [WTA backward-compat policy](../../../../.claude/projects/-home-paya-p4ya-gcc-umbra-prediction-market-dekant-sms/memory/wta_backward_compat_policy.md)).
-- [ ] P6-1c: If the IDL was NOT re-synced in P2-4, the indexer will decode `kernel_width`/`scaling_factor` as `undefined` and `Number(undefined) === NaN` will get written to Postgres — flag with a one-time `if (d.kernel_width == null) this.logger.warn(...)` during the first deploy.
+- [x] P6-1b: Migration landed — `backend/src/migrations/1715212800000-add-kernel-columns.ts` adds both columns with safe defaults (`smallint NOT NULL DEFAULT 0`, `numeric NOT NULL DEFAULT '0'`). Pattern mirrors `add-fee-lp-columns`. Dev paths with `DB_SYNCHRONIZE=true` (Docker init) don't need it; production paths run it as part of [P7-5b](#p7-5-redeploy-backend-and-frontend--manual).
+- [x] P6-1c: One-time `logger.warn` lives in [indexer.service.ts](../../backend/src/indexer/indexer.service.ts) `fetchAndSyncMarket`, gated on a `warnedKernelMissing` flag. Fires if either field decodes `null`. Backend IDL was re-synced in P2-4, so this is a tripwire for *future* drift, not a live concern.
 
 ---
 
@@ -901,10 +901,10 @@ Use BigInt arithmetic to mirror the on-chain `u128` math — `number` will desyn
 
 **Breaking changes:** Continuous-market resolved value display changes for any market with `kernelWidth > 0`. Legacy WTA markets (kernel_width = 0) keep the old `holdings[winBin]` value — confirmed correct per [WTA backward-compat policy](../../../../.claude/projects/-home-paya-p4ya-gcc-umbra-prediction-market-dekant-sms/memory/wta_backward_compat_policy.md).
 **Possible bugs:**
-- [ ] P6-2a: Backend API must serialize the new entity fields — once P6-1 lands, check `market.service.ts`'s response DTO and any GraphQL/REST resolver still includes them.
-- [ ] P6-2b: `scalingFactor === "0"` is ambiguous: pre-resolution AND a degenerate post-resolution case where every claim rounds to zero. Treat as "pre-resolution" only when `market.state !== 3`; otherwise use the on-chain value as-is.
-- [ ] P6-2c: `holdings[]` and `winBin` are already clamped/coerced by existing code. The kernel helper must NOT re-clamp `winBin` (would mask upstream bugs); assume the caller passes the same value the on-chain program saw.
-- [ ] P6-2d: Floating-point divergence — using JS `number` makes the displayed payout drift from the actual on-chain claim by 1-2 base units. BigInt is required, not optional.
+- [x] P6-2a: Verified — `market.service.ts` returns `MarketEntity` directly (see findAll/findById signatures); there is no DTO transformation layer. The two new entity columns flow to the API response automatically.
+- [x] P6-2b: Verified — `computeResolvedValue` is only reached from `computePositionValue` *after* a `market.state === MarketState.Resolved` check in the caller, so the "pre-resolution" interpretation of `scalingFactor === "0"` never applies here. A genuine zero-payout in resolved state (no holdings inside the kernel support) correctly maps to a 0 payout, which is the right answer.
+- [x] P6-2c: Verified — `computeKernelPayout` accepts `winBin` from the caller verbatim; the only clamp lives in `continuousWinBin` and only fires when re-deriving from `resolvedValue + range` (the same derivation the on-chain program ran via `value_to_bin`).
+- [x] P6-2d: Done — the helper uses `BigInt` throughout with per-bin floor-division mirroring the on-chain u128 path. `number` is used only at the final `Number(...)` cast, which is exact for USDC-scale payouts (`< 2^53`).
 
 ---
 
@@ -918,10 +918,10 @@ Use BigInt arithmetic to mirror the on-chain `u128` math — `number` will desyn
 - `frontend/lib/admin-transactions.ts` (passes `kernelWidth ?? 0` into the create-market tx)
 
 **Verify-only checklist (no code changes expected):**
-- [ ] Continuous-market selection shows a kernel-width input on the outcomes step
-- [ ] Form validation rejects `kernelWidth >= numBins` with a useful message (currently enforced in `create-market-schema.ts:87-95`)
-- [ ] Review step (`step-review.tsx`) renders the chosen kernel width — 0 should display as "Winner-take-all" or similar (not just "0") so the user sees the implication
-- [ ] Default value behaviour matches devkit: `kernelWidth: 0` if omitted (already the default at `create-market-schema.ts:147`)
+- [x] Continuous-market selection shows a kernel-width input on the outcomes step (`step-outcomes.tsx:229` — `register("kernelWidth", { valueAsNumber: true })`)
+- [x] Form validation rejects `kernelWidth >= numBins` with a useful message (currently enforced in `create-market-schema.ts:87-95` via `superRefine`)
+- [x] Review step (`step-review.tsx:86-88`) renders the chosen kernel width — `0` displays as "Winner-take-all", non-zero shows the numeric value
+- [x] Default value behaviour matches devkit: `kernelWidth: 0` if omitted (`create-market-schema.ts:147` and `admin-transactions.ts:298`)
 
 If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ without edits.
 
@@ -945,8 +945,8 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 **Breaking changes:** CLI output gains two rows for continuous markets.
 **Possible bugs:**
-- [ ] P6-4a: Don't print `scalingFactor: "0"` for pre-resolution markets — confusing. Suppress unless `state === 3`.
-- [ ] P6-4b: `query.ts` lists many markets in one pass; the extra rows add visual noise for binary/multi markets — gate on `marketType === 2`.
+- [x] P6-4a: Gated in both files. `query.ts` only prints `Scaling factor` when `market.state === 3 && market.kernelWidth > 0`. `resolve.ts` (post-resolution by construction) only prints it when `resolved.kernelWidth > 0` — the WTA branch leaves `scaling_factor` at 0, which is meaningless to surface.
+- [x] P6-4b: Done — both `query.ts` and `resolve.ts` wrap the kernel rows in `if (market.marketType === MARKET_TYPE_CONTINUOUS)` / `isContinuous` guards so binary/multi output stays unchanged.
 
 ---
 
@@ -979,9 +979,9 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 **Breaking changes:** None
 **Possible bugs:**
 - [x] P6-5a: ~~`devkit create-continuous` lacking `--kernel-width`~~ — verified already present; remove this concern.
-- [ ] P6-5b: Width-clamp must happen *before* the create call; an out-of-range value will surface as a generic "anchor error" mid-script and obscure the real cause.
-- [ ] P6-5c: The claim-assertion helper needs to read `scaling_factor` from the resolved Market account. Easiest path after P6-4: capture `devkit resolve --json` (if `--json` exists; otherwise parse the table) or call `devkit query market <id>` and grep for `Scaling factor`. Hardest path (avoid): re-import the Anchor coder inside the shell script.
-- [ ] P6-5d: The randomized extras block also needs a per-run log line `echo "extras:continuous market $i kernel_width=$W"` — without it, a flaky extras market is impossible to reproduce from CI logs alone.
+- [x] P6-5b: Done — both PHASE 6b (`CONTK_KERNEL_W`) and the extras block (`EKERNEL_W`) clamp to `< CONTK_BINS` / `< EBINS` *before* the `devkit market.ts create-continuous` invocation.
+- [x] P6-5c: Done — added [devkit/src/verify-claim.ts](../../devkit/src/verify-claim.ts) which mirrors `claim_payout`'s formula in BigInt (kernel branch + WTA fallback + redemption-fee subtraction) and compares against the observed balance delta. `devkit market.ts claim` now emits `NET_PAYOUT_RAW=<n>` for shell parsing. New `run_claim_verified` helper in `e2e-smoke.sh` wires it into PHASE 6b; mismatches surface as warnings (not hard fails) so a single drift doesn't abort the run. Catches over-pay/under-pay drift that the vault-solvency check would miss (e.g., redistribution bugs).
+- [x] P6-5d: Done — every continuous market in both blocks logs `kernel_width=<n>` in its step header (PHASE 6b: `step "6b.1 Creating kernel-mode continuous market (... kernel_width=$CONTK_KERNEL_W)"`; extras: `step "Extra $ei/$NUM_EXTRA: continuous market (... kernel_width=$EKERNEL_W ...)"`).
 
 ---
 
@@ -1010,8 +1010,8 @@ If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ w
 
 **Breaking changes:** CLI args/forms gain a new field for continuous markets. Default = 0 preserves prior behaviour for any operator running the upgraded CLI against legacy markets.
 **Possible bugs:**
-- [ ] P6-6a: Forgetting the conditional gate — surfacing the kernel-width prompt on binary/multi market creation would be a UX regression (the on-chain validator ignores it for non-continuous types but the prompt is confusing).
-- [ ] P6-6b: Go CLI: the Anchor IDL bindings in `scripts/goperator-cli/internal/` need regenerating against the post-P2 IDL — otherwise `KernelWidth` won't exist in the generated `CreateMarketArgs` struct and the build will fail loudly (which is fine — surface it during P6-6 work).
+- [x] P6-6a: Both CLIs correctly gate the prompt. Node: the prompt lives inside the `else if (marketType === MARKET_TYPE_CONTINUOUS)` branch in `createMarket()`. Go TUI: the kernel-width `huh.NewInput()` only appears in the `case "continuous":` arm of `advanceToParams()`. Binary/multi flows never see it.
+- [x] P6-6b: **N/A for this codebase.** `goperator-cli` does NOT use generated Anchor IDL bindings; it hand-encodes instruction args byte-by-byte via `chain.EncodeU8`/`EncodeU16LE`/`EncodeI64LE`/`EncodePubkey`. The kernel-width wiring added one line — `args = append(args, chain.EncodeU16LE(ec.kernelWidth)...)` — matching the on-chain `CreateMarketArgs` field order. No bindings to regenerate.
 
 ---
 
@@ -1034,8 +1034,8 @@ bash scripts/e2e-smoke.sh
 All must pass with the updated code from P6-1 through P6-6. `e2e-smoke.sh` is the only check that exercises the full stack (devkit → on-chain kernel resolve → backend indexer pickup → DB reflects `scalingFactor`) and so is the strongest signal that P6-1 + P6-4 + P6-5 actually compose. If backend tests pass but smoke fails, the gap is almost always in the indexer field mapping (P6-1) or the devkit display (P6-4).
 
 **Possible bugs:**
-- [ ] P6-7a: Backend tests may need fixtures updated to set `kernelWidth`/`scalingFactor` on mock Market objects (if any test asserts on the full entity shape).
-- [ ] P6-7b: Frontend type-check (`tsc --noEmit`) will fail before `next build` if `UserPosition["market"]` doesn't get `kernelWidth?: number` and `scalingFactor?: string` added in `frontend/lib/types.ts`. This is a P6-2 dependency that's easy to forget.
+- [x] P6-7a: Done — both mock factories updated. `backend/src/market/market.service.spec.ts:createMockMarket` and `backend/test/helpers/mock-factories.ts:mockMarket` now include `kernelWidth: 0, scalingFactor: '0'`. The `as MarketEntity` casts would have silenced strict missing-field errors, but the explicit defaults match the production entity shape and make the mock realistic.
+- [x] P6-7b: Done — `MarketSummary` in `frontend/lib/types.ts` now declares `kernelWidth?: number` and `scalingFactor?: string`. Optional for transitional API compatibility; defaults to `0` / `"0"` at use sites in `portfolio-utils.ts`. `pnpm next build` ran clean (12 routes generated, no TS errors).
 
 ---
 
@@ -1043,21 +1043,25 @@ All must pass with the updated code from P6-1 through P6-6. `e2e-smoke.sh` is th
 
 Detailed analysis and execution plan for upgrading the deployed program on devnet.
 
+> **Scope note (2026-05-31, owner direction):** **only P7-1 is to be done by the assistant.** Every other Phase-7 sub-task (P7-2 through P7-5) requires devnet auth, Docker access, or live RPC and MUST be performed manually by the owner. If a future session sees an unticked P7-2/3/4/5, do NOT attempt to execute it — re-tag it as **MANUAL** and leave it for the human.
+
 ---
 
-### P7-1: Pre-upgrade checklist
+### P7-1: Pre-upgrade checklist ✅
 
 Before deploying the upgraded program:
 
-1. [ ] All tests pass (Phase 5-4 and Phase 6-7 confirmed)
-2. [ ] IDL is updated in backend (`backend/idl/dekant_pm.json`)
-3. [ ] Frontend is rebuilt with new types
-4. [ ] Devkit is updated
-5. [ ] Database has new columns (if added in P6-1)
+1. [x] **All tests pass** — Rust unit 291, Anchor integration 140 (last live run end of Phase 5; on-chain code unchanged in Phase 6), backend unit 287, backend e2e 296, frontend vitest 253, frontend `next build` clean. Devkit `tsc --noEmit` clean. Go `go build ./...` clean.
+2. [x] **IDL is updated in backend** — `backend/idl/dekant_pm.json` and `target/idl/dekant_pm.json` both contain `kernel_width` and `scaling_factor` on the `Market` account (5 references each, byte-identical to the program output as of P2-4).
+3. [x] **Frontend is rebuilt with new types** — `MarketSummary` extends with `kernelWidth?: number` + `scalingFactor?: string`; `pnpm next build` ran clean (12 routes, no TS errors).
+4. [x] **Devkit is updated** — `create-continuous` accepts `--kernel-width`; `resolve.ts` and `query.ts` surface `Kernel width` / `Scaling factor` rows (gated). `tsc --noEmit` clean.
+5. [x] **Database has new columns** — migration `1715212800000-add-kernel-columns.ts` added (idempotent via `IF NOT EXISTS`). For `DB_SYNCHRONIZE=true` dev paths the columns auto-create; for production the migration runs as part of [P7-5b](#p7-5-redeploy-backend-and-frontend--manual).
 
 ---
 
-### P7-2: Program upgrade on devnet
+### P7-2: Program upgrade on devnet — **MANUAL**
+
+> **Owner-only.** Requires the upgrade-authority keypair, devnet RPC access, and a deploy window. Do NOT attempt from an assistant session.
 
 ```bash
 anchor build
@@ -1070,12 +1074,14 @@ The program is upgradeable. The upgrade replaces the code but preserves all exis
 
 **Breaking changes:** The program now expects `kernel_width` in `CreateMarketArgs`. Old client versions that don't include it will fail to create markets.
 **Possible bugs:**
-- [ ] P7-2a: Verify upgrade authority keypair is available
-- [ ] P7-2b: Verify program size doesn't exceed current allocation (if it does, extend first)
+- [ ] P7-2a: **MANUAL** — Verify upgrade authority keypair is available
+- [ ] P7-2b: **MANUAL** — Verify program size doesn't exceed current allocation (if it does, extend first)
 
 ---
 
-### P7-3: Post-upgrade verification — existing markets
+### P7-3: Post-upgrade verification — existing markets — **MANUAL**
+
+> **Owner-only.** Requires live devnet markets created against the pre-upgrade program. Do NOT attempt from an assistant session.
 
 Test on devnet immediately after upgrade:
 
@@ -1086,11 +1092,13 @@ Test on devnet immediately after upgrade:
 
 **Breaking changes:** None expected
 **Possible bugs:**
-- [ ] P7-3a: If Borsh deserialization of existing accounts fails, the program is broken. This is the highest-risk moment. The P2-1b unit test should have caught this, but verify on real devnet accounts.
+- [ ] P7-3a: **MANUAL** — If Borsh deserialization of existing accounts fails, the program is broken. This is the highest-risk moment. The P2-1b unit test should have caught this, but verify on real devnet accounts.
 
 ---
 
-### P7-4: Post-upgrade verification — new kernel market
+### P7-4: Post-upgrade verification — new kernel market — **MANUAL**
+
+> **Owner-only.** Requires the upgraded program live on devnet plus a funded test wallet. Do NOT attempt from an assistant session.
 
 Create a new continuous market with kernel_width=3 on devnet:
 
@@ -1104,11 +1112,13 @@ Create a new continuous market with kernel_width=3 on devnet:
 
 **Breaking changes:** None (new market)
 **Possible bugs:**
-- [ ] P7-4a: Devnet compute budget — verify resolve and claim don't exceed CU limits with 16 bins + kernel
+- [ ] P7-4a: **MANUAL** — Devnet compute budget — verify resolve and claim don't exceed CU limits with 16 bins + kernel
 
 ---
 
-### P7-5: Redeploy backend and frontend
+### P7-5: Redeploy backend and frontend — **MANUAL**
+
+> **Owner-only.** Requires Docker registry push, target host SSH, and a deploy ordering plan. Do NOT attempt from an assistant session.
 
 After program upgrade:
 1. Rebuild and redeploy backend Docker image (new IDL, new entity fields)
@@ -1117,8 +1127,8 @@ After program upgrade:
 
 **Breaking changes:** Backend/frontend must be deployed in sync with the program upgrade
 **Possible bugs:**
-- [ ] P7-5a: Race condition — if frontend deploys before backend, API calls may fail. Deploy backend first.
-- [ ] P7-5b: Database migration — if new columns were added, ensure they exist before backend starts
+- [ ] P7-5a: **MANUAL** — Race condition: if frontend deploys before backend, API calls may fail. Deploy backend first.
+- [ ] P7-5b: **MANUAL** — Database migration: run `npm run typeorm migration:run` (or equivalent) before backend startup. The kernel-columns migration added in P6-1b lands `kernel_width` (smallint NOT NULL DEFAULT 0) and `scaling_factor` (numeric NOT NULL DEFAULT '0') on the `markets` table. Skip only if `DB_SYNCHRONIZE=true` (dev/Docker init).
 
 ---
 

@@ -76,17 +76,25 @@ program_
     // Show post-resolution state
     const resolved = await ctx.program.account.market.fetch(marketPda);
     const isContinuous = market.marketType === MARKET_TYPE_CONTINUOUS;
+    const continuousRows: [string, string][] = [];
+    if (isContinuous) {
+      continuousRows.push([
+        "Resolved value",
+        (Number(resolved.resolvedValue.toString()) / Number(SCALE.toString())).toString(),
+      ]);
+      continuousRows.push(["Kernel width", resolved.kernelWidth.toString()]);
+      // scaling_factor is only meaningful when the kernel branch ran. The WTA
+      // path (kernel_width=0) leaves it at 0 — surfacing that row would be
+      // visually noisy without adding information.
+      if (resolved.kernelWidth > 0) {
+        continuousRows.push(["Scaling factor", resolved.scalingFactor.toString()]);
+      }
+    }
     printTable([
       ["State", MARKET_STATE_NAMES[resolved.state]],
       ["Resolved outcome", resolved.resolvedOutcome.toString()],
       ["Resolved at", formatTimestamp(resolved.resolvedAt.toNumber())],
-      ...(isContinuous
-        ? [
-            ["Resolved value", (Number(resolved.resolvedValue.toString()) / Number(SCALE.toString())).toString()],
-            ["Kernel width", resolved.kernelWidth.toString()],
-            ["Scaling factor", resolved.scalingFactor.toString()],
-          ] as [string, string][]
-        : []),
+      ...continuousRows,
     ]);
   });
 

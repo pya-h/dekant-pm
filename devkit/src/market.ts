@@ -242,9 +242,12 @@ program_
       .rpc();
 
     const balanceAfter = await getTokenBalance(ctx.connection, traderAta);
+    const netPayoutRaw = balanceAfter - balanceBefore;
 
     console.log(`  Payout claimed! Tx: ${tx}`);
-    console.log(`  Net payout: ${formatTokenAmount(balanceAfter - balanceBefore)}`);
+    console.log(`  Net payout: ${formatTokenAmount(netPayoutRaw)}`);
+    // Machine-readable line for verify-claim wrappers (smoke script greps this).
+    console.log(`  NET_PAYOUT_RAW=${netPayoutRaw.toString()}`);
   });
 
 // ─── info ────────────────────────────────────────────────────────────────────

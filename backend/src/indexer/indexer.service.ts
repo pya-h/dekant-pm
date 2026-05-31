@@ -47,6 +47,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private lastEventReceivedAt = 0;
   private syncing = false;
   private healthCheckCount = 0;
+  /** Tripwire (P6-1c): warn once per process if the IDL drifted and the kernel
+   *  fields decode as undefined. The `?? 0` defaults below keep the indexer
+   *  alive; this flag surfaces the misconfiguration in logs. */
+  private warnedKernelMissing = false;
   /** Sequential event queue — prevents concurrent onLogs handler execution. */
   private eventQueue: Array<() => Promise<void>> = [];
   private draining = false;
@@ -166,6 +170,18 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     const deadline = new Date(Number(d.deadline) * 1000);
     const effectiveState =
       state === 0 && deadline.getTime() <= Date.now() ? 2 : state;
+
+    // P6-1c: surface IDL drift once. Defaults below keep the indexer alive;
+    // this warn is the only signal that target/idl ↔ backend/idl is out of sync.
+    if (
+      !this.warnedKernelMissing &&
+      (d.kernel_width == null || d.scaling_factor == null)
+    ) {
+      this.warnedKernelMissing = true;
+      this.logger.warn(
+        `Market decode missing kernel_width/scaling_factor — backend/idl/dekant_pm.json is stale relative to the deployed program. Re-sync from target/idl/ and restart.`,
+      );
+    }
 
     const onChainFields = {
       pubkey: marketPda.toBase58(),
