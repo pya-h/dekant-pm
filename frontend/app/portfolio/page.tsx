@@ -7,6 +7,13 @@ import { useUserPositions } from "@/hooks/use-positions";
 import { useBookmarkedMarkets } from "@/hooks/use-bookmarks";
 import { Button } from "@/components/ui/button";
 import { MarketCard } from "@/components/market/market-card";
+import { PositionCard } from "@/components/portfolio/position-card";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { VisuallyHidden } from "radix-ui";
 import {
   MarketState,
   SCALE,
@@ -251,6 +258,7 @@ function PositionRow({ position }: { position: UserPosition }) {
   const winProb = computePositionWinProb(position);
   const deposited = Number(position.totalDeposited);
   const range = getPositionRange(position);
+  const [claimOpen, setClaimOpen] = useState(false);
 
   const deadline = new Date(market.deadline);
   const isResolved = market.state === MarketState.Resolved;
@@ -300,6 +308,7 @@ function PositionRow({ position }: { position: UserPosition }) {
   }
 
   return (
+    <>
     <Link
       href={`/markets/${market.id}`}
       className="flex items-center gap-4 rounded-lg border border-border/20 bg-card/30 px-4 py-3.5 transition-colors hover:bg-card/60 hover:border-border/40 mb-2"
@@ -376,16 +385,44 @@ function PositionRow({ position }: { position: UserPosition }) {
 
       {/* Status badge */}
       <div className="w-[80px] shrink-0 flex justify-end">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium",
-            statusClass,
-          )}
-        >
-          {statusLabel}
-        </span>
+        {isResolved ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setClaimOpen(true);
+            }}
+            className={cn(
+              "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors hover:bg-muted/40",
+              statusClass,
+            )}
+          >
+            {statusLabel}
+          </button>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium",
+              statusClass,
+            )}
+          >
+            {statusLabel}
+          </span>
+        )}
       </div>
     </Link>
+    {isResolved && (
+      <Dialog open={claimOpen} onOpenChange={setClaimOpen}>
+        <DialogContent className="sm:max-w-md">
+          <VisuallyHidden.Root>
+            <DialogTitle>{market.title}</DialogTitle>
+          </VisuallyHidden.Root>
+          <PositionCard position={position} variant="modal" />
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
 

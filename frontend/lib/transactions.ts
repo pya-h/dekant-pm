@@ -67,10 +67,33 @@ async function sendRobust(
       maxRetries: 3,
     });
 
-    await connection.confirmTransaction(
+    const confirmation = await connection.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },
       "confirmed",
     );
+
+    // confirmTransaction does NOT throw when a tx lands and reverts on-chain —
+    // it returns the on-chain err in `value.err`. Without this check, callers
+    // would treat a failed tx as success.
+    if (confirmation.value.err) {
+      let logs: string[] = [];
+      try {
+        const txInfo = await connection.getTransaction(signature, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        });
+        logs = txInfo?.meta?.logMessages ?? [];
+      } catch {
+        // Best-effort log fetch; fall through with whatever we have.
+      }
+      const onChainErr: Error & { logs?: string[]; signature?: string } =
+        new Error(
+          `Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`,
+        );
+      onChainErr.logs = logs;
+      onChainErr.signature = signature;
+      throw onChainErr;
+    }
 
     return signature;
   } catch (err) {

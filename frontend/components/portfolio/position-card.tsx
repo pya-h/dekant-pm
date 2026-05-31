@@ -26,9 +26,11 @@ import { cn } from "@/lib/utils";
 
 interface PositionCardProps {
   position: UserPosition;
+  variant?: "grid" | "modal";
 }
 
-export function PositionCard({ position }: PositionCardProps) {
+export function PositionCard({ position, variant = "grid" }: PositionCardProps) {
+  const isModal = variant === "modal";
   const { market } = position;
   const probabilities = computeProbabilities(
     market.reserves,
@@ -52,12 +54,28 @@ export function PositionCard({ position }: PositionCardProps) {
   const isClaimable =
     market.state === MarketState.Resolved && !position.claimed && hasHoldings;
 
-  return (
-    <Card className="relative h-full overflow-hidden transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
-      {/* Hover glow */}
-      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-primary/[0.03] to-transparent" />
+  const resolutionLabel =
+    market.state === MarketState.Resolved
+      ? getResolutionLabel(market, labels)
+      : null;
 
-      <CardHeader className="relative space-y-3 pb-3">
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden",
+        isModal
+          ? "border-0 bg-transparent py-0 shadow-none"
+          : "h-full transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5",
+      )}
+    >
+      {/* Hover glow (grid variant only) */}
+      {!isModal && (
+        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-primary/[0.03] to-transparent" />
+      )}
+
+      <CardHeader
+        className={cn("relative space-y-3 pb-3", isModal && "px-0")}
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <MarketTypeBadge type={market.marketType} />
@@ -88,7 +106,18 @@ export function PositionCard({ position }: PositionCardProps) {
         </Link>
       </CardHeader>
 
-      <CardContent className="relative space-y-3 pb-3">
+      <CardContent
+        className={cn("relative space-y-3 pb-3", isModal && "px-0")}
+      >
+        {resolutionLabel !== null && (
+          <div className="flex items-center justify-between rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Resolved</span>
+            <span className="font-medium text-foreground">
+              {resolutionLabel}
+            </span>
+          </div>
+        )}
+
         <HoldingsDisplay
           market={market}
           holdings={holdingsNum}
@@ -106,7 +135,12 @@ export function PositionCard({ position }: PositionCardProps) {
         )}
       </CardContent>
 
-      <CardFooter className="relative justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
+      <CardFooter
+        className={cn(
+          "relative justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground",
+          isModal && "px-0",
+        )}
+      >
         <span className="tabular-nums">
           Value {formatUsdc(currentValue)}
         </span>
@@ -119,6 +153,23 @@ export function PositionCard({ position }: PositionCardProps) {
       </CardFooter>
     </Card>
   );
+}
+
+function getResolutionLabel(
+  market: UserPosition["market"],
+  labels: string[],
+): string {
+  if (market.marketType === MarketType.Continuous) {
+    if (market.resolvedValue != null) {
+      return String(Number(market.resolvedValue) / SCALE);
+    }
+    return "—";
+  }
+  const winIdx = market.resolvedOutcome;
+  if (winIdx != null && winIdx >= 0 && winIdx < labels.length) {
+    return labels[winIdx];
+  }
+  return "—";
 }
 
 function computeCurrentValue(
