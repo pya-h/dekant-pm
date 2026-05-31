@@ -2151,6 +2151,11 @@ select.control-input {
           <span class="control-label">Liquidity (L)</span>
           <input type="number" class="control-input" id="pgLiquidity" value="1000000">
         </div>
+        <div class="control-group">
+          <span class="control-label">Kernel Width (W)</span>
+          <input type="number" class="control-input" id="pgKernelWidth" value="3" min="0" max="10">
+          <span style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;">0 = WTA, higher = broader payouts</span>
+        </div>
       </div>
       <div class="btn-group">
         <button class="btn btn-primary" onclick="initPlayground()">
@@ -2860,14 +2865,6 @@ select.control-input {
         <input type="number" class="control-input" id="feeRedemptionFeeBps" value="0" min="0" max="1000" style="width:100px;">
         <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">
           Deducted from winning tokens at resolution        </span>
-      </div>
-    </div>
-    <div class="settings-group">
-      <div class="settings-group-label">Settlement Kernel Width (W)</div>
-      <div class="settings-row">
-        <input type="number" class="control-input" id="feeKernelWidth" value="3" min="0" max="10" style="width:100px;">
-        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:8px;">
-          0 = winner-take-all, 3 = smooth kernel (default). Higher = broader payouts.        </span>
       </div>
     </div>
     <div style="margin-top:16px;">

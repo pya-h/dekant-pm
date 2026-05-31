@@ -790,7 +790,7 @@ Read `w` (`kernel_width`) and `scaling_factor` from the resolved Market account,
 - [x] P5-2b: `pickWidth(numBins, min, max)` in `tests/continuous-kernel.ts` computes `hi = Math.min(max, numBins - 1)` before drawing, so the on-chain `kernel_width < num_outcomes` validator is never tripped by a randomized draw.
 - [x] P5-2c: Every randomized `it(...)` title interpolates the picked width (e.g. `single trader, distribution at winning bin (kernel_width=8)`). Visible in mocha output for CI flake reproduction. K3 and K8 are exempt as the spec allows (compile-time fixed widths).
 - [x] P5-2d: K2 fixture (3M init + 3 traders × 8M trades, `sigma = 50` SCALE) produced `sf < SCALE` on the first run — the load-bearing assertion fired positively. No fixture iteration needed.
-- [ ] P5-2e: Defensive — would only fire if a future scenario over-subscribes the picker pool. Current load (3 reservations + 5 randomized draws) sits well inside the 10-value cap. Leaving open as a tripwire for future additions.
+- [x] P5-2e: Resolved by giving `makeWidthPicker` a reset-on-exhaustion path — the internal `used` set was split into `reserved` (permanent) and `drawn` (this cycle's random draws). When the candidate pool empties, `drawn` is cleared (reservations survive, so K2's pinned width=4 still can't leak into a randomized scenario) and a `[pickWidth] pool [..] exhausted; resetting drawn set` line is logged. Repeats are possible across cycles but never within one. The thrown error is kept for the genuine configuration bug (range fully reserved). Future contributors can still raise the `max` argument (default 10) if they want more distinct widths before the first reset.
 
 ---
 
@@ -1132,61 +1132,52 @@ After program upgrade:
 
 ---
 
-## Phase 8: Documentation
+## Phase 8: Documentation ✅
+
+> **Done (2026-05-31).** All five sub-tasks ticked. README, PRD, TDD, the legacy math docs, the improved-model deep-dive docs, the top-level planning TASKS.md, and persistent memory are now aligned with the post-refactor implementation (linear probability display + opt-in smooth-kernel settlement, schema v2). The CURRENT_VS_IMPROVED rename to "Legacy v1 vs Current" makes the new terminology stick. No `docs/improved/` rename was needed — it was already in the right place.
 
 Update all documentation to reflect the improved model.
 
 ---
 
-### P8-1: Update top-level `README.md`
+### P8-1: Update top-level `README.md` ✅
 
 Add/update sections:
-- Resolution model: explain binary/multi = WTA, continuous = smooth kernel (with kernel_width)
-- Probability display: note linear formula
-- Link to math docs
+- [x] Resolution model: explain binary/multi = WTA, continuous = smooth kernel (with kernel_width) — added new "Resolution Model" section above the AMM reference.
+- [x] Probability display: note linear formula — updated the AMM-reference bullet from `p[i] = x[i]^2 / k^2` to `p[i] = x[i] / sum(x[j])` and added a paragraph below the kernel section.
+- [x] Link to math docs — Documentation table now points at `docs/improved/` (current), `docs/math/` (legacy), `specs/details/improved/`, and `IMPROVED_SMS_REFACTOR_TASKS.md`. Also updated the Market Types table with a Resolution column. Fixed stale `plans/` paths → `specs/` / `specs/planning/`.
 
 ---
 
-### P8-2: Update `specs/TDD.md` and `specs/PRD.md`
+### P8-2: Update `specs/TDD.md` and `specs/PRD.md` ✅
 
 Add notes or sections covering:
-- Smooth kernel resolution for continuous markets
-- Linear probability display
-- Kernel width parameter
-- Solvency scaling factor
+- [x] Smooth kernel resolution for continuous markets — TDD §5.8 split into §5.8.1 (WTA) + §5.8.2 (smooth kernel) with full formulas; PRD §7.6 gained a 2026-05-31 implementation note alongside the existing 2026-03-28 BUG-003 note.
+- [x] Linear probability display — TDD §5.3 "Implied Probability" now shows the linear formula as current and quadratic as legacy; PRD §13 glossary gained a "Linear probability" entry.
+- [x] Kernel width parameter — TDD §3.3 Market account now lists `kernel_width: u16` and `scaling_factor: u64` (repurposed from `[u8; 30]` padding → `[u8; 20]`) with a v2 migration note; PRD §7.3 continuous payoff paragraph notes the per-market `kernel_width` choice; glossary covers WTA, smooth kernel, kernel_width, scaling_factor.
+- [x] Solvency scaling factor — Covered in TDD §5.8.2 (formula + stored on Market account, guarantees Σ claims ≤ k) and PRD §7.6 implementation note. Engine listing updated to include `engine/kernel.rs` and the new helper signatures.
+- [x] Event-payload caveat — TDD §9.2 gained a note that `kernel_width` / `scaling_factor` are intentionally absent from event payloads; indexers fetch the Market account post-event. PayoutClaimed event signature corrected to match the real `gross_amount/fee_paid/net_amount` shape.
 
 ---
 
-### P8-3: Deprecate old math docs, promote improved
+### P8-3: Deprecate old math docs, promote improved ✅
 
-1. Move/rename `docs/improved/` content to become the primary math documentation
-2. Add a clear header to the old math docs (`specs/math/MATH_ANALYSIS.md`, `specs/math/COLLATERAL_ANALYSIS.md`) marking them as **v1 (deprecated)** with a pointer to the improved docs
-3. Update any cross-references in other spec files
-
-Specifically:
-- `docs/improved/index.html` → mark as current/active math reference
-- `specs/math/MATH_ANALYSIS.md` → add deprecation header: `> **DEPRECATED (v1):** This document describes the original quadratic probability model. See docs/improved/ for the current linear model.`
-- `specs/math/COLLATERAL_ANALYSIS.md` → same deprecation header
-- `specs/details/improved/CURRENT_VS_IMPROVED.md` → update status from "proposed" to "implemented"
-- `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md` → update status
-- `specs/details/improved/L2_NORM_PROBABILITY_DISPLAY.md` → update status
+1. [x] No `docs/improved/` rename needed — already the canonical path; README Documentation table now flags it as the current math reference and `docs/math/` as legacy.
+2. [x] `specs/math/MATH_ANALYSIS.md` → deprecation header added (linear/kernel pointer to `docs/improved/` and `specs/details/improved/`).
+3. [x] `specs/math/COLLATERAL_ANALYSIS.md` → deprecation header added (collateral argument still applies, but settlement/probability references are pre-refactor).
+4. [x] `specs/details/improved/CURRENT_VS_IMPROVED.md` → title flipped to "Legacy v1 vs Current (Improved) Model"; status update + per-change "Shipped" table; Implementation Path framed in past tense.
+5. [x] `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md` → status update at the header (Phases 2–6 shipped).
+6. [x] `specs/details/improved/L2_NORM_PROBABILITY_DISPLAY.md` → status update + the formula-status table now labels quadratic as Legacy v1 and linear as Current.
+7. [x] Companion docs (`LINEAR_DISPLAY_EXPLAINED.md`, `LP_SMS_EFFECT.md`, `SETTLEMENT_ALTERNATIVES.md`) → brief status banners added so future readers don't reread them as forward-looking proposals.
+   - Hint: `_BAK.md` / `_ORG.md` variants of CURRENT_VS_IMPROVED skipped — they're clearly versioned-by-filename historical drafts and editing them adds noise.
 
 ---
 
-### P8-4: Update `specs/planning/TASKS.md`
+### P8-4: Update `specs/planning/TASKS.md` ✅
 
-Mark relevant tasks as addressed by the improved model refactor. Add reference to this file.
-
----
-
-### P8-5: Update `MEMORY.md` / session context
-
-Update persistent memory with:
-- Refactor completion status
-- New Market account fields (kernel_width, scaling_factor)
-- Schema version 2
-- Linear probability formula
-- Binary/multi = WTA, continuous = kernel
+- [x] Header note added at the top of the file pointing to `IMPROVED_SMS_REFACTOR_TASKS.md` as the canonical refactor log.
+- [x] Inline "Smooth-kernel refactor extension" notes added at P-16 (resolve_market now also stores scaling_factor when kernel_width > 0) and P-17 (claim_payout now routes through the kernel branch for kernel-mode markets).
+- [x] P-20 (Math & Logic Review) marked "Substantially addressed" with a list of the refactor surfaces that satisfy it; the remaining delta (LP residual stress configs + Normal-PDF tail-cutoff skim) is called out explicitly so the unticked status stays meaningful.
 
 ---
 

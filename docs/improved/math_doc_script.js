@@ -1057,7 +1057,14 @@ function initPlayground() {
     tradeFeeBps: parseInt(document.getElementById('feeTradeFeeBps').value) || 0,
     lpFeeSharePct: parseInt(document.getElementById('feeLpFeeSharePct').value) || 0,
     redemptionFeeBps: parseInt(document.getElementById('feeRedemptionFeeBps').value) || 0,
-    kernelWidth: (function() { var v = parseInt(document.getElementById('feeKernelWidth').value); return isNaN(v) ? DEFAULT_KERNEL_WIDTH : v; })(),
+    kernelWidth: (function() {
+      // Read from the create-market form (pgKernelWidth). Fall back to the
+      // legacy fee-modal id (feeKernelWidth) if a saved fixture still has it,
+      // then to the default.
+      var el = document.getElementById('pgKernelWidth') || document.getElementById('feeKernelWidth');
+      var v = el ? parseInt(el.value) : NaN;
+      return isNaN(v) ? DEFAULT_KERNEL_WIDTH : v;
+    })(),
   };
 
   // Create new market

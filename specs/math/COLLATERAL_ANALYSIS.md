@@ -1,5 +1,7 @@
 # Collateral Token Selection in Prediction Markets
 
+> **Scope (2026-05-31):** Stablecoin-collateral analysis. Settlement, payout, and probability formulas described here mirror the current model (linear probability display + opt-in smooth-kernel settlement). For the full math reference see [`MATH_ANALYSIS.md`](./MATH_ANALYSIS.md) or the interactive notebook [`MATH_ANALYSIS_INTERACTIVE.html`](./MATH_ANALYSIS_INTERACTIVE.html).
+
 ## The Core Question
 
 Should prediction markets restrict collateral to stablecoins, or allow any SPL token?

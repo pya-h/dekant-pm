@@ -16,7 +16,8 @@ var DEFAULT_REDEMPTION_FEE_BPS = 0;
 var SCALE_WEIGHT = 1e9;
 var Z_CUTOFF = 5;
 var AUTOSAVE_INTERVAL_MS = 5000;
-var STORAGE_KEY = 'dekantpm_math_state_v3';
+var STORAGE_KEY = 'dekantpm_math_state_v1';
+var DEFAULT_KERNEL_WIDTH = 3;
 
 // ============================================================
 // 2. GLOBAL STATE
@@ -270,6 +271,7 @@ function ContinuousMarket(N, rangeMin, rangeMax, liquidity, fees) {
   this.tradeFeeBps = (fees && typeof fees.tradeFeeBps === 'number') ? fees.tradeFeeBps : DEFAULT_TRADE_FEE_BPS;
   this.lpFeeSharePct = (fees && typeof fees.lpFeeSharePct === 'number') ? fees.lpFeeSharePct : DEFAULT_LP_FEE_SHARE_PCT;
   this.redemptionFeeBps = (fees && typeof fees.redemptionFeeBps === 'number') ? fees.redemptionFeeBps : DEFAULT_REDEMPTION_FEE_BPS;
+  this.kernelWidth = (fees && typeof fees.kernelWidth === 'number') ? fees.kernelWidth : DEFAULT_KERNEL_WIDTH;
 
   var xUniform = Math.sqrt(liquidity * liquidity / N);
   this.positions = [];
@@ -292,12 +294,31 @@ function ContinuousMarket(N, rangeMin, rangeMax, liquidity, fees) {
 }
 
 ContinuousMarket.prototype.getProbabilities = function() {
-  var kSq = this.k * this.k;
+  var sum = 0;
+  for (var i = 0; i < this.N; i++) sum += this.positions[i];
   var probs = [];
   for (var i = 0; i < this.N; i++) {
-    probs.push((this.positions[i] * this.positions[i]) / kSq);
+    probs.push(sum > 0 ? this.positions[i] / sum : 1 / this.N);
   }
   return probs;
+};
+
+ContinuousMarket.prototype.getSettlementKernel = function(winBin) {
+  var W = this.kernelWidth;
+  var weights = [];
+  var total = 0;
+  for (var i = 0; i < this.N; i++) {
+    var d = Math.abs(i - winBin);
+    var w = Math.max(0, 1 - d / (W + 1));
+    weights.push(w);
+    total += w;
+  }
+  // Normalize so max = 1 (winning bin)
+  if (total > 0) {
+    var maxW = weights[winBin];
+    for (var i = 0; i < this.N; i++) weights[i] /= maxW;
+  }
+  return weights;
 };
 
 ContinuousMarket.prototype.getLabels = function() {
@@ -359,10 +380,16 @@ ContinuousMarket.prototype.discreteBuy = function(traderName, binIdx, grossColla
   th.spent += grossCollateral;
   gt.wallet -= grossCollateral;
 
+  // Peak payout with smooth kernel: if this bin wins, kernel = 1.0
   var peakPayout = tokensOut * (1 - this.redemptionFeeBps / 10000);
 
+  // Linear probability: x_i / sum(x_j)
+  var sumPos = 0;
+  for (var j = 0; j < this.N; j++) sumPos += this.positions[j];
+  var newProb = sumPos > 0 ? newXi / sumPos : 1 / this.N;
+
   return { tokensOut: tokensOut, fee: fee, lpFee: lpFee, net: net,
-           newProb: (newXi * newXi) / (kNew * kNew),
+           newProb: newProb,
            peakPayout: peakPayout, cost: grossCollateral,
            maxProfit: peakPayout - grossCollateral };
 };
@@ -468,7 +495,17 @@ ContinuousMarket.prototype.distributionBuy = function(traderName, mu, sigma, gro
   th.spent += grossCollateral;
   gt.wallet -= grossCollateral;
 
-  var peakPayout = maxTokensInBin * (1 - this.redemptionFeeBps / 10000);
+  // Peak payout: find the winning bin that maximizes kernel-weighted payout
+  var peakPayout = 0;
+  for (var w = 0; w < this.N; w++) {
+    var wKernel = this.getSettlementKernel(w);
+    var payoutW = 0;
+    for (var jj = 0; jj < this.N; jj++) {
+      payoutW += tokensPerBin[jj] * wKernel[jj];
+    }
+    if (payoutW > peakPayout) { peakPayout = payoutW; peakBin = w; }
+  }
+  peakPayout *= (1 - this.redemptionFeeBps / 10000);
 
   return { tokensPerBin: tokensPerBin, totalTokens: totalTokens, fee: fee, lpFee: lpFee, net: net,
            peakPayout: peakPayout, peakBin: peakBin, cost: grossCollateral,
@@ -568,6 +605,7 @@ ContinuousMarket.prototype.removeLiquidity = function(lpName, sharesToRemove) {
 
 // Resolve / Re-resolve: does NOT mutate positions or holdings,
 // so calling again with a different value is mathematically valid.
+// IMPROVED: Smooth kernel resolution — nearby bins contribute proportionally.
 ContinuousMarket.prototype.resolve = function(value) {
   var bin = Math.floor((value - this.rangeMin) * this.N / (this.rangeMax - this.rangeMin));
   bin = Math.max(0, Math.min(this.N - 1, bin));
@@ -575,39 +613,67 @@ ContinuousMarket.prototype.resolve = function(value) {
   this.winningBin = bin;
   this.lastResolveValue = value;
 
+  var kernel = this.getSettlementKernel(bin);
   var payouts = [];
 
-  // FIX: LP residual must be computed from actual trader-held tokens,
-  // NOT from positions[bin].  positions[i] is the AMM state variable
-  // (starts at k/sqrt(N) even with zero traders, and is independently
-  // scaled by LP add/remove).  Using it here was the root cause of the
-  // deterministic 1/sqrt(N) LP loss documented in PROFITABILITY.md §4.4.
-  //
-  // Correct identity:  vault = trader_claims + lp_residual + protocol_fees
-  //   trader_claims  = sum of traderHoldings[*].holdings[winBin]  (gross)
-  //   lp_residual    = k - trader_claims                          (before fees)
-  var totalTraderTokensInWinBin = 0;
+  // Compute total kernel-weighted trader claims
+  var totalKernelClaim = 0;
+  var traderClaims = {};
   for (var name in this.traderHoldings) {
-    totalTraderTokensInWinBin += this.traderHoldings[name].holdings[bin];
+    var th = this.traderHoldings[name];
+    var claim = 0;
+    for (var i = 0; i < this.N; i++) {
+      claim += th.holdings[i] * kernel[i];
+    }
+    traderClaims[name] = claim;
+    totalKernelClaim += claim;
   }
-  var lpResidual = this.k - totalTraderTokensInWinBin;
+
+  // Solvency guard: with smooth kernel, total claims can exceed k
+  // when traders hold tokens in multiple nearby bins.  Scale down
+  // proportionally so trader payouts never exceed the vault.
+  var claimScale = 1;
+  if (totalKernelClaim > this.k && totalKernelClaim > 0) {
+    claimScale = this.k / totalKernelClaim;
+  }
+  var lpResidual = this.k - totalKernelClaim * claimScale;
 
   var totalRedemptionFees = 0;
   for (var name in this.traderHoldings) {
     var th = this.traderHoldings[name];
-    var winTokens = th.holdings[bin];
-    var redemptionFee = winTokens * this.redemptionFeeBps / 10000;
+    var grossPayout = traderClaims[name] * claimScale;
+    var redemptionFee = grossPayout * this.redemptionFeeBps / 10000;
     totalRedemptionFees += redemptionFee;
-    var payout = winTokens - redemptionFee;
+    var payout = grossPayout - redemptionFee;
+
+    // Build detail string showing kernel contributions
+    var kernelBins = [];
+    for (var i = 0; i < this.N; i++) {
+      if (th.holdings[i] > 0.01 && kernel[i] > 0) {
+        kernelBins.push({ bin: i, value: Math.floor(th.holdings[i] * kernel[i] * claimScale) });
+      }
+    }
+    var scaleSuffix = claimScale < 1 ? ' (scaled ' + (claimScale * 100).toFixed(1) + '%)' : '';
+    var shortDetail;
+    if (kernelBins.length === 0) {
+      shortDetail = 'No tokens';
+    } else if (kernelBins.length === 1) {
+      shortDetail = 'bin ' + kernelBins[0].bin + ': ' + kernelBins[0].value.toLocaleString() + scaleSuffix;
+    } else {
+      shortDetail = kernelBins.length + ' bins' + scaleSuffix;
+    }
+    var fullDetail = kernelBins.length > 0
+      ? kernelBins.map(function(b) { return { bin: b.bin, value: b.value }; })
+      : [];
+
     payouts.push({
       name: name, type: 'Trader',
-      detail: Math.floor(winTokens).toLocaleString() + ' tokens',
+      detail: shortDetail, detailBins: fullDetail, detailScale: scaleSuffix,
       payout: payout, spent: th.spent, received: th.received,
       netPnL: payout + th.received - th.spent
     });
   }
 
-  // Redemption fees stay in the vault; they belong to LPs as extra residual.
   var lpPool = lpResidual + totalRedemptionFees;
   for (var name in this.lpProviders) {
     var lp = this.lpProviders[name];
@@ -630,6 +696,7 @@ ContinuousMarket.prototype.resolve = function(value) {
 };
 
 // Portfolio valuation for a trader (expected payout at current probabilities)
+// IMPROVED: Uses smooth kernel for expected & peak payout calculations.
 ContinuousMarket.prototype.getTraderPortfolio = function(traderName) {
   var gt = globalTraders[traderName];
   if (!gt) return null;
@@ -650,13 +717,33 @@ ContinuousMarket.prototype.getTraderPortfolio = function(traderName) {
   var totalHoldings = 0;
   var peakBin = 0;
   var peakTokens = 0;
-  for (var j = 0; j < this.N; j++) {
-    var h = th.holdings[j];
-    totalHoldings += h;
-    expectedPayout += probs[j] * h * (1 - this.redemptionFeeBps / 10000);
-    if (h > peakTokens) { peakTokens = h; peakBin = j; }
+
+  // For each possible winning bin, compute kernel-weighted payout
+  for (var winBin = 0; winBin < this.N; winBin++) {
+    var kernel = this.getSettlementKernel(winBin);
+    var payoutIfWin = 0;
+    for (var j = 0; j < this.N; j++) {
+      payoutIfWin += th.holdings[j] * kernel[j];
+    }
+    expectedPayout += probs[winBin] * payoutIfWin * (1 - this.redemptionFeeBps / 10000);
   }
-  var peakPayout = peakTokens * (1 - this.redemptionFeeBps / 10000);
+
+  // Find best-case winning bin (max kernel-weighted payout across all possible outcomes)
+  var peakPayout = 0;
+  for (var w = 0; w < this.N; w++) {
+    var kernel = this.getSettlementKernel(w);
+    var payoutIfW = 0;
+    for (var j = 0; j < this.N; j++) {
+      payoutIfW += th.holdings[j] * kernel[j];
+    }
+    if (payoutIfW > peakPayout) { peakPayout = payoutIfW; peakBin = w; }
+  }
+  peakPayout *= (1 - this.redemptionFeeBps / 10000);
+
+  for (var j = 0; j < this.N; j++) {
+    totalHoldings += th.holdings[j];
+  }
+
   var unrealizedPnL = expectedPayout + mReceived - mSpent;
   var pnlPct = mSpent > 0 ? (unrealizedPnL / mSpent * 100) : 0;
 
@@ -680,7 +767,7 @@ function serializeMarket(m) {
   return {
     N: m.N, rangeMin: m.rangeMin, rangeMax: m.rangeMax, binWidth: m.binWidth,
     k: m.k, positions: m.positions.slice(), centers: m.centers.slice(),
-    tradeFeeBps: m.tradeFeeBps, lpFeeSharePct: m.lpFeeSharePct, redemptionFeeBps: m.redemptionFeeBps,
+    tradeFeeBps: m.tradeFeeBps, lpFeeSharePct: m.lpFeeSharePct, redemptionFeeBps: m.redemptionFeeBps, kernelWidth: m.kernelWidth,
     totalLpShares: m.totalLpShares,
     lpProviders: JSON.parse(JSON.stringify(m.lpProviders)),
     accumulatedLpFees: m.accumulatedLpFees,
@@ -699,6 +786,7 @@ function deserializeMarket(data) {
   m.tradeFeeBps = typeof data.tradeFeeBps === 'number' ? data.tradeFeeBps : DEFAULT_TRADE_FEE_BPS;
   m.lpFeeSharePct = typeof data.lpFeeSharePct === 'number' ? data.lpFeeSharePct : DEFAULT_LP_FEE_SHARE_PCT;
   m.redemptionFeeBps = typeof data.redemptionFeeBps === 'number' ? data.redemptionFeeBps : DEFAULT_REDEMPTION_FEE_BPS;
+  m.kernelWidth = typeof data.kernelWidth === 'number' ? data.kernelWidth : DEFAULT_KERNEL_WIDTH;
   m.totalLpShares = data.totalLpShares;
   m.lpProviders = data.lpProviders;
   m.accumulatedLpFees = data.accumulatedLpFees;
@@ -969,6 +1057,7 @@ function initPlayground() {
     tradeFeeBps: parseInt(document.getElementById('feeTradeFeeBps').value) || 0,
     lpFeeSharePct: parseInt(document.getElementById('feeLpFeeSharePct').value) || 0,
     redemptionFeeBps: parseInt(document.getElementById('feeRedemptionFeeBps').value) || 0,
+    kernelWidth: (function() { var v = parseInt(document.getElementById('feeKernelWidth').value); return isNaN(v) ? DEFAULT_KERNEL_WIDTH : v; })(),
   };
 
   // Create new market
@@ -1413,7 +1502,7 @@ function renderResolvePayouts(result) {
   section.style.display = '';
   var label = market.getLabels()[result.winningBin] || result.winningBin;
   var html = '<div class="payout-section">';
-  html += '<h4>Resolution Payouts (Winning bin: ' + result.winningBin + ' [' + label + '])';
+  html += '<h4>Smooth Kernel Payouts (Center bin: ' + result.winningBin + ' [' + label + '], W=' + market.kernelWidth + ')';
   html += '</h4>';
   html += '<div class="payout-table-wrapper"><table class="payout-table">';
   html += '<thead><tr>';
@@ -1433,7 +1522,24 @@ function renderResolvePayouts(result) {
     html += '<tr>';
     html += '<td style="font-weight:700;color:var(--text-heading);">' + p.name + '</td>';
     html += '<td>' + p.type + '</td>';
-    html += '<td>' + p.detail + '</td>';
+    if (p.detailBins && p.detailBins.length > 0) {
+      var tooltipTotal = 0;
+      var tooltipRows = p.detailBins.map(function(b) {
+        tooltipTotal += b.value;
+        return '<tr><td>Bin ' + b.bin + '</td><td>' + b.value.toLocaleString() + '</td></tr>';
+      }).join('');
+      var scaleNote = p.detailScale ? '<div class="detail-tooltip-scale">' + p.detailScale.trim() + '</div>' : '';
+      var tooltipContent = '<div class="detail-tooltip-title">Kernel Contributions</div>'
+        + '<table class="detail-tooltip-table">'
+        + '<thead><tr><th>Bin</th><th>Payout</th></tr></thead>'
+        + '<tbody>' + tooltipRows + '</tbody></table>'
+        + '<div class="detail-tooltip-total">Total: ' + tooltipTotal.toLocaleString() + '</div>'
+        + scaleNote;
+      html += '<td class="detail-cell"><span class="detail-truncated">' + p.detail + '</span>'
+        + '<div class="detail-tooltip-data">' + tooltipContent + '</div></td>';
+    } else {
+      html += '<td>' + p.detail + '</td>';
+    }
     html += '<td>' + Math.floor(p.payout).toLocaleString() + '</td>';
     html += '<td>' + Math.floor(p.spent).toLocaleString() + '</td>';
     html += '<td class="' + pnlClass + '">' + pnlSign + Math.floor(p.netPnL).toLocaleString() + '</td>';
@@ -1442,6 +1548,107 @@ function renderResolvePayouts(result) {
   }
   html += '</tbody></table></div></div>';
   section.innerHTML = html;
+  setupDetailTooltips();
+}
+
+function setupDetailTooltips() {
+  var overlay = document.getElementById('detailTooltipOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'detailTooltipOverlay';
+    overlay.className = 'detail-tooltip-overlay';
+    document.body.appendChild(overlay);
+  }
+  // State
+  var hideTimer = null;
+  var activeCell = null;
+  var pinned = false;
+
+  function positionOverlay(cell) {
+    var rect = cell.getBoundingClientRect();
+    var oW = overlay.offsetWidth;
+    var oH = overlay.offsetHeight;
+    var left = rect.left + rect.width / 2 - oW / 2;
+    var top = rect.bottom + 8;
+    if (left < 8) left = 8;
+    if (left + oW > window.innerWidth - 8) left = window.innerWidth - 8 - oW;
+    if (top + oH > window.innerHeight - 8) top = rect.top - oH - 8;
+    overlay.style.left = left + 'px';
+    overlay.style.top = top + 'px';
+  }
+
+  function showOverlay(cell) {
+    var data = cell.querySelector('.detail-tooltip-data');
+    if (!data) return;
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    overlay.innerHTML = data.innerHTML;
+    overlay.classList.add('visible');
+    activeCell = cell;
+    positionOverlay(cell);
+  }
+
+  function scheduleHide() {
+    if (pinned) return;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(function() {
+      overlay.classList.remove('visible');
+      activeCell = null;
+      hideTimer = null;
+    }, 150);
+  }
+
+  function cancelHide() {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  }
+
+  function dismissPinned() {
+    pinned = false;
+    overlay.classList.remove('pinned', 'visible');
+    activeCell = null;
+  }
+
+  // Overlay hover: keep visible while mouse is inside tooltip
+  overlay.addEventListener('mouseenter', cancelHide);
+  overlay.addEventListener('mouseleave', scheduleHide);
+
+  // Click outside or on overlay to dismiss pinned tooltip
+  document.addEventListener('click', function(e) {
+    if (!pinned) return;
+    // Click on overlay itself — dismiss
+    if (overlay.contains(e.target)) { dismissPinned(); return; }
+    // Click on a detail-cell — handled in cell click below
+    var clickedCell = e.target.closest('.detail-cell');
+    if (clickedCell) return;
+    // Click anywhere else — dismiss
+    dismissPinned();
+  });
+
+  var cells = document.querySelectorAll('.detail-cell');
+  for (var i = 0; i < cells.length; i++) {
+    (function(cell) {
+      cell.addEventListener('mouseenter', function() {
+        if (pinned) return;
+        showOverlay(cell);
+      });
+      cell.addEventListener('mouseleave', function() {
+        if (pinned) return;
+        scheduleHide();
+      });
+      cell.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (pinned && activeCell === cell) {
+          // Unpin
+          dismissPinned();
+        } else {
+          // Pin this cell's tooltip
+          pinned = false; // reset so showOverlay works
+          showOverlay(cell);
+          pinned = true;
+          overlay.classList.add('pinned');
+        }
+      });
+    })(cells[i]);
+  }
 }
 
 // ============================================================
@@ -1789,9 +1996,15 @@ function updatePlaygroundStats() {
 // 17. PROBABILITY DISTORTION DEMO
 // ============================================================
 function quadraticProb(p) {
+  // OLD model (for comparison): p_hat = p^2/(p^2 + (1-p)^2)
   var p2 = p * p;
   var q2 = (1 - p) * (1 - p);
   return p2 / (p2 + q2);
+}
+
+function linearProb(p) {
+  // IMPROVED model: displayed = true probability (no distortion)
+  return p;
 }
 
 function initDistortionChart() {
@@ -1799,16 +2012,22 @@ function initDistortionChart() {
   var c = getChartColors();
   if (distortionChartInstance) distortionChartInstance.destroy();
 
-  var data = [];
-  for (var i = 1; i <= 99; i++) data.push({ x: i, y: quadraticProb(i / 100) * 100 });
+  var quadData = [];
+  var linearData = [];
+  for (var i = 1; i <= 99; i++) {
+    quadData.push({ x: i, y: quadraticProb(i / 100) * 100 });
+    linearData.push({ x: i, y: linearProb(i / 100) * 100 });
+  }
 
   distortionChartInstance = new Chart(ctx, {
     type: 'line',
     data: {
       datasets: [
-        { label: 'Quadratic', data: data, borderColor: c.warning, backgroundColor: c.warning + '20', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 },
-        { label: 'Linear', data: [{ x: 0, y: 0 }, { x: 100, y: 100 }], borderColor: c.textMuted, borderDash: [5, 5], pointRadius: 0, borderWidth: 1 },
-        { label: 'Current', data: [{ x: 50, y: 50 }], borderColor: c.accent, backgroundColor: c.accent, pointRadius: 8, pointHoverRadius: 10, showLine: false }
+        { label: 'Old: Quadratic', data: quadData, borderColor: c.warning, backgroundColor: c.warning + '10', fill: false, tension: 0.4, pointRadius: 0, borderWidth: 2, borderDash: [6, 3] },
+        { label: 'Linear (current)', data: linearData, borderColor: c.success, backgroundColor: c.success + '20', fill: true, tension: 0, pointRadius: 0, borderWidth: 2 },
+        { label: 'y = x', data: [{ x: 0, y: 0 }, { x: 100, y: 100 }], borderColor: c.textMuted, borderDash: [5, 5], pointRadius: 0, borderWidth: 1 },
+        { label: 'Linear (current)', data: [{ x: 50, y: 50 }], borderColor: c.success, backgroundColor: c.success, pointRadius: 8, pointHoverRadius: 10, showLine: false },
+        { label: 'Quadratic (old)', data: [{ x: 50, y: quadraticProb(0.5) * 100 }], borderColor: c.warning, backgroundColor: c.warning, pointRadius: 8, pointHoverRadius: 10, showLine: false, pointStyle: 'triangle' }
       ]
     },
     options: {
@@ -1817,19 +2036,21 @@ function initDistortionChart() {
         x: { type: 'linear', min: 0, max: 100, title: { display: true, text: 'True Probability (%)', color: c.textMuted }, ticks: { color: c.textMuted }, grid: { color: c.border + '40' } },
         y: { min: 0, max: 100, title: { display: true, text: 'Displayed p (%)', color: c.textMuted }, ticks: { color: c.textMuted }, grid: { color: c.border + '40' } }
       },
-      plugins: { legend: { display: false } }
+      plugins: { legend: { display: true, labels: { color: c.textMuted, font: { size: 11 } } } }
     }
   });
 }
 
 function updateDistortion() {
   var p = parseInt(document.getElementById('distortionSlider').value) / 100;
-  var pHat = quadraticProb(p);
+  var pHatQuad = quadraticProb(p);
+  var pHatLinear = linearProb(p);
   document.getElementById('distortionSliderVal').textContent = (p * 100).toFixed(0) + '%';
-  document.getElementById('trueP1').textContent = (p * 100).toFixed(1) + '%';
-  document.getElementById('quadP1').textContent = (pHat * 100).toFixed(1) + '%';
+  document.getElementById('trueP1').textContent = (pHatLinear * 100).toFixed(1) + '%';
+  document.getElementById('quadP1').textContent = (pHatQuad * 100).toFixed(1) + '%';
   if (distortionChartInstance) {
-    distortionChartInstance.data.datasets[2].data = [{ x: p * 100, y: pHat * 100 }];
+    distortionChartInstance.data.datasets[3].data = [{ x: p * 100, y: pHatLinear * 100 }];
+    distortionChartInstance.data.datasets[4].data = [{ x: p * 100, y: pHatQuad * 100 }];
     distortionChartInstance.update('none');
   }
 }
@@ -1918,28 +2139,28 @@ function updateLP() {
   var sharePercent = parseFloat(document.getElementById('lpShare').value) || 50;
 
   var lpFeeRate = (feeBps / 10000) * (sharePercent / 100);
-  // Baseline LP loss is 0% because resolve uses actual trader token totals,
-  // NOT positions[winBin].  With zero traders the LP gets everything back.
-  var baselineLoss = 0;
-  var baselineLossAmt = 0;
+  var baselineLoss = 0; // Fixed: no baseline loss with correct implementation
+  var baselineLossAmt = pool * baselineLoss;
+  var breakeven = lpFeeRate > 0 && baselineLossAmt > 0 ? baselineLossAmt / lpFeeRate : 0;
+  var multiple = lpFeeRate > 0 && breakeven > 0 ? breakeven / pool : 0;
 
-  document.getElementById('lpLoss').textContent = baselineLoss === 0 ? '0%' : '-' + (baselineLoss * 100).toFixed(1) + '%';
-  document.getElementById('lpBreakeven').textContent = baselineLoss === 0 ? '$0' : (lpFeeRate > 0 ? '$' + formatCompact(baselineLossAmt / lpFeeRate) : '\u221E');
-  document.getElementById('lpMultiple').textContent = baselineLoss === 0 ? '0x' : (lpFeeRate > 0 ? Math.round(baselineLossAmt / lpFeeRate / pool) + 'x' : '\u221E');
+  document.getElementById('lpLoss').textContent = (baselineLoss * 100).toFixed(1) + '%';
+  document.getElementById('lpBreakeven').textContent = breakeven > 0 ? '$' + formatCompact(breakeven) : 'N/A (no loss)';
+  document.getElementById('lpMultiple').textContent = multiple > 0 ? Math.round(multiple) + 'x' : 'N/A';
 
   var ctx = document.getElementById('lpChart').getContext('2d');
   var c = getChartColors();
   if (lpChartInstance) lpChartInstance.destroy();
 
   if (lpFeeRate <= 0) {
-    // With zero fees and zero baseline loss, LP breaks even — show flat line at 0
+    // With zero fees and zero baseline loss, LP breaks even — show flat zero line
     lpChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
         labels: ['0', formatCompact(pool * 10)],
         datasets: [{
           label: 'LP Net Return (%)', data: [0, 0],
-          borderColor: c.textMuted, backgroundColor: c.textMuted + '10',
+          borderColor: c.textMuted, backgroundColor: c.textMuted + '20',
           fill: true, tension: 0, pointRadius: 2, borderWidth: 2,
         }]
       },
@@ -1955,13 +2176,13 @@ function updateLP() {
     return;
   }
 
-  // With fees and 0 baseline loss, LP is profitable from first trade
-  var maxVol = pool * 5;
+  // With fees: LP earns linearly from volume (no baseline loss to overcome)
   var volumes = [], returns = [];
+  var maxVol = pool * 10;
   for (var i = 0; i <= 20; i++) {
     var vol = (maxVol / 20) * i;
     volumes.push(vol);
-    returns.push(((vol * lpFeeRate) / pool) * 100);
+    returns.push(((vol * lpFeeRate - baselineLossAmt) / pool) * 100);
   }
 
   lpChartInstance = new Chart(ctx, {
@@ -2091,6 +2312,7 @@ function updateFeeDisplay() {
     + langText('Trade', '') + ' ' + (market.tradeFeeBps / 100).toFixed(1) + '% | '
     + langText('LP Share', ' LP') + ' ' + market.lpFeeSharePct + '% | '
     + langText('Redemption', '') + ' ' + (market.redemptionFeeBps / 100).toFixed(1) + '%'
+    + ' | ' + langText('Kernel W', ' W') + ' ' + market.kernelWidth
     + '</span>';
 }
 
@@ -2303,7 +2525,10 @@ function updateDiscreteTradePreview() {
     tokensOut = newXi - market.positions[bin];
     var peakPayout = tokensOut * (1 - market.redemptionFeeBps / 10000);
     var maxProfit = peakPayout - amount;
-    newProb = (newXi * newXi) / (kNew * kNew);
+    // Linear probability: x_i / sum(x_j) after trade
+    var sumPosPreview = 0;
+    for (var j = 0; j < market.N; j++) sumPosPreview += (j === bin ? newXi : market.positions[j]);
+    newProb = sumPosPreview > 0 ? newXi / sumPosPreview : 1 / market.N;
 
     var profitPct = amount > 0 ? (maxProfit / amount * 100).toFixed(1) + '%' : '-';
     html = '<div class="preview-header">' + langText('Buy Preview', '\u200C ') + '</div>';
@@ -2329,7 +2554,10 @@ function updateDiscreteTradePreview() {
     var grossOut = market.k - kNewS;
     fee = Math.floor(grossOut * market.tradeFeeBps / 10000);
     collateralOut = grossOut - fee;
-    newProb = kNewS > 0 ? (newXiS * newXiS) / (kNewS * kNewS) : 0;
+    // Linear probability: x_i / sum(x_j) after trade
+    var sumPosSell = 0;
+    for (var j = 0; j < market.N; j++) sumPosSell += (j === bin ? newXiS : market.positions[j]);
+    newProb = sumPosSell > 0 ? newXiS / sumPosSell : 0;
 
     html = '<div class="preview-header">' + langText('Sell Preview', '\u200C ') + '</div>';
     html += '<div class="preview-grid">';
@@ -2374,13 +2602,22 @@ function updateDistTradePreview() {
     if (discrim < 0) { el.style.display = 'none'; return; }
     var lambda = Math.sqrt(discrim) - XW;
 
-    var totalTokens = 0, maxTokens = 0, peakBin = 0;
+    var tokensPerBinP = [];
+    var totalTokens = 0;
     for (var j = 0; j < market.N; j++) {
       var t = (lambda * W[j]) / W2;
+      tokensPerBinP.push(t);
       totalTokens += t;
-      if (t > maxTokens) { maxTokens = t; peakBin = j; }
     }
-    var peakPayout = maxTokens * (1 - market.redemptionFeeBps / 10000);
+    // Kernel-aware peak payout: find the winning bin that maximizes payout
+    var peakPayout = 0, peakBin = 0;
+    for (var w = 0; w < market.N; w++) {
+      var wKernel = market.getSettlementKernel(w);
+      var payoutW = 0;
+      for (var jj = 0; jj < market.N; jj++) payoutW += tokensPerBinP[jj] * wKernel[jj];
+      if (payoutW > peakPayout) { peakPayout = payoutW; peakBin = w; }
+    }
+    peakPayout *= (1 - market.redemptionFeeBps / 10000);
     var maxProfit = peakPayout - amount;
 
     var profitPct = amount > 0 ? (maxProfit / amount * 100).toFixed(1) + '%' : '-';

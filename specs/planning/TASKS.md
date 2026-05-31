@@ -3,6 +3,8 @@
 **Derived from:** TDD v1.0
 **Convention:** Each task is one focused coding session. Tasks are ordered by dependency — a task's prerequisites are listed in `Depends on`. Cross-layer dependencies (e.g., frontend needs program deployed) are noted explicitly.
 
+> **Update (2026-05-31, smooth-kernel refactor):** The improved-model refactor (linear probability display + smooth triangular settlement kernel) was delivered as a separate 8-phase work-stream tracked in [`IMPROVED_SMS_REFACTOR_TASKS.md`](IMPROVED_SMS_REFACTOR_TASKS.md). It touched every layer (program, backend, frontend, devkit, CLIs, e2e smoke, docs) without re-opening any task here. Cross-references are added inline below where the refactor changed the meaning of a deliverable (notably **P-16 resolve_market**, **P-17 claim_payout**, **P-20 math review**, and **B-3 / B-5 / B-6** on the backend side, all of which keep their original ✅ status but now also satisfy the v2 contract).
+
 ---
 
 ## Dependency Graph (Visual)
@@ -671,6 +673,8 @@ DEVELOPER REVIEW (human-led, after all implementation)
 
 ### P-16: Resolve Market Instruction ✅
 
+> **Smooth-kernel refactor extension (2026-05-31, Phase 4 of `IMPROVED_SMS_REFACTOR_TASKS.md`):** for continuous markets with `kernel_width > 0`, `resolve_market` additionally computes and stores the per-market `scaling_factor` (SCALE-denominated, `≤ SCALE`). For all other markets, `scaling_factor` remains `0` and resolution behaviour is unchanged. The base goal/tests below still hold.
+
 **Goal:** Implement oracle resolution.
 
 **Deliverable — `instructions/market/resolve_market.rs`:**
@@ -702,6 +706,8 @@ DEVELOPER REVIEW (human-led, after all implementation)
 ---
 
 ### P-17: Claim Payout Instruction ✅
+
+> **Smooth-kernel refactor extension (2026-05-31, Phase 4 of `IMPROVED_SMS_REFACTOR_TASKS.md`):** for continuous markets with `kernel_width > 0`, payout is now `gross = floor(Σ_i (holdings[i] · K(i, win, W) / SCALE) · scaling_factor / SCALE)` rather than `holdings[win]`. The WTA branch in this task description still describes the runtime path for every other market. See TDD §5.8.2 for the kernel formula and `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md` for the solvency proof.
 
 **Goal:** Implement post-resolution payout redemption.
 
@@ -802,6 +808,8 @@ DEVELOPER REVIEW (human-led, after all implementation)
 ---
 
 ### P-20: Math & Logic Review
+
+> **Substantially addressed by the smooth-kernel refactor (2026-05-31).** The improved-model work in `IMPROVED_SMS_REFACTOR_TASKS.md` re-derived the probability-display math (Phase 1), the smooth-kernel payout and per-resolution scaling factor (Phases 3–4), the solvency proof in `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md`, and the rounding/dust analysis in `REFACTOR_NOTES.md` §1. Rust unit + Anchor integration suites were expanded as part of Phases 3, 4, 5. The remaining work for P-20 is now a *narrow* delta: verify the LP residual under kernel-mode in a few stress configs that weren't covered by the refactor's solvency invariant test (`test_solvency_invariant_aggregate_payout_le_total_minted`), and skim the Normal-PDF approximation for tail-cutoff bias.
 
 **Goal:** Deep review of the project's core mathematics and trading logic to verify correctness — especially the L2-norm AMM, distribution trading, fixed-point arithmetic, payout calculations, and edge cases.
 

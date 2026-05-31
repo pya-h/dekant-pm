@@ -89,6 +89,9 @@
 │  │  │ - compute_distribution_sell(reserves, weights, amt)│    │   │
 │  │  │ - verify_invariant(reserves, k_squared)            │    │   │
 │  │  │ - compute_implied_probabilities(reserves)          │    │   │
+│  │  │   (linear: p_i = x_i / Σ x_j; replaced quadratic)  │    │   │
+│  │  │ - compute_kernel_payout(holdings, win, W, sf)      │    │   │
+│  │  │ - compute_scaling_factor(trader_totals, win, W, k) │    │   │
 │  │  └────────────────────────────────────────────────────┘    │   │
 │  │                                                            │   │
 │  │  Math lib:                                                 │   │
@@ -96,6 +99,7 @@
 │  │  │ fixed_point.rs — u128 scaled arithmetic            │    │   │
 │  │  │ sqrt.rs — integer Newton's method                  │    │   │
 │  │  │ normal_pdf.rs — Gaussian bin weight computation    │    │   │
+│  │  │ kernel.rs — triangular settlement kernel (v2)      │    │   │
 │  │  └────────────────────────────────────────────────────┘    │   │
 │  └────────────────────────────────────────────────────────────┘   │
 │                                                                   │
@@ -165,7 +169,8 @@ programs/dekant-pm/
 │       ├── amm.rs                # L2-norm AMM core logic
 │       ├── fixed_point.rs        # u128 scaled math primitives
 │       ├── sqrt.rs               # Integer square root (Newton's method)
-│       └── normal_pdf.rs         # Gaussian discretization into bins
+│       ├── normal_pdf.rs         # Gaussian discretization into bins
+│       └── kernel.rs             # Triangular settlement kernel (smooth-kernel refactor, 2026-05-31)
 ```
 
 ### 2.2 Instruction Set
@@ -310,19 +315,29 @@ Unique: one per market
 │                          │          │ winning bin (cont)          │
 │ resolved_value           │ i64      │ Exact value (continuous)    │
 │                          │          │                             │
+│ // Smooth kernel (continuous; added in schema v2, 2026-05-31)     │
+│ kernel_width             │ u16      │ Half-width W of triangular  │
+│                          │          │ settlement kernel. 0 = WTA, │
+│                          │          │ W>0 = smooth kernel covers  │
+│                          │          │ 2W+1 bins around the win.   │
+│ scaling_factor           │ u64      │ Solvency-preserving factor  │
+│                          │          │ s, SCALE-denominated, 0     │
+│                          │          │ until resolve_market.       │
+│                          │          │                             │
 │ // Outcome labels (discrete only, stored as indices into          │
 │ //   off-chain metadata — not stored on-chain)                    │
 │                          │          │                             │
 │ bump                     │ u8       │ PDA bump                    │
-│ _padding                 │ [u8;32]  │ Future fields               │
+│ _padding                 │ [u8;20]  │ Future fields (was 30 in v1,│
+│                          │          │ 10 bytes consumed by kernel)│
 │                          │          │                             │
 │ // Variable-length AMM reserves                                   │
 │ reserves                 │ [u64; N] │ AMM holdings per outcome/bin│
 ├──────────────────────────┴──────────┴─────────────────────────────┤
 │ Fixed header: 8 + 1+8+1+1 + 32+32+32+32 + 8+8+8 +               │
-│               2+16+16+16+16 + 8+8 + 2+8 + 1+32 = 288 bytes      │
+│               2+16+16+16+16 + 8+8 + 2+8 + 2+8 + 1+20 = 288 bytes│
 │ Reserves: N * 8 bytes                                             │
-│ Total: 288 + N*8                                                  │
+│ Total: 288 + N*8 (unchanged — kernel fields repurpose padding)    │
 │   Binary (N=2):    304 bytes                                      │
 │   Multi (N=32):    544 bytes                                      │
 │   Continuous (N=64):  800 bytes                                   │
@@ -333,6 +348,8 @@ Unique: one per market
 
 **Design note — why a single Market struct?**
 Binary and multi-outcome markets are degenerate cases of the continuous market (just fewer bins, no range). Using a single struct avoids code duplication in AMM logic. The `market_type` field determines which instruction variants are valid and how resolution/display works.
+
+**Schema v2 note (smooth-kernel refactor, 2026-05-31).** `kernel_width` and `scaling_factor` were added by repurposing 10 bytes of the original `[u8; 30]` padding. The total account size is unchanged, so existing v1 accounts deserialize cleanly under the v2 layout — the old zero padding reads as `kernel_width = 0, scaling_factor = 0`, which is exactly the WTA-mode default. `SCHEMA_VERSION` is bumped to 2 for newly created markets. Any future field addition that consumes more padding must respect the same invariant: the deserialized-from-zero value must equal the intended default for unmigrated accounts. See `specs/details/improved/REFACTOR_NOTES.md` §4 for the layout-migration analysis.
 
 ### 3.4 UserPosition
 
@@ -557,11 +574,24 @@ But this gives uniform pricing with `price[i] = reserves[i]² / k² = L² / (N *
 
 #### Implied Probability
 
+> **Note (2026-05-31, smooth-kernel refactor):** The displayed probability formula was switched from quadratic (`x_i² / k²`) to **linear** (`x_i / Σ x_j`) so the UI reads the true belief at trader-equilibrium. The on-chain helper, frontend, backend, and devkit all moved together (no fork between surfaces). The quadratic line below is preserved for historical reference; the **linear formula is the implementation**. See `specs/details/improved/L2_NORM_PROBABILITY_DISPLAY.md` and `LINEAR_DISPLAY_EXPLAINED.md` for the full analysis.
+
+**Current (linear) — what the code returns:**
+
 ```
-price[i] = reserves[i]² / k_squared
+let x_i = total_minted - reserves[i]          // outcome-i lean
+p_i = floor(x_i * SCALE / Σ_j x_j)            // per outcome, SCALE-denominated
 ```
 
-These sum to 1 by the invariant. Displayed as percentages in the UI.
+`p_i` sums to `SCALE ± (N − 1)` (per-term flooring; cosmetic — see `REFACTOR_NOTES.md` §2). At equilibrium `x ∝ p_true`, so `p_i ≈ p_true` directly.
+
+**Legacy (quadratic) — original design, no longer used:**
+
+```
+price[i] = reserves[i]² / k_squared    // sums to 1 exactly by invariant, but distorts non-uniform states
+```
+
+**Behavioural impact on `buy_to_price` / `sell_to_price`.** Both target-probability instructions now interpret the user-supplied `target_prob` as the **linear** displayed probability (`x_i_target = target · S / (SCALE − target)`, where `S = Σ_{j≠i} x_j`). This is a wire-level change with no schema flag — the program upgrade and the frontend/backend redeploy must be coordinated. See `REFACTOR_NOTES.md` §3.
 
 ### 5.4 Continuous Market Trades (Distribution Markets)
 
@@ -726,37 +756,65 @@ Transfer (collateral_out + fee_share) to LP
 After oracle resolves with winning outcome `w`:
 
 > **Note (2026-03-28):** The proportional payout formula below was the original design. The implementation was refactored to **1:1 fixed payout** (`gross_payout = winning_tokens`). See `RESOLUTION_REFACTOR_TASKS.md` and `MAJOR_BUGS.md` (BUG-003) for rationale.
+>
+> **Note (2026-05-31, smooth-kernel refactor):** Continuous markets now have a second resolution mode gated on the per-market `kernel_width` field. `kernel_width = 0` keeps the 1:1 WTA logic below (used by every binary/multi market and every pre-refactor continuous market). `kernel_width = W > 0` (continuous only) switches to the **smooth-kernel branch** described after the WTA block. See `specs/planning/IMPROVED_SMS_REFACTOR_TASKS.md` (Phases 3–4) and `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md` for the design.
+
+#### 5.8.1 WTA branch (current 1:1 fixed payout)
+
+Used for **all** binary and multi-outcome markets, and for continuous markets created with `kernel_width = 0`.
 
 ```
 // For binary/multi: w = outcome index
-// For continuous: w = bin index containing resolved value
+// For continuous (kernel_width = 0): w = bin index containing resolved value
 
-winning_tokens_total = total_minted - reserves[w]
-  // = all tokens of outcome w held by traders + those "consumed" by AMM = total_minted - reserves[w]
-  // Actually: total tokens of outcome w ever created = total_minted
-  //           AMM still holds reserves[w] of them
-  //           Traders collectively hold total_minted - reserves[w]
-
-payout_pool = vault_balance - lp_fee_accumulated
-  // Everything in the vault minus unclaimed LP fees
-
-payout_per_token = payout_pool / winning_tokens_total
-  // Normally ≈ 1.0 (in collateral units), can be slightly above due to rounding
-```
-
-For a specific trader claiming:
-
-```
-gross_payout = user.holdings[w] * payout_per_token
-fee = gross_payout * redemption_fee_bps / 10_000
-net_payout = gross_payout - fee
+gross_payout = user.holdings[w]    // 1:1 fixed payout, per BUG-003 refactor
+fee          = gross_payout * redemption_fee_bps / 10_000
+net_payout   = gross_payout - fee
 
 user.claimed = true
 Transfer net_payout to trader
 Transfer fee to treasury
 ```
 
-**Edge case: no winning tokens outstanding** (`winning_tokens_total == 0`). This means no trader holds any tokens of the winning outcome — the AMM holds all of them. All collateral goes to LPs (residual claim). This is the AMM equivalent of "the house wins."
+LP residual at resolution: `reserves[w] = total_minted - trader_token_totals[w]`. Always non-negative (`x_w ≤ k` by the invariant).
+
+**Edge case: no winning tokens outstanding** (`Σ holdings[w] == 0`). The AMM holds all winning-outcome tokens. All collateral goes to LPs (residual claim). This is the AMM equivalent of "the house wins."
+
+#### 5.8.2 Smooth-kernel branch (continuous, `kernel_width > 0`)
+
+Triangular kernel of half-width `W` centred on the winning bin `w`:
+
+```
+K(i, w, W) = max(0, 1 - |i - w| / (W + 1))    // SCALE-denominated, in [0, SCALE]
+```
+
+`K(w, w, W) = SCALE` (full payout for the winning bin). `K = 0` beyond `|i - w| > W`. Kernel is naturally truncated when `w` is near a bin boundary.
+
+**At `resolve_market`** the program computes the per-market `scaling_factor`:
+
+```
+raw_claims     = Σ_i floor(trader_token_totals[i] * K(i, w, W) / SCALE)
+scaling_factor = min(SCALE, k * SCALE / raw_claims)    // s ≤ 1, SCALE-denominated
+```
+
+`scaling_factor` is stored on the Market account and guarantees `Σ claims ≤ k` (vault solvency).
+
+**At `claim_payout`** (per-trader):
+
+```
+raw_payout   = Σ_i floor(user.holdings[i] * K(i, w, W) / SCALE)
+gross_payout = floor(raw_payout * scaling_factor / SCALE)
+fee          = floor(gross_payout * redemption_fee_bps / 10_000)
+net_payout   = gross_payout - fee
+
+user.claimed = true
+Transfer net_payout to trader
+Transfer fee to treasury
+```
+
+LP residual at resolution: `k - raw_claims * scaling_factor / SCALE`. Always `≥ 0` by construction (and exactly `0` whenever scaling triggers — i.e., the worst case for LPs). See `specs/details/improved/LP_SMS_EFFECT.md` for the LP impact analysis.
+
+**Rounding semantics.** Per-bin floors stack at three points (`kernel_weight` itself, the per-bin `holdings * K`, and the final `* s` aggregate). The function is intentionally conservative — small dust accumulates in the vault, not against the LP residual. See `REFACTOR_NOTES.md` §1.
 
 ### 5.9 Normal PDF Approximation (On-Chain)
 
@@ -1047,6 +1105,8 @@ The indexer runs as a persistent NestJS service (not a separate process). It use
 
 ### 9.2 Anchor Events Emitted by Program
 
+> **Note (2026-05-31, smooth-kernel refactor):** `kernel_width` and `scaling_factor` are **not** carried in any event payload — they live on the Market account itself. The indexer reads them by fetching the post-event Market account via `program.account.market.fetch(...)`, which already runs after every `MarketCreated` and `MarketResolved` event. If a future need arises for an event-only stream (e.g., a webhook with no RPC access), `MarketCreated.kernel_width` and `MarketResolved.scaling_factor` should be added — but as of the refactor they are intentionally absent.
+
 ```rust
 // Defined in the program, emitted via emit!()
 
@@ -1060,6 +1120,8 @@ pub struct MarketCreated {
     pub deadline: i64,
     pub num_outcomes: u16,
     pub initial_liquidity: u64,
+    pub range_min: i64,
+    pub range_max: i64,
 }
 
 #[event]
@@ -1089,8 +1151,9 @@ pub struct MarketResolved {
 pub struct PayoutClaimed {
     pub market_id: u64,
     pub trader: Pubkey,
-    pub amount: u64,
+    pub gross_amount: u64,           // pre-fee payout (kernel-weighted on smooth-kernel markets)
     pub fee_paid: u64,
+    pub net_amount: u64,
 }
 
 #[event]

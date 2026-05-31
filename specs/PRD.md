@@ -283,8 +283,9 @@ Based on the L2-norm AMM over parameterized distributions, discretized into bins
 **Payoff at resolution:**
 - Oracle submits exact value `v`
 - The bin `b*` containing `v` is the winning bin
-- Traders holding tokens in bin `b*` receive proportional payouts
-- Interpolation between adjacent bins can be used for precision
+- If the market was created with `kernel_width = 0`: only holdings in `b*` pay out (WTA-equivalent)
+- If the market was created with `kernel_width = W > 0`: holdings in `b*` *and* the `2W` adjacent bins pay out, weighted by a triangular kernel `K(i, b*, W)` and scaled by the vault-solvency factor `s` (see §7.6)
+- `kernel_width` is set per market at creation time; rewarding near-miss predictions is the kernel's purpose
 
 ### 7.4 Liquidity Provision
 
@@ -307,12 +308,18 @@ Based on the L2-norm AMM over parameterized distributions, discretized into bins
 ### 7.6 Settlement & Payout
 
 > **Implementation Note (2026-03-28):** The parimutuel formula below was the original spec. The implementation uses **1:1 fixed payout** instead: each winning token redeems for exactly 1 unit of collateral. See `MAJOR_BUGS.md` (BUG-003) and `RESOLUTION_REFACTOR_TASKS.md` for details.
+>
+> **Implementation Note (2026-05-31, smooth-kernel refactor):** Continuous markets now support an opt-in **smooth triangular kernel** at resolution. Behaviour depends on the per-market `kernel_width` (chosen at `create_market`):
+> - `kernel_width = 0` — preserves WTA: only the winning bin pays out (used for all binary, multi-outcome, and pre-refactor continuous markets).
+> - `kernel_width = W > 0` (continuous only) — holdings in adjacent bins also pay out, weighted by `K(i, win, W) = max(0, 1 − |i − win| / (W + 1))`. A solvency-preserving **scaling factor** `s = min(1, k / total_claims)` is computed and stored at resolution time. See `specs/details/improved/SMOOTH_KERNEL_SOLVENCY.md` and `specs/planning/IMPROVED_SMS_REFACTOR_TASKS.md` for the full rationale, math, and test coverage.
 
 - After resolution, traders call a `claim` instruction to receive their payout.
-- Payout calculation:
-  - **Binary/Multi-outcome:** `trader_tokens_in_winning_outcome * payout_per_token`
-  - **Continuous:** `trader_tokens_in_winning_bin * payout_per_token` (with optional adjacent-bin interpolation)
-- `payout_per_token = total_collateral_pool / total_winning_tokens`
+- Payout calculation (current implementation):
+  - **Binary/Multi-outcome:** `gross_payout = holdings[winning_outcome]` (1:1 WTA, minus redemption fee)
+  - **Continuous, `kernel_width = 0`:** Same as above — `holdings[winning_bin]` (WTA-equivalent)
+  - **Continuous, `kernel_width > 0`:** `gross_payout = floor(Σ_i (holdings[i] · K(i, win, W) / SCALE) · s / SCALE)` (smooth-kernel branch, minus redemption fee)
+- `s` (scaling factor) is stored in the Market account at resolution and guarantees the vault stays solvent in the worst case.
+- The original parimutuel formula `payout_per_token = total_collateral_pool / total_winning_tokens` was *never* shipped — the design moved straight from spec to 1:1 fixed payout (per BUG-003), then to the kernel-aware variant above.
 - Redemption fee is deducted at claim time.
 - Unclaimed payouts remain available indefinitely (no expiry in MVP).
 
@@ -579,6 +586,11 @@ The following are explicitly **not** included in the MVP and are deferred to fut
 | **Settlement** | The process of distributing payouts to winning traders after resolution. |
 | **Backing** | Maximum collateral the AMM can owe per unit of outcome. Ensures solvency in continuous markets. |
 | **Invariant** | A mathematical property that must hold true before and after every state transition (trade). |
+| **WTA (winner-take-all)** | Resolution mode where only the single winning outcome/bin pays out. Used for binary, multi-outcome, and continuous markets created with `kernel_width = 0`. |
+| **Smooth kernel** | Opt-in resolution mode for continuous markets where holdings in the winning bin and its `2W` neighbours pay out, weighted by a triangular kernel `K(i, win, W)`. Selected per market via `kernel_width`. |
+| **`kernel_width` (W)** | Per-market half-width of the triangular settlement kernel (u16, default 0). `0` = WTA. `W > 0` (continuous markets only) = smooth kernel covering `2W + 1` bins around the winning bin. |
+| **`scaling_factor` (s)** | Per-market solvency-preserving multiplier `s = min(1, k / Σ_i K_i · trader_totals[i])`, computed once at resolution time and stored in the Market account. Guarantees `Σ claims ≤ k` for kernel-mode markets. |
+| **Linear probability** | Displayed probability formula `p_i = x_i / Σ_j x_j` (where `x_i = total_minted - reserves_i`). Replaces the legacy quadratic formula `x_i² / k²`. Reads true at trader-equilibrium. |
 
 ---
 
@@ -588,6 +600,8 @@ The following are explicitly **not** included in the MVP and are deferred to fut
 2. **Metaculus**: [metaculus.com](https://www.metaculus.com/) — UX reference for distribution input and question types.
 3. **Polymarket**: Existing binary prediction market — user base overlap.
 4. **Anchor Framework**: Solana smart contract framework used for program development.
+5. **Improved-model deep dives**: [specs/details/improved/](details/improved/) — `CURRENT_VS_IMPROVED.md`, `L2_NORM_PROBABILITY_DISPLAY.md`, `SMOOTH_KERNEL_SOLVENCY.md`, `LINEAR_DISPLAY_EXPLAINED.md`, `LP_SMS_EFFECT.md`, `REFACTOR_NOTES.md`.
+6. **Smooth-kernel refactor log**: [specs/planning/IMPROVED_SMS_REFACTOR_TASKS.md](planning/IMPROVED_SMS_REFACTOR_TASKS.md) — 8-phase plan + status that delivered the smooth kernel + linear display.
 
 ---
 

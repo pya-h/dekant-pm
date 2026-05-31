@@ -51,11 +51,13 @@ const SCALE_BIG = BigInt(SCALE.toString());
 
 // ── Width picker (closure) ──────────────────────────────────────────
 //
-// Holds the set of widths already drawn in this file. Randomized scenarios
-// call `pickWidth(numBins, min?, max?)` for a unique value; pinned scenarios
-// call `pickWidth.reserve(w)` upfront so randomized draws never collide with
-// them. Throws if the pool is exhausted — treat that as a signal to recheck
-// pool capacity rather than as a flake (per P5-2e).
+// Two sets: `reserved` (permanent, set via `pickWidth.reserve(w)`) and
+// `drawn` (this cycle's random draws). Within a cycle, every randomized
+// scenario gets a distinct width. When the candidate pool empties, `drawn`
+// is cleared (reservations survive) and picking continues — so repeats are
+// possible across cycles, never within one. Bumping the `max` argument
+// (default 10) is still the right move if you want more distinct widths
+// before the first reset, but the picker no longer crashes when you don't.
 
 type WidthPicker = {
   (numBins: number, min?: number, max?: number): number;
@@ -63,22 +65,37 @@ type WidthPicker = {
 };
 
 function makeWidthPicker(): WidthPicker {
-  const used = new Set<number>();
+  const reserved = new Set<number>();
+  const drawn = new Set<number>();
+  const candidates = (lo: number, hi: number): number[] => {
+    const free: number[] = [];
+    for (let w = lo; w <= hi; w++) {
+      if (!reserved.has(w) && !drawn.has(w)) free.push(w);
+    }
+    return free;
+  };
   const pick = ((numBins: number, min: number = 1, max: number = 10): number => {
     const hi = Math.min(max, numBins - 1);
     const lo = Math.max(min, 1);
-    const free: number[] = [];
-    for (let w = lo; w <= hi; w++) if (!used.has(w)) free.push(w);
+    let free = candidates(lo, hi);
     if (free.length === 0) {
-      throw new Error(
-        `pickKernelWidth: no unused widths in [${lo}..${hi}] (used=${[...used].join(",")})`
+      console.log(
+        `[pickWidth] pool [${lo}..${hi}] exhausted; resetting drawn set (reservations kept: ${[...reserved].join(",") || "none"})`
       );
+      drawn.clear();
+      free = candidates(lo, hi);
+      if (free.length === 0) {
+        // Reservations alone cover the range — configuration bug, not exhaustion.
+        throw new Error(
+          `pickWidth: range [${lo}..${hi}] is fully reserved (${[...reserved].join(",")}); no random draws possible`
+        );
+      }
     }
     const w = free[Math.floor(Math.random() * free.length)];
-    used.add(w);
+    drawn.add(w);
     return w;
   }) as WidthPicker;
-  pick.reserve = (w: number) => { used.add(w); };
+  pick.reserve = (w: number) => { reserved.add(w); };
   return pick;
 }
 

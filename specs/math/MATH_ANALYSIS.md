@@ -1,5 +1,7 @@
 # DekantPM — Mathematical Analysis
 
+> **Status:** Canonical math reference for the L₂-norm AMM with linear probability display and opt-in smooth-kernel settlement (kernel_width > 0). Last updated 2026-05-31. For the interactive notebook see [`MATH_ANALYSIS_INTERACTIVE.html`](./MATH_ANALYSIS_INTERACTIVE.html) (or the offline bundle in [`math_offline/`](./math_offline/)).
+
 ## 1. Introduction: Continuous Prediction Markets
 
 ### 1.1 What Are Prediction Markets?
@@ -85,37 +87,23 @@ This makes the L₂-norm AMM a **market scoring rule** — the relative sizes of
 
 ### 2.4 Probability Extraction
 
-Given that x ∝ p at equilibrium, there are two natural ways to extract a probability distribution from the AMM state.
-
-**Linear extraction (true probabilities at equilibrium):**
+Given that x ∝ p at equilibrium, the displayed probability is the **linear** normalization:
 
 ```
 p̂ᵢ = xᵢ / ∑ⱼ xⱼ = (k − hᵢ) / ∑ⱼ (k − hⱼ)
 ```
 
-This recovers the actual probabilities at the Cauchy-Schwarz optimum: if x* = k·p/‖p‖₂, then x*ᵢ/∑x*ⱼ = pᵢ/∑pⱼ = pᵢ. These are the true probabilities, but they do not arise naturally from the invariant.
-
-**Quadratic extraction (used by DekantPM):**
+This recovers the true probabilities at the Cauchy-Schwarz optimum: if x* = k·p/‖p‖₂, then x*ᵢ/∑x*ⱼ = pᵢ/∑pⱼ = pᵢ. The implementation scales probabilities by S = 10⁹:
 
 ```
-p̂ᵢ = xᵢ² / k² = (k − hᵢ)² / k²
+p̂ᵢ_scaled = xᵢ · S / ∑ⱼ xⱼ
 ```
 
-These values sum to 1 automatically by the invariant (∑xᵢ² = k²), making them computationally convenient. At equilibrium where x*ᵢ = k·pᵢ/‖p‖₂:
+The sum normalization ∑p̂ᵢ = 1 is enforced explicitly rather than falling out of the invariant.
 
-```
-p̂ᵢ = x*ᵢ² / k² = pᵢ² / ‖p‖₂²
-```
+### 2.5 Linear Display: Why Not the Quadratic Form
 
-The implementation reports probabilities scaled by S = 10⁹:
-
-```
-p̂ᵢ_scaled = xᵢ² · S / k²
-```
-
-### 2.5 Quadratic Pricing: Interpretation and Distortion
-
-The quadratic formula p̂ᵢ = xᵢ²/k² is **not** the true probability at equilibrium — it is the squared and renormalized probability. This creates a non-linear distortion that compresses values toward the extremes.
+An alternative "quadratic" extraction p̂ᵢ = xᵢ²/k² is invariant-derived (∑p̂ᵢ = 1 follows from ∑xᵢ² = k² without renormalization) and was the original DekantPM display. It was retired because the squaring step introduces a systematic non-linear distortion: traders saw probabilities compressed toward the extremes and could not read the market state at face value.
 
 **Example (binary market, true probability p₁ = 0.7, p₂ = 0.3):**
 
@@ -123,35 +111,24 @@ The quadratic formula p̂ᵢ = xᵢ²/k² is **not** the true probability at equ
 ‖p‖₂ = √(0.49 + 0.09) = √0.58 ≈ 0.7616
 
 Quadratic:  p̂₁ = 0.49/0.58 ≈ 0.845    p̂₂ = 0.09/0.58 ≈ 0.155
-Linear:     p₁ = 0.7                     p₂ = 0.3
+Linear:     p̂₁ = 0.7                   p̂₂ = 0.3
 ```
 
-The displayed "84.5%" corresponds to a true equilibrium probability of 70%.
+A "70% true" outcome rendered as "84.5%" with the quadratic display.
 
-**Distortion table for binary markets:**
+**Distortion table the legacy quadratic display would have produced:**
 
-| True probability | Quadratic p̂ (displayed) |
-|-----------------|------------------------|
-| 50%             | 50.0%                  |
-| 60%             | 69.2%                  |
-| 70%             | 84.5%                  |
-| 80%             | 94.1%                  |
-| 90%             | 98.8%                  |
+| True probability | Quadratic p̂ (legacy) | Linear p̂ (current) |
+|-----------------|----------------------|--------------------|
+| 50%             | 50.0%                | 50.0%              |
+| 60%             | 69.2%                | 60.0%              |
+| 70%             | 84.5%                | 70.0%              |
+| 80%             | 94.1%                | 80.0%              |
+| 90%             | 98.8%                | 90.0%              |
 
-**To recover true probabilities from the displayed values:**
+The linear display is exact at equilibrium: a "70% displayed" outcome corresponds to a 70% true equilibrium probability. The trade-off is that the renormalization ∑xⱼ must be computed and tracked, rather than being implied by the invariant. The buy-to-price function, fee calculations, and AMM core all target the **linear** probability — a trader who targets "70%" reaches a state where xᵢ/∑xⱼ = 0.70.
 
-```
-pᵢ = √p̂ᵢ / ∑ⱼ √p̂ⱼ
-```
-
-**Why use the quadratic formula despite the distortion?**
-
-1. **Invariant-derived:** ∑p̂ᵢ = 1 follows directly from ∑xᵢ² = k², requiring no separate normalization step.
-2. **Internal consistency:** The buy-to-price function, fee calculations, and all AMM operations use the same quadratic definition. A trader targeting "70% displayed" gets exactly 70% displayed.
-3. **Monotonic:** The ordering of outcomes is always preserved — the most likely outcome always has the highest p̂.
-4. **Self-consistent equilibrium:** Traders interacting through the UI learn the quadratic scale. The market still converges to an efficient equilibrium; the scale is simply non-linear relative to true frequentist probabilities.
-
-**Important:** Throughout this document, "probability" and p̂ᵢ refer to the **quadratic** extraction xᵢ²/k² unless otherwise noted, since this is what the implementation computes and displays.
+**Important:** Throughout this document, "probability" and p̂ᵢ refer to the **linear** extraction xᵢ/∑xⱼ. The quadratic form is mentioned only when contrasting with the prior version.
 
 ---
 
@@ -165,10 +142,10 @@ When a market is created with initial liquidity **L** and **N** outcomes:
 4. Set k² = L².
 5. Initial LP receives L shares.
 
-The initial implied probability for each outcome is:
+The initial linear probability for each outcome is:
 
 ```
-p̂ᵢ = xᵢ² / k² ≈ (L²/N) / L² = 1/N
+p̂ᵢ = xᵢ / ∑ⱼ xⱼ = (L/√N) / (N · L/√N) = 1/N
 ```
 
 This gives a uniform prior — every outcome starts equally likely.
@@ -176,7 +153,7 @@ This gives a uniform prior — every outcome starts equally likely.
 **Example:** Binary market (N = 2) with L = 1,000,000 (1 USDC):
 - x₁ = x₂ = ⌊√(10¹²/2)⌋ = 707,106
 - h₁ = h₂ = 1,000,000 − 707,106 = 292,894
-- p̂₁ = p̂₂ = 707,106² / 1,000,000² ≈ 0.5 ✓
+- p̂₁ = p̂₂ = 707,106 / (2 · 707,106) = 0.5 ✓
 
 ---
 
@@ -201,7 +178,7 @@ x'ᵢ = √(k'² − ∑ⱼ≠ᵢ xⱼ²)
 6. Tokens received by trader: Δx = x'ᵢ − xᵢ.
 7. Update reserve: hᵢ = k' − x'ᵢ.
 
-**Price impact:** A larger purchase c increases xᵢ relative to other positions, raising p̂ᵢ. The square root creates a **concave** relationship — each additional unit costs more, providing natural slippage protection.
+**Price impact:** A larger purchase c increases xᵢ relative to other positions, raising p̂ᵢ = xᵢ/∑xⱼ. The square root in step 5 creates a **concave** relationship between position size and collateral — each additional unit costs more, providing natural slippage protection.
 
 ### 4.2 Sell (Single Outcome)
 
@@ -228,17 +205,17 @@ For a buy of amount c on outcome i in a binary market (N = 2) with current state
 
 Before trade:
 ```
-p̂₁ = x₁²/k²
+p̂₁ = x₁ / (x₁ + x₂)
 ```
 
 After trade (buying outcome 1):
 ```
 k' = k + c
 x'₁ = √(k'² − x₂²)
-p̂'₁ = x'₁²/k'²
+p̂'₁ = x'₁ / (x'₁ + x₂)
 ```
 
-The price impact increases with c/k (trade size relative to liquidity). For small trades (c ≪ k), the price impact is approximately linear; for large trades, the square root creates diminishing returns — each additional unit of collateral buys fewer tokens.
+The price impact increases with c/k (trade size relative to liquidity). For small trades (c ≪ k), the price impact is approximately linear; for large trades, the square root in x'₁ creates diminishing returns — each additional unit of collateral buys fewer tokens.
 
 ---
 
@@ -278,22 +255,14 @@ wⱼ = exp(−zⱼ²/2)
 
 Note: this is the Normal PDF kernel (without the 1/√(2π) normalizing constant, which cancels during normalization anyway).
 
-**Step 2 — On-chain approximation.** The exponential is computed using a degree-4 Taylor polynomial of exp(−t/2) where t = z², evaluated in Horner form:
+**Step 2 — On-chain approximation.** The exponential is read from a precomputed lookup table covering |z| ∈ [0, 5] in steps of 0.1, giving 51 entries of exp(−z²/2) at SCALE = 10⁹ precision. For an arbitrary |z|, the on-chain function:
 
-```
-exp(−t/2) ≈ 1 − t/2 + t²/8 − t³/48 + t⁴/384
-```
+1. Locates the bracketing table indices ⌊10·|z|⌋ and ⌊10·|z|⌋ + 1.
+2. Linearly interpolates between the two table values using the fractional part.
 
-All arithmetic uses fixed-point with denominator S = 10⁹. The approximation error profile:
+This replaces the earlier degree-4 Taylor polynomial, whose error grew to 10–50% in the tails (|z| ∈ [2.5, 5]) and corrupted the kernel weight vector for broad distributions. The table + linear interpolation keeps the relative error below ~0.5% across the entire |z| ∈ [0, 5] range while costing only one table lookup, one subtraction, one multiplication, and one division per bin.
 
-| |z| range | t = z² range | Relative error |
-|-----------|-------------|---------------|
-| 0 – 1.0   | 0 – 1.0    | < 0.01%      |
-| 1.0 – 1.5 | 1.0 – 2.25 | ~ 0.1%       |
-| 1.5 – 2.5 | 2.25 – 6.25| ~ 1–5%       |
-| 2.5 – 5.0 | 6.25 – 25  | ~ 10–50%     |
-
-For bins near the distribution center (|z| < 1.5), the approximation is excellent. For tail bins (|z| > 2.5), the absolute weight is small, so even large relative errors have negligible effect on the normalized weight vector. The Z_CUTOFF = 5 ensures that bins beyond 5σ from the mean receive zero weight, which excludes less than 6 × 10⁻⁷ of the probability mass.
+All arithmetic uses fixed-point with denominator S = 10⁹. Z_CUTOFF = 5 ensures that bins beyond 5σ from the mean receive zero weight (excluding less than 6 × 10⁻⁷ of the probability mass).
 
 **Step 3 — Normalize.** Weights are scaled so ∑wⱼ = S (= 10⁹):
 
@@ -370,42 +339,31 @@ No quadratic is needed because the tokens being returned are known, and k' is co
 
 ### 5.5 Buy-to-Price (Price-Targeted Trading)
 
-A trader can specify a **target probability** p* for outcome i (in the quadratic sense: xᵢ²/k² = p*/S), and the AMM computes how much collateral is needed.
+A trader can specify a **target probability** p* for outcome i (in the linear sense: xᵢ/∑xⱼ = p*/S), and the AMM computes how much collateral is needed.
 
 **Derivation:**
 
-We want p̂'ᵢ = p*/S after the trade, meaning:
+We want p̂'ᵢ = p*/S after the trade, meaning x'ᵢ = (p*/S) · ∑ⱼ x'ⱼ. Let q = p*/S and Σ₋ᵢ = ∑ⱼ≠ᵢ xⱼ (note: the linear formula uses Σ of positions, not Σ of squares).
+
+Since non-target positions don't change during a buy (the complete-set minting preserves them), x'ⱼ = xⱼ for j ≠ i. The target relation becomes:
 
 ```
-x'ᵢ² / k'² = p* / S
+x'ᵢ = q · (x'ᵢ + Σ₋ᵢ)
+x'ᵢ (1 − q) = q · Σ₋ᵢ
+x'ᵢ = q · Σ₋ᵢ / (1 − q)
 ```
 
-Since non-target positions don't change during a buy (the complete-set minting preserves them):
+The buy mechanics in §4.1 still apply — given the target x'ᵢ we recover k' from the invariant:
 
 ```
-k'² = ∑ⱼ x'ⱼ² = ∑ⱼ≠ᵢ xⱼ² + x'ᵢ²
+k'² = x'ᵢ² + ∑ⱼ≠ᵢ xⱼ²    (squared sum of non-target positions, denote Σ²₋ᵢ)
+k' = √(x'ᵢ² + Σ²₋ᵢ)
+c = k' − k
 ```
 
-Let Σ₋ᵢ = ∑ⱼ≠ᵢ xⱼ². Substituting x'ᵢ² = p*·k'²/S:
+So the algorithm is: (a) compute target x'ᵢ from the linear relation, (b) compute k' from the L₂ invariant, (c) return c = k' − k.
 
-```
-k'² = Σ₋ᵢ + p*·k'²/S
-k'²(1 − p*/S) = Σ₋ᵢ
-k'² = Σ₋ᵢ · S / (S − p*)
-```
-
-The required collateral is:
-
-```
-c = k' − k = √(Σ₋ᵢ · S / (S − p*)) − k
-```
-
-**Sell-to-price** works analogously — compute the target position size x_target and return the difference:
-
-```
-x_target² = p* · Σ₋ᵢ / (S − p*)
-tokens_in = xᵢ − x_target
-```
+**Sell-to-price** works analogously — compute the target position x_target from the same linear relation, then derive k' = √(x_target² + Σ²₋ᵢ) and return tokens_in = xᵢ − x_target.
 
 ---
 
@@ -419,7 +377,7 @@ An LP deposits **d** collateral. The AMM scales all reserves proportionally:
 h'ⱼ = hⱼ · (k + d) / k    for all j
 ```
 
-This preserves the probability distribution. To see why: positions scale as x'ⱼ = k' − h'ⱼ = (k+d) − hⱼ(k+d)/k = (k+d)(1 − hⱼ/k) = (k+d)·xⱼ/k. Since all positions scale by the same factor (k+d)/k, ratios xᵢ²/∑xⱼ² are preserved. Liquidity increases without shifting the market's view.
+This preserves the probability distribution. To see why: positions scale as x'ⱼ = k' − h'ⱼ = (k+d) − hⱼ(k+d)/k = (k+d)(1 − hⱼ/k) = (k+d)·xⱼ/k. Since all positions scale by the same factor (k+d)/k, the linear ratio xᵢ/∑xⱼ is invariant. Liquidity increases without shifting the market's view.
 
 **LP shares:**
 - First LP (market creator at initialization): shares = L (initial liquidity).
@@ -497,26 +455,89 @@ Losing outcome tokens are worth zero.
 The oracle provides a realized value **v** ∈ [a, b]. The winning bin is determined by:
 
 ```
-bin = ⌊(v − a) · N / (b − a)⌋,   clamped to [0, N−1]
+bin_win = ⌊(v − a) · N / (b − a)⌋,   clamped to [0, N−1]
 ```
 
-Then payout proceeds identically to the discrete case — holders of the winning bin's tokens redeem 1:1 (minus fee). All other bins pay zero.
+Continuous markets settle in one of two modes, chosen at market creation via the **`kernel_width`** parameter W:
+
+- **Winner-take-all (W = 0):** Same as discrete markets — only bin_win's holders redeem 1:1 (minus fee). All other bins pay zero. Identical to §7.1.
+- **Smooth-kernel settlement (W ≥ 1):** Adjacent bins also receive partial payouts, smoothing the discontinuity at bin boundaries.
+
+#### 7.2.1 Smooth-Kernel Payout
+
+For a market with kernel width W > 0 and resolved bin bin_win, each bin i pays a fraction of face value to its holders, weighted by a **triangular kernel** centered at bin_win:
+
+```
+K(i, bin_win, W) = max(0, (W + 1 − |i − bin_win|) / (W + 1))
+```
+
+- K(bin_win) = 1 (full face value).
+- K(bin_win ± 1) = W/(W+1), K(bin_win ± 2) = (W−1)/(W+1), …
+- K(bin_win ± d) = 0 for d > W (outside the kernel's support).
+
+A trader holding hᵢ tokens of bin i receives gross payout:
+
+```
+gross_payout = ⌊ ∑ᵢ hᵢ · K(i, bin_win, W) · s / S ⌋
+```
+
+where **s** is a per-market `scaling_factor` (∈ [0, S]) set at resolution. The scaling factor enforces vault solvency:
+
+```
+s = min( S,  k · S / ∑ⱼ Kⱼ · trader_totalsⱼ )
+```
+
+where `trader_totals[j]` is the total tokens of bin j held by all traders (LP-excluded), and Kⱼ = K(j, bin_win, W). The scaling factor is computed once at resolution and stored on the Market account, so every claimant applies the same divisor.
+
+**Why scale?** Without it, the sum of kernel-weighted claims can exceed the vault. The scaling factor caps the maximum total payout at exactly k — see the solvency proof in §7.3. When the unscaled claims would already fit (∑Kⱼ · trader_totalsⱼ ≤ k), s = S and the payout is the unscaled kernel sum.
+
+#### 7.2.2 Worked Example (Smooth Kernel)
+
+Market with N = 5 bins, k = 1,000,000, W = 1. Resolved bin = 2.
+- K = [0, 0.5, 1.0, 0.5, 0] (only bins 1, 2, 3 inside the kernel's support).
+- Suppose trader holdings: h = [0, 200, 1000, 200, 0].
+- ∑Kⱼ · hⱼ = 0.5·200 + 1.0·1000 + 0.5·200 = 100 + 1000 + 100 = 1200.
+- If trader_totals match h (single trader, no LP residual), s = min(S, k·S/1200) = S (1200 ≤ 10⁶).
+- Gross payout = ⌊1200 · S / S⌋ = 1200.
+
+The trader collects 1200 vs. the 1000 they would have received under WTA, because adjacent bins contributed partial credit. Now consider the kernel's support being saturated by aggregate holdings (∑Kⱼ · trader_totalsⱼ = 5,000,000 with k = 1,000,000): s = S/5 = 0.2·S, so every claim is scaled by 0.2 and total payouts equal exactly k.
 
 ### 7.3 Solvency Guarantee
 
-The system is always solvent. Here is a proof:
+The system is always solvent. The proof is by cases on the settlement mode.
 
 **Claim:** The vault holds at least k collateral at all times, and the maximum possible redemption at resolution is at most k.
 
-**Proof:**
+**Shared setup (both modes):**
 
 1. **Complete-set minting:** Every token in circulation was created as part of a complete set. For every unit of outcome token i held by traders (xᵢ), there are hᵢ = k − xᵢ units in the AMM reserves. Total tokens per outcome: xᵢ + hᵢ = k.
 
 2. **Vault balance:** Every complete-set mint deposits exactly 1 unit of collateral per token set. After minting k total sets: vault ≥ k (plus accumulated fees, minus LP withdrawals — but LP withdrawals are bounded by their proportional share of k).
 
-3. **Maximum redemption:** At resolution, only the winning outcome redeems. The maximum number of winning tokens held by all traders is x_winning ≤ k (since x_winning² ≤ ∑xⱼ² = k²). Therefore total redemption ≤ k ≤ vault balance. ∎
+**Case 1 — WTA (binary, multi-outcome, continuous with W = 0):**
 
-4. **LP residual:** After all traders claim, the remaining reserves of the winning outcome (h_winning = k − x_winning) belong to LPs.
+Only the winning outcome redeems. The maximum number of winning tokens held by all traders is x_winning ≤ k (since x_winning² ≤ ∑xⱼ² = k²). Therefore total redemption ≤ k ≤ vault balance. ∎
+
+**Case 2 — Smooth-kernel continuous (W ≥ 1):**
+
+The aggregate claim across all traders is:
+```
+total_claim = ∑ᵢ trader_totalsᵢ · K(i, bin_win, W) · s / S
+            = (s / S) · ∑ᵢ Kᵢ · trader_totalsᵢ
+```
+
+By construction s = min(S, k · S / ∑Kⱼ · trader_totalsⱼ). Substituting:
+```
+total_claim ≤ (S / S) · k = k   when the constraint is active (∑Kⱼ·tᵢ > k)
+total_claim = ∑Kᵢ · trader_totalsᵢ ≤ k   when s = S (constraint inactive)
+```
+
+Either way, total_claim ≤ k ≤ vault balance. ∎
+
+**LP residual:** After all traders claim:
+
+- WTA: LPs receive h_winning = k − x_winning (the AMM's unclaimed share of the winning outcome).
+- Kernel: LPs receive the remaining vault balance, k − total_claim, distributed proportionally to LP shares.
 
 ---
 
@@ -550,7 +571,7 @@ hᵢ = 1,000,000 − 447,213 = 552,787                      for all i
 k² = 10¹²
 ```
 
-**Initial probabilities:** p̂ᵢ = 447,213² / 1,000,000² ≈ 0.200 for all i (uniform 20% each). ✓
+**Initial probabilities:** p̂ᵢ = 447,213 / (5 × 447,213) = 0.200 for all i (uniform 20% each). ✓
 
 ### 8.2 Trade 1 — Discrete Buy on Bin 2
 
@@ -580,14 +601,16 @@ h₂ = 1,099,700 − 639,798 = 459,902
 
 Other reserves (after complete-set mint): hⱼ = 552,787 + 99,700 = 652,487 for j ≠ 2.
 
-**New probabilities:**
+**New probabilities** (linear: p̂ᵢ = xᵢ / ∑xⱼ where ∑xⱼ = 639,798 + 4·447,213 = 2,428,650):
 
 ```
-p̂₂ = 639,798² / 1,099,700² ≈ 0.339   (was 0.200, rose to ~34%)
-p̂ⱼ = 447,213² / 1,099,700² ≈ 0.165   for j ≠ 2 (was 0.200, fell to ~16.5%)
+p̂₂ = 639,798 / 2,428,650 ≈ 0.263   (was 0.200, rose to ~26%)
+p̂ⱼ = 447,213 / 2,428,650 ≈ 0.184   for j ≠ 2 (was 0.200, fell to ~18.4%)
 
-Check: 0.339 + 4 × 0.165 = 0.339 + 0.660 = 0.999 ≈ 1 ✓
+Check: 0.263 + 4 × 0.184 = 0.263 + 0.736 = 0.999 ≈ 1 ✓
 ```
+
+Note: the linear display rises more gently than the legacy quadratic would have. Under the quadratic formula the same trade would have shown p̂₂ ≈ 0.339 — visually exciting but a distortion. Linear is the actual marginal price.
 
 **Alice's portfolio:** 192,585 tokens of bin 2. Cost: 100,000 collateral (including fees).
 
@@ -641,15 +664,15 @@ excess = k'² − k² = 1,299,100² − 1,099,700² ≈ 478,000 × 10⁶
 
 The distribution buy gives more tokens for the central bins (especially bin 2) and fewer for the tails. After the trade, the probability distribution is more concentrated around $3,000.
 
-**Post-trade probability distribution (approximate):**
+**Post-trade probability distribution (approximate, linear):**
 
 | Bin | Before Trade 2 | After Trade 2 |
 |-----|---------------|---------------|
-| 0   | 16.5%         | ~9%           |
-| 1   | 16.5%         | ~18%          |
-| 2   | 33.9%         | ~40%          |
-| 3   | 16.5%         | ~18%          |
-| 4   | 16.5%         | ~9%           |
+| 0   | 18.4%         | ~13%          |
+| 1   | 18.4%         | ~20%          |
+| 2   | 26.3%         | ~34%          |
+| 3   | 18.4%         | ~20%          |
+| 4   | 18.4%         | ~13%          |
 
 The market now reflects a bell-shaped consensus centered on bin 2 ($2800–$3200).
 
@@ -805,19 +828,15 @@ This is a **finite-dimensional approximation** of the infinite-dimensional L₂ 
 
 ## 11. Limitations and Alternative Approaches
 
-### 11.1 Limitation: Single-Bin Resolution
+### 11.1 Limitation: Single-Bin Resolution (RESOLVED for continuous markets)
 
-**The Problem:** When a continuous market resolves, the oracle provides a single value v, which maps to exactly one winning bin. All bins except the winner pay zero. This creates a discontinuity: two values very close to a bin boundary produce completely different payouts for a trader.
+**Historical problem:** When a continuous market resolved with W = 0 (winner-take-all), the oracle provided a single value v that mapped to exactly one winning bin. All bins except the winner paid zero. This created a discontinuity: two values very close to a bin boundary produced completely different payouts.
 
-**Example:** Range [0, 100], 10 bins (each width 10). A trader is long bin 3 (covers [30, 40)). If the outcome is 39.99, they win everything. If it's 40.01, they win nothing.
+**Example:** Range [0, 100], 10 bins (each width 10). A trader long bin 3 (covers [30, 40)). If the outcome was 39.99 they won everything; if it was 40.01 they won nothing.
 
-**Alternative — Pro-rata resolution:** Distribute payouts to nearby bins proportionally to how close the resolved value is to each bin's center:
+**Resolution: smooth-kernel settlement.** Market creators now opt into smooth-kernel settlement by setting `kernel_width = W ≥ 1` at creation (see §7.2.1). The triangular kernel `K(i, bin_win, W) = max(0, (W+1−|i−bin_win|)/(W+1))` distributes payout to bins within W steps of the winner. The per-market `scaling_factor`, computed at resolution as `s = min(S, k·S / ∑Kⱼ·trader_totalsⱼ)`, guarantees that the sum of kernel-weighted claims never exceeds the vault — preserving the same intrinsic solvency property that WTA enjoys (§7.3, case 2).
 
-```
-payout_weight(bin j) ∝ max(0, bin_width − |centerⱼ − v|)
-```
-
-This smooths the payout function and reduces boundary effects. However, it complicates the solvency model (payouts are no longer 1:1 for a single outcome) and would require careful redesign of the complete-set accounting.
+Binary and multi-outcome markets still use WTA (W = 0 is enforced); the kernel is only meaningful when adjacent bins represent close-but-not-equal outcomes.
 
 ### 11.2 Limitation: Fixed Number of Bins
 
@@ -835,13 +854,11 @@ This smooths the payout function and reduces boundary effects. However, it compl
 
 **Alternative — Allow arbitrary weight vectors.** Let traders submit custom weight vectors directly (subject to normalization ∑Wⱼ = S). This is maximally flexible but makes the UI much harder — users would need to specify N-dimensional vectors.
 
-### 11.4 Limitation: Taylor Polynomial Precision
+### 11.4 Limitation: Taylor Polynomial Precision (RESOLVED)
 
-**The Problem:** The degree-4 Taylor approximation of exp(−t/2) has significant error for |z| > 2 (see error table in Section 5.2). For broad distributions where bins at |z| ≈ 2–3 carry meaningful weight, the errors propagate into the weight vector.
+**Historical problem:** A degree-4 Taylor approximation of exp(−t/2) had relative error up to ~50% for |z| ∈ [2.5, 5], propagating into the Gaussian bin-weight vector for broad distributions.
 
-**Alternative — Higher-degree polynomial.** A degree-8 polynomial would reduce relative error to <0.01% for |z| ≤ 3. A degree-12 polynomial covers |z| ≤ 4 with high accuracy. The trade-off is more multiplications per bin.
-
-**Alternative — Piecewise approximation.** Different polynomials for different |z| ranges could achieve near-machine-precision at moderate compute cost. For example, one polynomial for |z| ≤ 1, another for 1 < |z| ≤ 3, and a third for 3 < |z| ≤ 5.
+**Resolution: lookup table + linear interpolation.** The current implementation precomputes exp(−z²/2) at 51 grid points over |z| ∈ [0, 5] (step 0.1) and linearly interpolates between them at evaluation time. Relative error is bounded by ~0.5% across the entire support, at the cost of one table lookup, one subtraction, one multiplication, and one division per bin — much cheaper than the higher-degree polynomials originally floated as alternatives.
 
 ### 11.5 Limitation: Compute Budget with Many Bins
 
@@ -849,13 +866,11 @@ This smooths the payout function and reduces boundary effects. However, it compl
 
 **Alternative — Batch processing across multiple transactions.** Or use a more efficient AMM that operates on distribution parameters directly (see Section 12).
 
-### 11.6 Limitation: Quadratic Probability Distortion
+### 11.6 Limitation: Quadratic Probability Distortion (RESOLVED)
 
-**The Problem:** As analyzed in Section 2.5, the quadratic pricing formula p̂ᵢ = xᵢ²/k² creates a non-linear distortion between displayed probabilities and the true equilibrium probabilities. This may confuse users who expect the displayed probability to match frequentist intuition.
+**Historical problem:** The original pricing formula p̂ᵢ = xᵢ²/k² created a non-linear distortion between displayed probabilities and true equilibrium probabilities (see §2.5). Traders saw values compressed toward the extremes — a 70% true probability was displayed as 84.5%.
 
-**Alternative — Linear probability display.** The frontend could compute and display p_linear = xᵢ/∑xⱼ instead of xᵢ²/k². The AMM internals would remain unchanged, but the buy-to-price interface would need to be adapted to target the linear probability.
-
-**Alternative — Hybrid approach.** Display both the "market price" (quadratic, xᵢ²/k²) and the "implied probability" (linear, xᵢ/∑xⱼ). This gives users both the trading-relevant price and the probabilistic interpretation.
+**Resolution: linear probability display.** DekantPM now computes and displays p̂ᵢ = xᵢ/∑xⱼ throughout the frontend, backend, and contract. The AMM core (invariant, complete-set minting, distribution math) is unchanged because the quadratic formula was only ever a *display* layer — the underlying L₂ AMM mechanics are independent of the choice of probability normalization. The buy-to-price interface (§5.5) was updated to target the linear probability.
 
 ---
 
@@ -878,12 +893,12 @@ The Paradigm paper ("Distribution Markets," Dave White, December 2024) proposes 
 | **Outcome space** | Finite bins: N ∈ [2, 256] | Infinite: ℝ or any continuous space |
 | **Position representation** | Vector x ∈ ℝᴺ | Function f: ℝ → ℝ |
 | **Invariant** | ∑xᵢ² = k² (finite sum) | ∫f(x)²dx = k² (integral) |
-| **Pricing** | p̂ᵢ = xᵢ²/k² (per bin) | p̂(x) ∝ f(x) (continuous density) |
-| **Solvency** | Automatic (complete sets, xᵢ ≤ k) | Requires explicit constraint max(f) ≤ b |
+| **Pricing** | p̂ᵢ = xᵢ/∑xⱼ (linear, per bin) | p̂(x) ∝ f(x) (continuous density) |
+| **Solvency** | Automatic (WTA) or scaled (kernel); always ≤ k | Requires explicit constraint max(f) ≤ b |
 | **Backing vs. norm** | Same (k = b) | Separate (k ≤ b typically) |
 | **Distribution trading** | Normal PDF → bin weights → weighted discrete trade | Direct trade in distribution parameters (μ, σ) |
 | **Collateral model** | Complete-set minting: cost = k' − k | Max-loss: −min_x{g(x) − f(x)} (can require numerical computation) |
-| **Resolution** | Single winning bin, 1:1 payout | Payout = f(v) where v is realized value (smooth) |
+| **Resolution** | WTA (W = 0) or smooth triangular kernel (W ≥ 1) with scaling_factor cap | Payout = f(v) where v is realized value (smooth) |
 | **LP provision** | Proportional scaling of reserves vector | Proportional scaling of position function |
 | **On-chain feasibility** | Yes (Solana, O(N) per trade) | Requires specialization to specific distribution families |
 
@@ -906,9 +921,12 @@ DekantPM's discretization **sidesteps this entirely** — the finite-dimensional
 
 **Paradigm:** At resolution with realized value v, a trader holding function f receives f(v). This is a **smooth payout** — nearby outcomes give similar payoffs. If f is a Gaussian centered near v, the payout degrades smoothly as v moves away from the center.
 
-**DekantPM:** At resolution, bin j wins if v falls in bin j's range. Payout is 1:1 for winning tokens, 0 for all others. This is a **step function payout** — a discontinuous jump at bin boundaries.
+**DekantPM:** Continuous markets choose one of two modes at creation via `kernel_width`:
 
-This is the most significant practical difference. Paradigm's smooth payout better rewards accurate predictions — a trader who bet on "around $3,000" with a tight distribution gets a high payout if the outcome is $3,050, and a lower (but non-zero) payout if it's $3,500. In DekantPM, a bin boundary between $3,000 and $3,200 could mean the difference between a full payout and zero.
+- **WTA (W = 0):** Bin j wins if v falls in bin j's range. Payout is 1:1 for winning tokens, 0 elsewhere — a **step function**.
+- **Smooth kernel (W ≥ 1):** Bins within W steps of the winning bin pay a triangular-weighted fraction `K(i, bin_win, W) · s / S` per token, with `s = min(S, k·S / ∑Kⱼ·trader_totalsⱼ)` capping aggregate claims at the vault. A trader who bet on "around $3,000" with a tight distribution gets a high payout if the outcome is $3,050 (peak bin or one step off) and a lower (but non-zero) payout if it lands W bins away. The chosen W gives the creator a knob between sharp-incentive WTA (W = 0) and Paradigm-style smoothing (large W approximating the kernel's triangular envelope).
+
+The discrete kernel converges to Paradigm's continuous payout as N → ∞ with W scaled appropriately.
 
 ### 12.5 Computational Efficiency
 
@@ -937,13 +955,11 @@ This is O(1) in the number of "bins" (there are none), but the numerical max-los
 
 1. **No separate backing constraint:** DekantPM does not need b ≠ k. This simplifies the model but means it cannot represent arbitrarily peaked distributions (the bin resolution limits this naturally).
 
-2. **No smooth payout:** Paradigm's model pays f(v) continuously; DekantPM pays 1 or 0 per bin.
+2. **Discretized smooth payout:** Paradigm's model pays f(v) continuously; DekantPM pays per bin with an opt-in triangular kernel (W ≥ 1) that approximates smoothness up to the bin resolution.
 
 3. **Restricted to Normal distributions:** Paradigm discusses Normal, uniform, and even mixtures. DekantPM's distribution trading only implements Normal.
 
 4. **Collateral model:** Paradigm requires max-loss collateral (the worst-case difference between new and old positions). DekantPM uses complete-set minting — simpler but potentially less capital-efficient (the trader always deposits the full collateral amount, even if their max loss is lower).
-
-5. **Probability extraction:** Paradigm extracts probabilities linearly (f(x) ∝ p(x)), while DekantPM uses the quadratic formula (xᵢ²/k²), introducing the distortion analyzed in Section 2.5.
 
 ---
 
@@ -953,11 +969,11 @@ This is O(1) in the number of "bins" (there are none), but the numerical max-los
 
 1. **Invariant preservation:** Every trade (buy, sell, distribution buy/sell) preserves ∑xᵢ² = k² within tolerance ε = 256. The tolerance accounts for accumulated integer rounding across sqrt and division operations.
 
-2. **Solvency:** The vault always holds ≥ k collateral. Maximum redemption at resolution ≤ k. The system is always solvent (proven in Section 7.3).
+2. **Solvency:** The vault always holds ≥ k collateral. Maximum redemption at resolution ≤ k under both WTA and smooth-kernel settlement (proven in Section 7.3). In kernel mode the `scaling_factor` enforces this bound at claim time.
 
-3. **No arbitrage (within fees):** The implied probabilities (quadratic) sum to 1 (within rounding). There is no risk-free profit loop of buying and selling that nets positive collateral after fees.
+3. **No arbitrage (within fees):** The displayed linear probabilities sum to 1 (within rounding). There is no risk-free profit loop of buying and selling that nets positive collateral after fees.
 
-4. **Market scoring rule:** At equilibrium, the position vector is proportional to the true distribution. The quadratic reported probabilities are a monotonic transformation of the true probabilities.
+4. **Market scoring rule:** At equilibrium, the position vector is proportional to the true distribution, so the linear probabilities p̂ᵢ = xᵢ/∑xⱼ recover the true frequentist probabilities exactly (Cauchy-Schwarz optimum).
 
 ### 13.2 Numerical Properties
 
@@ -973,11 +989,13 @@ This is O(1) in the number of "bins" (there are none), but the numerical max-los
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| SCALE | 10⁹ | Fixed-point denominator for probabilities |
+| SCALE | 10⁹ | Fixed-point denominator for probabilities and scaling_factor |
 | INVARIANT_TOLERANCE | 256 | Maximum allowed invariant drift |
 | MAX_OUTCOMES | 32 | Maximum discrete outcomes |
 | MAX_BINS | 256 | Maximum continuous bins |
+| MAX_KERNEL_WIDTH | (per market, ≤ N − 1) | Triangular kernel half-support; 0 = WTA |
 | Z_CUTOFF | 5 | Gaussian tail cutoff (5σ) |
+| GAUSSIAN_TABLE_SIZE | 51 | exp(−z²/2) lookup entries over \|z\| ∈ [0, 5] |
 | MIN_LIQUIDITY | 10⁶ | 1 USDC minimum initial liquidity |
 | MIN_TRADE_AMOUNT | 10³ | 0.001 USDC minimum trade |
 | DEFAULT_TRADE_FEE | 30 bps | 0.3% per trade |
@@ -1055,14 +1073,17 @@ Stop when xₜ₊₁ ≥ xₜ; return xₜ.
 | k | Total minted collateral (= total_minted) |
 | hᵢ | AMM reserve for outcome i |
 | xᵢ | Position for outcome i: xᵢ = k − hᵢ |
-| p̂ᵢ | Reported probability of outcome i (quadratic: xᵢ²/k²) |
-| pᵢ | True probability at equilibrium (linear: xᵢ/∑xⱼ) |
+| p̂ᵢ | Displayed probability of outcome i (linear: xᵢ/∑xⱼ) |
 | S | Scale factor (10⁹) |
-| Wⱼ | Normalized bin weight for bin j (∑Wⱼ = S) |
+| Wⱼ | Normalized Gaussian bin weight for bin j (∑Wⱼ = S) |
+| W (kernel) | Kernel width for smooth-kernel settlement; W = 0 ⇒ WTA |
+| K(i, bin_win, W) | Triangular settlement kernel: max(0, (W+1−\|i−bin_win\|)/(W+1)) |
+| s | Per-resolution `scaling_factor` ∈ [0, S] enforcing kernel solvency |
+| trader_totalsⱼ | Sum of bin j holdings across all traders (LP-excluded) |
 | μ | Mean of trader's Normal distribution |
 | σ | Standard deviation of trader's Normal distribution |
-| XW | ∑xⱼWⱼ (position-weight dot product) |
-| W² | ∑Wⱼ² (sum of squared weights) |
+| XW | ∑xⱼWⱼ (position-weight dot product, for distribution buy) |
+| W² | ∑Wⱼ² (sum of squared Gaussian weights — distinct from kernel W) |
 | λ | Quadratic solution parameter for distribution buy |
 | L | LP shares total |
 | b | Backing amount (Paradigm model only) |

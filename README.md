@@ -63,11 +63,11 @@ Each section has its own detailed README:
 
 ## Market Types
 
-| Type | Outcomes | Trading Style | Example |
-|------|----------|---------------|---------|
-| **Binary** | 2 (Yes/No) | Discrete buy/sell | "Will BTC exceed $100k?" |
-| **Multi-Outcome** | 3-32 discrete | Discrete buy/sell | "Which studio wins Best Picture?" |
-| **Continuous** | 2-256 bins over a range | Distribution buy/sell (Normal PDF) | "What will SOL price be on July 1?" |
+| Type | Outcomes | Trading Style | Resolution | Example |
+|------|----------|---------------|------------|---------|
+| **Binary** | 2 (Yes/No) | Discrete buy/sell | Winner-take-all (WTA) | "Will BTC exceed $100k?" |
+| **Multi-Outcome** | 3-32 discrete | Discrete buy/sell | Winner-take-all (WTA) | "Which studio wins Best Picture?" |
+| **Continuous** | 2-256 bins over a range | Distribution buy/sell (Normal PDF) | Smooth kernel (or WTA when `kernel_width = 0`) | "What will SOL price be on July 1?" |
 
 ## Market Lifecycle
 
@@ -146,11 +146,22 @@ The L2-norm CFAMM maintains the invariant `Sum(x[i]^2) = k^2` where `x[i] = tota
 - **Sell** — Add tokens back, solve quadratic for burn amount
 - **Distribution Buy** — Gaussian-weighted multi-bin purchase via lambda solve
 - **Distribution Sell** — Gaussian-weighted multi-bin sale with quadratic burn
-- **Implied Probability** — `price[i] = x[i]^2 / k^2`
+- **Implied Probability** — `p[i] = x[i] / sum(x[j])` (linear; reads true at equilibrium)
 - **LP Add** — Scale all reserves proportionally, mint LP shares
 - **LP Remove** — Scale down reserves, return collateral + accumulated LP fees
 
-For the full mathematical specification, see [plans/TDD.md](plans/TDD.md) Section 5.
+## Resolution Model
+
+Resolution depends on `market_type` and the per-market `kernel_width`:
+
+- **Binary, multi-outcome, continuous with `kernel_width = 0`** — winner-take-all (WTA). Each token of the winning outcome redeems for 1 unit of collateral (minus the redemption fee); all other tokens redeem for 0.
+- **Continuous with `kernel_width > 0`** — smooth triangular kernel. The winning bin is the bin containing the oracle's resolved value `v`. Holdings in adjacent bins also pay out, weighted by `K(i, win, W) = max(0, 1 - |i - win| / (W + 1))`. A per-market **scaling factor** `s = min(1, k / total_claims)` is computed and stored at resolution time so the vault always stays solvent (sum of all gross claims ≤ `k`).
+
+`kernel_width` is chosen by the creator at `create_market`. `0` preserves the legacy WTA behaviour; `1..=N/2` enables the smooth kernel (typical: `W = 3`).
+
+The displayed probabilities use the **linear formula** `p[i] = x[i] / Σx[j]`, which recovers the true probability when traders push the AMM to equilibrium (`x ∝ p`). The old quadratic formula `x[i]^2 / k^2` is retired across program, backend, frontend, and devkit.
+
+For the full mathematical specification, see [specs/TDD.md](specs/TDD.md) §5 and the **current** math docs in [docs/improved/](docs/improved/).
 
 ## Quick Start
 
@@ -234,11 +245,16 @@ The `scripts/` directory provides orchestration for the full local development e
 
 | Document | Location | Purpose |
 |----------|----------|---------|
-| Product Requirements | [plans/PRD.md](plans/PRD.md) | What the protocol should do |
-| Technical Design | [plans/TDD.md](plans/TDD.md) | How it works (AMM math, architecture, data model) |
-| Task Breakdown | [plans/TASKS.md](plans/TASKS.md) | 57-task dependency graph with status tracking |
-| Frontend Guide | [plans/FRONTEND_GUIDE.md](plans/FRONTEND_GUIDE.md) | Frontend development reference |
-| Bug Report | [plans/BUG_REPORT.md](plans/BUG_REPORT.md) | Tracked bugs by severity |
+| Product Requirements | [specs/PRD.md](specs/PRD.md) | What the protocol should do |
+| Technical Design | [specs/TDD.md](specs/TDD.md) | How it works (AMM math, architecture, data model) |
+| Task Breakdown | [specs/planning/TASKS.md](specs/planning/TASKS.md) | 69-task dependency graph with status tracking |
+| Frontend Guide | [specs/FRONTEND_GUIDE.md](specs/FRONTEND_GUIDE.md) | Frontend development reference |
+| Bug Tracker | [specs/BUGS.md](specs/BUGS.md) | Tracked bugs by severity (all fixed) |
+| Major Bug Reports | [specs/MAJOR_BUGS.md](specs/MAJOR_BUGS.md) | BUG-001 (u128 overflow), BUG-002 (oracle), BUG-003 (vault insolvency) |
+| Math Reference (current) | [docs/improved/](docs/improved/) | Interactive math notebook — linear probability + smooth kernel |
+| Math Reference (legacy) | [docs/math/](docs/math/) | Original v1 math notebook (quadratic probability + WTA) |
+| Improved-model deep-dives | [specs/details/improved/](specs/details/improved/) | Per-change analysis: linear display, smooth kernel solvency, LP effect |
+| Smooth-kernel refactor log | [specs/planning/IMPROVED_SMS_REFACTOR_TASKS.md](specs/planning/IMPROVED_SMS_REFACTOR_TASKS.md) | 8-phase refactor that introduced the improved model |
 
 ## Test Coverage
 
