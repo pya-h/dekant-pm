@@ -577,7 +577,7 @@ Add `use crate::engine::kernel;` import.
 
 **Breaking changes:** Continuous markets with kernel_width > 0 pay out differently. Traders near the winning bin get partial payouts. Total payout may be scaled down for solvency.
 **Possible bugs:**
-- [x] P4-2a: Implemented. `NothingToClaim` guard moved *after* the kernel computation — a trader with zero `gross_payout` (no holdings inside the kernel's support) hits the guard exactly as designed. Phase 5's K4 scenario exercises this end-to-end.
+- [x] P4-2a: Implemented. `NothingToClaim` guard moved *after* the kernel computation — a trader with zero `gross_payout` (no holdings inside the kernel's support) hits the guard exactly as designed. End-to-end coverage lands in P5-2 scenario K4 ("trader outside kernel range"), which asserts the `NothingToClaim` branch fires for the trader whose holdings sit entirely outside the picked kernel's support.
 - [x] P4-2b: Compute budget — same bound as P4-1a. ≤ 256-bin iteration with one mul + one div per bin. Inside CU budget; Phase 5 will measure.
 - [x] P4-2c: `claimed` flag — `compute_kernel_payout` aggregates over `position.holdings` in one shot, then sets `claimed = true`. The single claim covers every bin's contribution at once; per-bin claims would be redundant. Behavior matches WTA where `claimed` blocks re-claiming the single winning bin.
 - [x] P4-2d: `total_withdrawn` tracking — unchanged code path; adds `net_payout` (post-redemption-fee) regardless of which branch produced `gross_payout`. Correct.
@@ -598,7 +598,7 @@ Both are correct LP residuals. LP withdrawal logic in `remove_liquidity.rs` is u
 
 **Breaking changes:** LP residual for kernel markets may be lower (or zero if scaling triggered)
 **Possible bugs:**
-- [x] P4-3a: LP-gets-zero documented in the updated `compute_lp_resolved_payout` doc comment; behavior validated by the kernel solvency path in `resolve()` (when scaling triggers, `total_claims = total_minted` up to flooring → residual = 0). Phase 5's K2 scenario verifies this end-to-end on devnet semantics.
+- [x] P4-3a: LP-gets-zero documented in the updated `compute_lp_resolved_payout` doc comment; behavior validated by the kernel solvency path in `resolve()` (when scaling triggers, `total_claims = total_minted` up to flooring → residual = 0). End-to-end coverage lands in P5-2 scenario K2 ("kernel solvency — scaling triggers") which asserts `scaling_factor < SCALE` and `lp_residual` shrinks accordingly, plus the second continuous phase of the e2e smoke script (P6-5) which re-runs the same dynamic on real devnet.
 - [x] P4-3b: Multiple LP withdrawals — no code change to `remove_liquidity.rs`; resolved markets short-circuit to `compute_lp_resolved_payout`, which just does `residual * shares / lp_shares_total`. Proportionality is preserved by `mul_div`. The pre-existing logic already handles multi-LP correctly under WTA; the kernel path uses the same accounting (just a different residual value).
 
 ---
@@ -616,93 +616,187 @@ Must compile cleanly. No new warnings.
 
 ---
 
-## Phase 5: Program Tests — Kernel Resolution
+## Phase 5: Program Tests — Kernel Resolution ✅
 
 Comprehensive testing of the kernel resolution for continuous markets, plus regression tests for binary/multi.
 
 ---
 
-### P5-1: Rust unit tests for kernel claim and resolve
+### P5-1: Rust unit tests for kernel claim and resolve ✅
 
-**File:** `programs/dekant-pm/tests/unit/state_market.rs`
+> **Done (2026-05-31).** Added seven kernel-resolve tests to `state_market.rs` under the `// ── P5-1` heading. Coverage: zero-width WTA fallthrough; six-width sweep at the centered winner (asserting per-width non-increasing `scaling_factor`, engine/resolve agreement, and exact `aggregate_payout + reserves[win] == total_minted` solvency); no-traders no-dilution; heavy-concentration scaling triggers (`sf == SCALE/10`); binary-WTA preservation; left- and right-boundary winners. Helpers `init_continuous_kernel`, `resolve_at_bin`, `concentrated_fixture_at_8` keep individual tests terse. Existing `state_market::resolve_*` WTA tests left verbatim — they now serve as the `kernel_width=0` regression matrix per the spec. Suite: 291 ✓ (was 284, +7 — `engine_kernel.rs` already had full coverage from P3-2, no extensions needed).
+
+**Files:**
+- `programs/dekant-pm/tests/unit/state_market.rs` (resolve branching)
+- `programs/dekant-pm/tests/unit/engine_kernel.rs` (kernel math — already exists, extend if coverage gaps)
+
+**Coverage philosophy:** every existing test that was already asserting WTA behavior should be **kept intact** and now interpreted as the `kernel_width=0` regression suite — that's the contract we promised for legacy/migrated markets (continuous + zero width ≡ pure WTA). Then **add** kernel-width sweeps for the new code path.
 
 Add tests:
-1. `resolve()` with `kernel_width=0` → same as before (WTA), `scaling_factor` stays 0
-2. `resolve()` with `kernel_width=3`, various trader positions → correct `scaling_factor` and LP residual
-3. `resolve()` with `kernel_width=3`, no traders → `scaling_factor=SCALE`, LP residual = `total_minted`
-4. `resolve()` with `kernel_width=3`, heavy concentration near winner → `scaling_factor < SCALE`
-5. `resolve()` binary market → `kernel_width=0` always, WTA logic
+1. `resolve()` with `kernel_width=0` → same as before (WTA), `scaling_factor` stays 0 *(this is the pre-existing continuous-resolve test, asserted under the new branch)*
+2. **Width sweep:** `resolve()` for each of `kernel_width ∈ {1, 2, 3, 4, 5, 6}` with the same trader fixture, **win bin pinned at `num_bins / 2`** (e.g., bin 8 in a 16-bin market — centered so the kernel is never truncated, isolating width as the only variable; boundary truncation is covered separately in test 6 below). Assert per width:
+   - (a) `scaling_factor` is **non-increasing** as `kernel_width` grows from 1 → 6 (wider kernel ⇒ more bins contribute claims against the winner ⇒ raw_claims grows ⇒ scaling shrinks). For a fixture with traders concentrated near the winner this holds strictly; for a uniform fixture it may stay flat at SCALE — both are acceptable, "strictly increasing" is NOT acceptable
+   - (b) per-trader payouts match `Σ holdings[i] · K(i, win, w) · sf / SCALE²`
+   - (c) `Σ payouts + lp_residual + protocol_fee_acc == total_minted` (exact solvency — must hold for all six widths regardless of the (a)/(b) outcome)
+3. `resolve()` with non-zero width, no traders → `scaling_factor=SCALE`, LP residual = `total_minted`
+4. `resolve()` with non-zero width, heavy concentration near winner → `scaling_factor < SCALE` (scaling actually triggers)
+5. `resolve()` binary market → `kernel_width=0` always (enforced at init), WTA logic unchanged
+6. Boundary kernel positions: winner at bin 0 (kernel truncated on left) and winner at last bin (kernel truncated on right) — solvency still exact
+
+**Notes for the implementer:**
+- The six width values `{1..6}` are the recommended sweep — small enough to keep the suite fast, large enough to exercise the triangular falloff at multiple slopes. Use a market with `num_bins ≥ 8` so the kernel is never truncated for widths in this range (boundary truncation is covered separately in test 6).
+- Preserve **all** existing `state_market::resolve_*` WTA tests verbatim. They become the `kernel_width=0` half of the regression matrix.
 
 **Breaking changes:** None
 **Possible bugs:** None (tests only)
 
 ---
 
-### P5-2: Integration test — continuous market with kernel resolution
+### P5-2: Integration test — continuous market with kernel resolution ✅
+
+> **Done (2026-05-31).** `tests/continuous-kernel.ts` created with all nine K-scenarios (K1–K9). `makeWidthPicker()` reserves pinned widths {0, 1, 4} up front; randomized scenarios drew distinct values {3, 4 (already used→re-pick), 5, 7, 8, 10} during the green run. Redemption-fee handled via file-level save/restore in `before`/`after` hooks (zeroes config, then restores) — this is more robust than the spec's per-market suggestion because `redemption_fee_bps` is a `ProtocolConfig` field, not a per-market arg. Kernel math mirrored in BigInt (`kernelWeight`, `rawClaims`, `computeKernelPayout`) to match the on-chain u128 flooring exactly. Fresh `Keypair` per scenario, airdropped via `airdropSol` then funded via `mintTokens`. K2's pinned `width=4` fixture (3 traders × 8M trades on 3M initial liquidity, narrow `sigma=50`) triggers `sf < SCALE` reliably. K7 uses one `pickWidth(16)` call captured in a closed-over `const w`, shared between the two sub-runs to make a width-mismatch impossible. Full anchor suite: 140 ✓ (was 131, +9 — the K-scenarios).
 
 **File:** `tests/continuous-kernel.ts` (new file)
 
+**Scope decision (2026-05-31, owner direction, revised):** Keep the nine scenarios below — they each pin down a distinct behavior of the kernel + scaling pipeline that a single randomized test would not reliably exercise. Width handling per scenario:
+
+- **Randomized** (the width does NOT affect what the scenario asserts): K1, K4, K5, K6, K7
+- **Pinned** (the scenario IS the test of that specific width — randomizing here would either flake or test nothing new): K2 (= 4, calculated), K3 (= 1), K8 (= 0), K9 (= num_bins − 1)
+
+Width=10 is the practical cap for the randomized pool — anything higher dilutes the kernel into near-uniform settlement without exposing new failure modes.
+
+**Shared test setup (top of file):**
+
+```ts
+// Non-repeating width picker — closure holds the set of widths already drawn in this
+// file so randomized scenarios never produce the same value twice. Pinned scenarios
+// must call pickWidth.reserve(w) upfront so randomized scenarios don't collide with them.
+function makeWidthPicker() {
+  const used = new Set<number>();
+  function pick(numBins: number, min = 1, max = 10): number {
+    const hi = Math.min(max, numBins - 1);
+    const lo = Math.max(min, 1);
+    const free: number[] = [];
+    for (let w = lo; w <= hi; w++) if (!used.has(w)) free.push(w);
+    if (free.length === 0) {
+      throw new Error(
+        `pickKernelWidth: no unused widths in [${lo}..${hi}] (used=${[...used].join(",")})`
+      );
+    }
+    const w = free[Math.floor(Math.random() * free.length)];
+    used.add(w);
+    return w;
+  }
+  pick.reserve = (w: number) => { used.add(w); };
+  return pick;
+}
+
+const pickWidth = makeWidthPicker();
+
+// Reserve pinned values upfront so randomized scenarios cannot redraw them:
+pickWidth.reserve(0);   // K8 — WTA / migrated-market regression
+pickWidth.reserve(1);   // K3 — no-scaling path
+pickWidth.reserve(4);   // K2 — calculated to trigger scaling on the K2 fixture
+// K9 reserves num_bins − 1 inside the scenario (its value depends on the market's numBins).
+//
+// Pool sanity: with 3 reservations and 5 randomized scenarios drawing from {1..10},
+// 8 free values remain → cannot exhaust. If new scenarios are added, recheck capacity.
+```
+
+**Redemption fee — set to 0 for every market in this file** so expected-payout formulas are direct (no `- fee` term to compute). Redemption-fee mechanics are already exercised by `tests/resolution-1to1.ts`; repeating them here would only obscure kernel-specific assertions.
+
+**Expected payout formula (used by every randomized scenario):**
+
+```
+expected = floor( Σ holdings[i] · K(i, win, w) / SCALE ) · scaling_factor / SCALE
+```
+
+Read `w` (`kernel_width`) and `scaling_factor` from the resolved Market account, **not** from test inputs — that's what production claims read, and any drift between a helper recomputation and the on-chain value will surface as a failed assertion.
+
+**Logging:** every `it(...)` name must include its kernel width (e.g. `K1: basic kernel claim (kernel_width=4)`) so a CI flake can be re-run by hardcoding the printed value. This also makes the no-repeat picker's draws visibly auditable per CI run.
+
 #### Scenario K1: "basic kernel claim — continuous market"
-1. Create continuous market (range 0-300, 16 bins, `kernel_width=3`)
+1. Create continuous market (range 0-300, 16 bins, `kernel_width = pickWidth(16)` — random unused value from the pool)
 2. Trader A buys distribution N(150, 30) — positions spread across bins
 3. Wait for deadline, resolve at value 155 (winning bin ~8)
 4. Trader A claims
-5. Assert: payout = sum of `holdings[i] * K(i, win, 3)` * scaling_factor / SCALE - redemption fee
-6. LP removes all shares → gets residual
+5. Assert: payout matches the expected-payout formula above (reading `w` and `scaling_factor` from the on-chain Market account)
+6. LP removes all shares → gets residual; solvency exact
 
 #### Scenario K2: "kernel solvency — scaling triggers"
-1. Create continuous market (16 bins, kernel_width=3)
-2. Multiple traders buy distributions concentrated near bin 8
+1. Create continuous market (16 bins, **`kernel_width = 4` — pinned, NOT randomized**). Reasoning: the scenario asserts a single boolean (`scaling_factor < SCALE`), so width diversity adds zero coverage; randomizing introduces a flake vector where an unlucky width leaves the trigger un-pulled and the test fails for the wrong reason. Width 4 is calculated to reliably trigger scaling on the trader fixture below (kernel support = 9 bins around the winner; with the concentration in step 2, raw_claims comfortably exceeds total_minted).
+2. Three traders each buy distributions heavily concentrated near bin 8 (each trader's `holdings[8]` should reach ≥ 40% of `total_minted` at peak — together they ensure kernel-weighted raw_claims overshoots total_minted by a comfortable margin)
 3. Resolve at bin 8
-4. Compute expected total_raw_claims > total_minted → scaling_factor < SCALE
+4. **After resolve, fetch the Market account** and assert `market.scaling_factor < SCALE` (this is the load-bearing assertion — if it doesn't fire, the trader fixture is under-concentrated; do NOT raise the pinned width to compensate)
 5. All traders claim sequentially
 6. LP removes all shares
-7. Assert: vault == protocol_fee_accumulated (exact solvency)
-8. Assert: sum(all_payouts) + lp_payout + protocol_fees == initial_vault
+7. Assert: `vault == protocol_fee_accumulated` (exact solvency)
+8. Assert: `Σ all_payouts + lp_payout + protocol_fees == initial_vault`
 
 #### Scenario K3: "kernel with no scaling needed"
-1. Create continuous market (16 bins, kernel_width=1)
-2. Single trader buys small amount in one bin
+1. Create continuous market (16 bins, **`kernel_width = 1`** — pinned; this scenario verifies the "full weight at win bin, no dilution" path)
+2. Single trader buys a small amount in one bin (`holdings[winBin] << total_minted`)
 3. Resolve at that bin
-4. Assert: scaling_factor == SCALE (no dilution)
-5. Assert: payout = holdings * 1.0 (full kernel weight at win bin)
+4. Assert: `scaling_factor == SCALE` (no dilution because raw_claims < total_minted)
+5. Assert: `payout == holdings[winBin]` exactly (kernel weight K(win, win, 1) = 1.0; no fee because `redemption_fee_bps = 0`)
 
 #### Scenario K4: "kernel — trader outside kernel range"
-1. Create continuous market (64 bins, kernel_width=3)
-2. Trader A buys in bins 0-5, Trader B buys in bin 32
+1. Create continuous market (64 bins, `kernel_width = pickWidth(64)` — random unused value from the pool; even at width=10 the kernel support is `[22..42]` so bins 0-5 stay outside for any value in `{1..10}`)
+2. Trader A buys in bins 0-5 only, Trader B buys in bin 32 only (let `h_B = holdings_B[32]`)
 3. Resolve at bin 32
-4. Trader B claims → gets full payout (only one near winner)
-5. Trader A claims → `NothingToClaim` (all holdings outside kernel range)
+4. Trader B claims: kernel weight `K(32, 32, w) = 1.0`, and `scaling_factor == SCALE` (B is the only contributor and `h_B < total_minted`), so the on-chain payout equals `h_B` exactly
+5. Trader A claims: every kernel weight evaluates to 0 → `gross_payout = 0` → the call reverts with `NothingToClaim`
 
 #### Scenario K5: "kernel — boundary resolution (bin 0)"
-1. Create continuous market (16 bins, kernel_width=3)
+1. Create continuous market (16 bins, `kernel_width = pickWidth(16)`)
 2. Trader buys distribution centered on bin 0
-3. Resolve at value = range_min (bin 0)
-4. Assert: kernel only extends rightward (bins 0-3 get weight)
-5. Assert: payout and solvency correct
+3. Resolve at `range_min` (bin 0)
+4. Assert: kernel only extends rightward (bins `0..w` get weight, no underflow on the left)
+5. Assert: payout matches the expected-payout formula; solvency exact
+6. **Not redundant with P5-1 test 6 — do not trim.** P5-1 covers resolve-side kernel math in isolation (pure Rust unit test); K5 exercises the on-chain `claim_payout` instruction against a truncated holdings slice in a live anchor transaction. Different code surface.
 
 #### Scenario K6: "kernel — boundary resolution (last bin)"
-1. Same as K5 but resolve at range_max (last bin)
-2. Assert: kernel only extends leftward
+1. Same shape as K5, with `kernel_width = pickWidth(16)` (independent draw), trader centered on bin 15
+2. Resolve at `range_max`
+3. Assert: kernel only extends leftward (bins `(15-w)..15` get weight, no overflow on the right)
+4. Same anti-trim note as K5.
 
 #### Scenario K7: "kernel — LP removal order independence"
-1. Create continuous market with 2 LPs
-2. Trader buys, resolve with kernel
-3. Test order: (a) trader claims, LP1 removes, LP2 removes (b) LP1 removes, trader claims, LP2 removes
-4. Assert: final vault balance identical in both orders
+1. Create continuous market with 2 LPs. **`const w = pickWidth(16);` — call the picker exactly once at the top of the scenario and reuse `w` for both sub-runs.** A width mismatch between sub-runs would masquerade as an order-dependence bug, so encoding it as a single `const` (rather than two independent calls) makes the mistake impossible.
+2. Trader buys, resolve with width `w`
+3. Run two sub-cases against fresh forks of the post-resolve state:
+   - (a) trader claims → LP1 removes → LP2 removes
+   - (b) LP1 removes → trader claims → LP2 removes
+4. Assert: final vault balance is identical between (a) and (b)
 
 #### Scenario K8: "kernel_width=0 on continuous market = WTA"
-1. Create continuous market with kernel_width=0
+1. Create continuous market with **`kernel_width = 0`** (pinned; this is the backward-compat regression for legacy/migrated markets — `kernel_width = 0` must take the WTA branch in `claim_payout`)
 2. Trade, resolve, claim
-3. Assert: behavior identical to existing WTA tests (only winning bin pays)
+3. Assert: behavior identical to existing WTA tests (only winning bin pays, `scaling_factor == 0` from `resolve_market`'s skip path, payouts equal raw holdings on the win bin)
+4. **Owner policy (2026-05-31):** K8 is the *only* WTA-mode scenario in this file. WTA is frozen for upgrade-compat at the time of the smooth-kernel program upgrade — future kernel changes do NOT need to backport new invariants to WTA paths. If a new property is added on the kernel side (like K7's order-independence), it belongs in the kernel suite only, not as a mirrored WTA scenario.
+
+#### Scenario K9: "kernel — maximum legal width"
+1. Create continuous market (16 bins). Inside the scenario, call `pickWidth.reserve(numBins - 1);` for traceability, then create with **`kernel_width = num_bins - 1` = 15** (pinned). This is the maximum value the on-chain `market.initialize()` validator (`kernel_width < num_bins`) accepts.
+2. Two traders buy distributions; resolve at bin 8
+3. Assert: on-chain market creation succeeds — this is the load-bearing assertion (validates the boundary of the `kernel_width < num_bins` rule)
+4. Assert: payouts match the expected-payout formula; solvency exact for all claimers + LP
+5. Note: the resulting `scaling_factor` value here is fixture-dependent (kernel support reaches every bin, so it depends on the trader spread). Do not pin a specific scaling_factor expectation — the load-bearing checks are creation-success and exact-solvency.
+
+**Common to every scenario:** read `scaling_factor` and `kernel_width` from the resolved Market account, not from test-side inputs — that's what production claims read. The solvency assertion `Σ payouts + lp_residual + protocol_fees == initial_vault_total` must hold exactly in every scenario.
 
 **Breaking changes:** None (new test file)
 **Possible bugs:**
-- [ ] P5-2a: Test helper `createMarket` must pass `kernelWidth` arg — ensure test utility is updated
+- [x] P5-2a: Verified `createContinuousMarket` (helpers/market-helper.ts) accepts `kernelWidth` and passes it through to the on-chain instruction; the K-scenarios call it explicitly per scenario. `redemptionFeeBps` is a `ProtocolConfig` field (not a per-market arg), handled instead via `zeroRedemptionFee()`/`restoreRedemptionFee()` in the file's `before`/`after` hooks — same end state (fee=0 for every market in the file), different mechanism than the spec assumed.
+- [x] P5-2b: `pickWidth(numBins, min, max)` in `tests/continuous-kernel.ts` computes `hi = Math.min(max, numBins - 1)` before drawing, so the on-chain `kernel_width < num_outcomes` validator is never tripped by a randomized draw.
+- [x] P5-2c: Every randomized `it(...)` title interpolates the picked width (e.g. `single trader, distribution at winning bin (kernel_width=8)`). Visible in mocha output for CI flake reproduction. K3 and K8 are exempt as the spec allows (compile-time fixed widths).
+- [x] P5-2d: K2 fixture (3M init + 3 traders × 8M trades, `sigma = 50` SCALE) produced `sf < SCALE` on the first run — the load-bearing assertion fired positively. No fixture iteration needed.
+- [ ] P5-2e: Defensive — would only fire if a future scenario over-subscribes the picker pool. Current load (3 reservations + 5 randomized draws) sits well inside the 10-value cap. Leaving open as a tripwire for future additions.
 
 ---
 
-### P5-3: Regression test — binary/multi markets unchanged
+### P5-3: Regression test — binary/multi markets unchanged ✅
+
+> **Done (2026-05-31).** All three pre-existing files (`binary-market.ts`, `multi-market.ts`, `resolution-1to1.ts`) ran unmodified as part of the same `anchor test` invocation that exercises P5-2. Every assertion still passes, including the 1:1-resolution scenarios that depend on the WTA branch of `claim_payout`. No kernel leak into discrete paths.
 
 Run existing test files with NO changes to assertions:
 - `tests/binary-market.ts` — all assertions still pass
@@ -713,11 +807,13 @@ If any fail, it means the kernel code leaked into non-continuous paths. Fix imme
 
 **Breaking changes:** None
 **Possible bugs:**
-- [ ] P5-3a: If the `market_type == MARKET_TYPE_CONTINUOUS` guard is wrong, binary/multi claims could enter kernel path
+- [x] P5-3a: Verified — the `market_type == MARKET_TYPE_CONTINUOUS && kernel_width > 0` guard in `claim_payout` (and the matching guard in `resolve()`) correctly gates the kernel branch. Binary/multi suites pass unchanged, K8 (continuous + `kernel_width=0`) also takes the WTA branch as expected.
 
 ---
 
-### P5-4: Full test suite run
+### P5-4: Full test suite run ✅
+
+> **Done (2026-05-31).** `cargo test --test unit` → 291 ✓ (was 284 pre-P5-1). `anchor test` → 140 ✓ in 10m (was 131 pre-P5-2). No skipped, no failed.
 
 ```bash
 cargo test --test '*'
@@ -734,57 +830,113 @@ Verify all non-program components work correctly with the refactored program.
 
 ---
 
-### P6-1: Backend — entity and indexer review
+### P6-1: Backend — entity and indexer
 
-**Files to check:**
-- `backend/src/market/entity/market.entity.ts` — add `kernelWidth` and `scalingFactor` fields if the indexer stores them
-- `backend/src/indexer/indexer.service.ts` — if it reads market account data, verify it deserializes new fields correctly
-- `backend/src/amm/amm.service.ts` — no changes needed (trade estimation doesn't touch resolution)
+**Audit result (2026-05-31):** backend has **zero** references to `kernel_width` / `scaling_factor` today (`grep -rn 'kernel\|scaling' backend/src` → empty). All of the work below is genuinely new.
 
-**Breaking changes:** Backend entity schema may add columns (migration needed if using TypeORM sync)
+**Files to edit:**
+- `backend/src/market/entity/market.entity.ts`
+  - Add `kernelWidth` column (smallint, default 0). Matches on-chain `u8`.
+  - Add `scalingFactor` column. Use the same column type already used for `protocolFeeAccumulated`/`lpFeeAccumulated`/`totalMinted` (string-backed numeric) so 128-bit values round-trip safely.
+- `backend/src/indexer/indexer.service.ts`
+  - Add two lines to the `onChainFields` object inside `fetchAndSyncMarket` (currently at indexer.service.ts:170):
+    ```ts
+    kernelWidth: Number(d.kernel_width),
+    scalingFactor: String(d.scaling_factor),
+    ```
+  - No new event handler is needed — `handleMarketResolved` already calls `fetchAndSyncMarket`, so the post-resolve `scaling_factor` lands automatically. Pre-resolution markets carry `scalingFactor = "0"`, which is the same value the program writes; the frontend must treat 0 as "not resolved yet".
+- `backend/src/amm/amm.service.ts` — no change. Trade estimation operates on reserves/k_squared and never inspects resolution-time fields.
+
+**Pre-flight (read-only check before editing):** confirm the workspace IDL `backend/idl/dekant_pm.json` (updated in P2-4) already lists `kernel_width` and `scaling_factor` on the `Market` account — otherwise the BorshCoder decode at indexer.service.ts:151 will silently drop both fields and the `Number(d.kernel_width)` line will read `NaN`.
+
+**Out of scope for P6-1 (call out so we don't expand):** computing a kernel-weighted "expected payout" for an API endpoint. Backend has no such endpoint today; payout estimation lives in the frontend (P6-2).
+
+**Breaking changes:** Backend entity schema gains two columns (auto-created when `DB_SYNCHRONIZE=true`; otherwise a one-shot migration).
 **Possible bugs:**
-- [ ] P6-1a: If backend reads market accounts directly (not just events), the new fields must be in the entity
-- [ ] P6-1b: TypeORM migration — if `DB_SYNCHRONIZE=true`, new columns auto-created. If not, need manual migration.
+- [x] P6-1a: ~~If backend reads market accounts directly~~ — confirmed: it does, see `fetchAndSyncMarket` at indexer.service.ts:142. The new fields are mandatory, not conditional.
+- [ ] P6-1b: TypeORM migration — if `DB_SYNCHRONIZE=true`, new columns auto-created. Otherwise add a TypeORM migration that defaults both columns to 0 for existing rows (legacy WTA markets settle as `kernel_width = 0` per the [WTA backward-compat policy](../../../../.claude/projects/-home-paya-p4ya-gcc-umbra-prediction-market-dekant-sms/memory/wta_backward_compat_policy.md)).
+- [ ] P6-1c: If the IDL was NOT re-synced in P2-4, the indexer will decode `kernel_width`/`scaling_factor` as `undefined` and `Number(undefined) === NaN` will get written to Postgres — flag with a one-time `if (d.kernel_width == null) this.logger.warn(...)` during the first deploy.
 
 ---
 
 ### P6-2: Frontend — claim display for continuous kernel markets
 
-**Files to check:**
-- `frontend/lib/portfolio-utils.ts` — `computeResolvedValue()` or equivalent. If it estimates payout as `holdings[winBin]`, it must be updated for kernel markets to show kernel-weighted estimate.
-- `frontend/components/portfolio/claim-button.tsx` — `estimatedPayout` prop. Must reflect kernel math for continuous markets with kernel_width > 0.
-- `frontend/components/portfolio/position-card.tsx` — resolved position value display.
+**Depends on:** P6-1 (frontend needs `market.kernelWidth` and `market.scalingFactor` from the backend API). Sequence P6-1 → P6-2.
 
-Implementation: add a `computeKernelPayout()` helper in `lib/types.ts` that mirrors the on-chain kernel math. Use when `market.marketType === 2 && market.kernelWidth > 0`.
+**Audit result (2026-05-31):** `frontend/lib/portfolio-utils.ts` returns `holdings[winBin]` for resolved continuous markets at **two** call sites — both need to switch to the kernel formula when `kernelWidth > 0`:
+- portfolio-utils.ts:91 — `computeResolvedValue` when `market.resolvedOutcome != null` (binary/multi path; also fires for legacy WTA continuous markets where `kernelWidth === 0`)
+- portfolio-utils.ts:109 — `computeResolvedValue` continuous path: derives `winBin` from `resolvedValue + rangeMin/rangeMax`, then returns `holdings[winBin]`
 
-**Breaking changes:** Continuous market resolved value display changes
+`computeResolvedValue` is reused by `computePortfolioValue` at portfolio-utils.ts:234 (portfolio total), so fixing the helper fixes both the per-position display and the portfolio aggregate in one place.
+
+**Files to edit:**
+- `frontend/lib/portfolio-utils.ts` — add a `computeKernelPayout(holdings, winBin, kernelWidth, scalingFactor)` helper colocated with `computeResolvedValue` (NOT in `lib/types.ts` — that file is type-defs only). Branch in `computeResolvedValue`:
+  ```ts
+  if (market.marketType === 2 && (market.kernelWidth ?? 0) > 0) {
+    return computeKernelPayout(holdings, winBin, market.kernelWidth, market.scalingFactor);
+  }
+  return holdings[winBin] ?? 0;   // existing path (binary, multi, legacy WTA continuous)
+  ```
+  The winBin derivation at portfolio-utils.ts:102-108 is reusable as-is for the kernel branch.
+- `frontend/components/portfolio/claim-button.tsx` — no logic change needed if `estimatedPayout` already comes from `computeResolvedValue` / `estimatePositionLiquidationValue`. Verify the chain.
+- `frontend/components/portfolio/position-card.tsx` — same: relies on the helper, no direct math.
+
+**Formula (must match on-chain `claim_payout` for continuous + width > 0):**
+```
+raw = Σ holdings[i] · K(i, winBin, kernelWidth) / SCALE          // floor at each step to match u128 path
+payout = raw · scalingFactor / SCALE                              // floor
+where K(i, win, w) = max(0, 1 - |i - win| / (w + 1)) · SCALE      // triangular kernel, fixed-point
+```
+Use BigInt arithmetic to mirror the on-chain `u128` math — `number` will desync once `holdings × kernel × scaling` exceeds 2^53.
+
+**Breaking changes:** Continuous-market resolved value display changes for any market with `kernelWidth > 0`. Legacy WTA markets (kernel_width = 0) keep the old `holdings[winBin]` value — confirmed correct per [WTA backward-compat policy](../../../../.claude/projects/-home-paya-p4ya-gcc-umbra-prediction-market-dekant-sms/memory/wta_backward_compat_policy.md).
 **Possible bugs:**
-- [ ] P6-2a: Frontend must know `kernelWidth` and `scalingFactor` — verify backend API returns these fields
-- [ ] P6-2b: Scaling factor is 0 until resolution — frontend must handle pre-resolution display correctly
+- [ ] P6-2a: Backend API must serialize the new entity fields — once P6-1 lands, check `market.service.ts`'s response DTO and any GraphQL/REST resolver still includes them.
+- [ ] P6-2b: `scalingFactor === "0"` is ambiguous: pre-resolution AND a degenerate post-resolution case where every claim rounds to zero. Treat as "pre-resolution" only when `market.state !== 3`; otherwise use the on-chain value as-is.
+- [ ] P6-2c: `holdings[]` and `winBin` are already clamped/coerced by existing code. The kernel helper must NOT re-clamp `winBin` (would mask upstream bugs); assume the caller passes the same value the on-chain program saw.
+- [ ] P6-2d: Floating-point divergence — using JS `number` makes the displayed payout drift from the actual on-chain claim by 1-2 base units. BigInt is required, not optional.
 
 ---
 
-### P6-3: Frontend — continuous market creation UI
+### P6-3: Frontend — continuous market creation UI ✅ (already done — verify only)
 
-**Files to check:**
-- Market creation form/page — add kernel width input for continuous markets
-- Validate: 0 <= kernel_width < num_bins
-- Default value suggestion (e.g., 3)
+**Audit result (2026-05-31):** the kernel-width input is already wired end-to-end on the frontend create-market flow. `grep -rln 'kernelWidth' frontend/` returns:
+- `frontend/components/create-market/create-market-form.tsx`
+- `frontend/components/create-market/step-outcomes.tsx`
+- `frontend/components/create-market/step-review.tsx`
+- `frontend/lib/schemas/create-market-schema.ts` (zod validator: `z.number().int().min(0).max(255).optional()` + cross-field check `kw < numBins`)
+- `frontend/lib/admin-transactions.ts` (passes `kernelWidth ?? 0` into the create-market tx)
 
-**Breaking changes:** UI addition
-**Possible bugs:** None
+**Verify-only checklist (no code changes expected):**
+- [ ] Continuous-market selection shows a kernel-width input on the outcomes step
+- [ ] Form validation rejects `kernelWidth >= numBins` with a useful message (currently enforced in `create-market-schema.ts:87-95`)
+- [ ] Review step (`step-review.tsx`) renders the chosen kernel width — 0 should display as "Winner-take-all" or similar (not just "0") so the user sees the implication
+- [ ] Default value behaviour matches devkit: `kernelWidth: 0` if omitted (already the default at `create-market-schema.ts:147`)
+
+If any item fails, treat the fix as part of P6-3; otherwise mark this task ✅ without edits.
+
+**Breaking changes:** None.
+**Possible bugs:** None expected; the wiring landed in Phase 2/3.
 
 ---
 
 ### P6-4: Devkit — resolve and claim display
 
-**Files to check:**
-- `devkit/src/resolve.ts` — after resolving a continuous market, display `scaling_factor` and `kernel_width`
-- `devkit/src/market.ts` — `claim` command output. If it shows expected payout, update for kernel
-- `devkit/src/query.ts` — market info display. Show `kernel_width` for continuous markets
+**Audit result (2026-05-31):**
+- `devkit/src/market.ts create-continuous` **already** exposes `--kernel-width <n>` with full validation (devkit/src/market.ts:102-134) — **no change needed** here.
+- `devkit/src/resolve.ts` displays `state / resolvedOutcome / resolvedAt / resolvedValue` (resolve.ts:78-128) but **does NOT print** `kernelWidth` or `scalingFactor` — gap.
+- `devkit/src/query.ts` `market` info shows `resolvedOutcome / resolvedValue / resolvedAt` (query.ts:155-160) but **does NOT print** `kernelWidth` for continuous markets — gap.
+- `devkit/src/market.ts claim` — verify whether it prints an expected payout; if it does, plug in the kernel formula. If it just shows the claimed amount from the tx (no estimate), no change.
 
-**Breaking changes:** CLI output changes
-**Possible bugs:** None (display only)
+**Edits:**
+- `devkit/src/resolve.ts` — after the resolve tx, add two rows to the existing key-value display: `["Kernel width", String(resolved.kernelWidth)]` and `["Scaling factor", String(resolved.scalingFactor)]` (only when `resolved.marketType === 2`). The scaling factor is exactly what the smoke test needs (P6-5c), so this also makes that script trivially reproducible.
+- `devkit/src/query.ts` — same two rows when `market.marketType === 2`, conditional on `market.state === 3` for `scalingFactor` (it's `0` pre-resolve).
+- `devkit/src/market.ts claim` — read the file once, decide. If estimation lives here, mirror the P6-2 formula in BigInt; if not, leave alone.
+
+**Breaking changes:** CLI output gains two rows for continuous markets.
+**Possible bugs:**
+- [ ] P6-4a: Don't print `scalingFactor: "0"` for pre-resolution markets — confusing. Suppress unless `state === 3`.
+- [ ] P6-4b: `query.ts` lists many markets in one pass; the extra rows add visual noise for binary/multi markets — gate on `marketType === 2`.
 
 ---
 
@@ -792,38 +944,88 @@ Implementation: add a `computeKernelPayout()` helper in `lib/types.ts` that mirr
 
 **File:** `scripts/e2e-smoke.sh`
 
-If the smoke test creates continuous markets and tests resolution/claims, the `create_market` call needs `kernel_width`. Review and update.
+**Coverage plan (2026-05-31, owner direction):** the smoke test should now exercise **both** continuous-market modes on a single devnet run:
 
-If it only tests binary markets, no change needed.
+1. **Existing PHASE 6 (CONTINUOUS MARKET, 64 bins, ~line 758)** — leave as-is and treat it as the **WTA baseline** by passing `kernel_width=0` (or equivalently, omitting the flag and relying on the zero default — explicit is better). All current assertions about `holdings[winBin]` payouts continue to hold under width=0.
+2. **Add a new continuous-market phase** that is identical in structure (create → fund → distribution-trades → resolve → claim → LP-remove) but with a **non-zero randomly-chosen kernel width**:
+
+   ```bash
+   # Pick a width strictly between 0 and 10, then clamp to num_bins - 1
+   CONT_KERNEL_W=$(( (RANDOM % 9) + 1 ))   # uniform in {1..9}
+   CONT_KERNEL_W=$(( CONT_KERNEL_W < CONT_BINS ? CONT_KERNEL_W : CONT_BINS - 1 ))
+   echo "Using kernel_width=$CONT_KERNEL_W"
+   ```
+
+   Log the chosen width so a CI failure is reproducible. Claim assertions must compute the kernel-weighted expected payout (same formula as P5-2) instead of `holdings[winBin]`.
+
+   For the "EXTRA RANDOMIZED MARKETS" block (~line 425, the `random_continuous_range` extras), do the same: when the type is `continuous`, pick a random kernel_width in `{0..9}` (zero included so we still see WTA in the extras stream) and pass it through.
+
+**On the upper bound:** 10 is a practical cap for normal markets; 16-bin smoke markets get clamped to ≤15 anyway, and pushing higher dilutes the kernel into near-uniform settlement which doesn't add new failure modes.
+
+**Devkit precondition (2026-05-31, re-audited):** `devkit market.ts create-continuous` already accepts `--kernel-width` (devkit/src/market.ts:102-134). The previously-noted P6-4 dependency for the **flag itself** is moot. The remaining real dependency on P6-4 is **read-side**: the claim-assertion helper needs `scalingFactor`, which P6-4 surfaces via `devkit resolve` output and `devkit query market`. Without P6-4, the smoke script either has to parse the raw Anchor account itself or skip the kernel-payout assertion (not acceptable).
+
+**Sequencing:** P6-4 → P6-5 (for the read-side reason above), not P6-4 → P6-5 (for the flag).
 
 **Breaking changes:** None
 **Possible bugs:**
-- [ ] P6-5a: Smoke test may fail if it calls `create_market` without the new arg
+- [x] P6-5a: ~~`devkit create-continuous` lacking `--kernel-width`~~ — verified already present; remove this concern.
+- [ ] P6-5b: Width-clamp must happen *before* the create call; an out-of-range value will surface as a generic "anchor error" mid-script and obscure the real cause.
+- [ ] P6-5c: The claim-assertion helper needs to read `scaling_factor` from the resolved Market account. Easiest path after P6-4: capture `devkit resolve --json` (if `--json` exists; otherwise parse the table) or call `devkit query market <id>` and grep for `Scaling factor`. Hardest path (avoid): re-import the Anchor coder inside the shell script.
+- [ ] P6-5d: The randomized extras block also needs a per-run log line `echo "extras:continuous market $i kernel_width=$W"` — without it, a flaky extras market is impossible to reproduce from CI logs alone.
 
 ---
 
-### P6-6: Operator CLIs review
+### P6-6: Operator CLIs
 
-**Files:** `operator-cli/`, `goperator-cli/`
+**Path correction (2026-05-31):** these CLIs live under `scripts/`, not at the repo root. Use:
+- `scripts/operator-cli/` (Node.js)
+- `scripts/goperator-cli/` (Go TUI)
 
-If these CLIs create markets, they need the `kernel_width` arg. If they only manage roles/fees/resolution, no change.
+**Audit result:** both CLIs **DO** create markets — this is not a "may or may not" situation:
+- `scripts/operator-cli/src/actions/market.js:48` defines `createMarket(state)`; line 540 invokes `.createMarket({...})` against the program. Needs `kernelWidth` added to the args object passed at line 540.
+- `scripts/goperator-cli/internal/tui/screens/market_create.go` is a Bubble Tea TUI for market creation. Needs a new input field (continuous markets only) feeding into the `execCreateMarket` call at line 594.
 
-Search for `create_market` or `createMarket` in both CLI codebases.
+**Edits:**
+- `scripts/operator-cli/src/actions/market.js`
+  - Add a kernel-width prompt to `createMarket()` (continuous markets only; default 0 = WTA).
+  - Validate `0 <= kernelWidth < numBins` client-side before sending.
+  - Pass `kernelWidth` in the args object at the `.createMarket({...})` call site (line ~540).
+- `scripts/goperator-cli/internal/tui/screens/market_create.go`
+  - Add a `kernelWidthInput` text field (shown only when `marketType == continuous`).
+  - Parse + clamp in `advanceToParams` (line 344) or wherever range params are collected.
+  - Include `KernelWidth` in the `execCreateMarket` payload (line 594) and in the Anchor instruction builder it ultimately calls.
+  - Update the View at line 897 to show the field when relevant and the chosen value in the confirm screen.
 
-**Breaking changes:** CLI args may change
-**Possible bugs:** None
+**Out of scope:** these CLIs don't render claim/resolve payouts beyond what Anchor returns, so no kernel-payout estimation work is needed in them.
+
+**Breaking changes:** CLI args/forms gain a new field for continuous markets. Default = 0 preserves prior behaviour for any operator running the upgraded CLI against legacy markets.
+**Possible bugs:**
+- [ ] P6-6a: Forgetting the conditional gate — surfacing the kernel-width prompt on binary/multi market creation would be a UX regression (the on-chain validator ignores it for non-continuous types but the prompt is confusing).
+- [ ] P6-6b: Go CLI: the Anchor IDL bindings in `scripts/goperator-cli/internal/` need regenerating against the post-P2 IDL — otherwise `KernelWidth` won't exist in the generated `CreateMarketArgs` struct and the build will fail loudly (which is fine — surface it during P6-6 work).
 
 ---
 
-### P6-7: Backend and frontend tests
+### P6-7: Backend, frontend, and integration verification
+
+Run all of:
 
 ```bash
+# Backend unit + e2e
 cd backend && npm test
 cd backend && npm run test:e2e
+
+# Frontend build (Node ≥20.9 required — see project_node_version memory)
 cd frontend && PATH="..." pnpm next build
+
+# Devkit smoke (covers the kernel resolve/claim wiring end-to-end on devnet)
+bash scripts/e2e-smoke.sh
 ```
 
-All must pass with the updated code from P6-1 through P6-6.
+All must pass with the updated code from P6-1 through P6-6. `e2e-smoke.sh` is the only check that exercises the full stack (devkit → on-chain kernel resolve → backend indexer pickup → DB reflects `scalingFactor`) and so is the strongest signal that P6-1 + P6-4 + P6-5 actually compose. If backend tests pass but smoke fails, the gap is almost always in the indexer field mapping (P6-1) or the devkit display (P6-4).
+
+**Possible bugs:**
+- [ ] P6-7a: Backend tests may need fixtures updated to set `kernelWidth`/`scalingFactor` on mock Market objects (if any test asserts on the full entity shape).
+- [ ] P6-7b: Frontend type-check (`tsc --noEmit`) will fail before `next build` if `UserPosition["market"]` doesn't get `kernelWidth?: number` and `scalingFactor?: string` added in `frontend/lib/types.ts`. This is a P6-2 dependency that's easy to forget.
 
 ---
 

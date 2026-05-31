@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use dekant_pm::state::market::{Market, FeeBreakdown, MarketType, MarketState};
 use dekant_pm::constants::*;
+use dekant_pm::engine::kernel::{compute_kernel_payout, compute_scaling_factor};
 use dekant_pm::errors::DekantPmError;
 
 const TEST_DEADLINE: i64 = 1_000_000;
@@ -1453,4 +1454,318 @@ fn test_implied_probability_large_total_minted() {
     let diff1 = p1.abs_diff(500_000_000);
     assert!(diff0 < 5_000, "p0={p0}, diff={diff0}");
     assert!(diff1 < 5_000, "p1={p1}, diff={diff1}");
+}
+
+// ── P5-1: resolve() — kernel branch coverage ────────────────────
+//
+// Coverage philosophy (per IMPROVED_SMS_REFACTOR_TASKS.md §P5-1):
+// the existing WTA tests above (`test_resolve_binary`, `test_resolve_continuous`,
+// the trader-totals zero-padding cases) stay intact and are now interpreted as
+// the `kernel_width == 0` regression suite — the contract for legacy/migrated
+// markets. The block below adds the `kernel_width > 0` half of the matrix.
+//
+// All tests build a market via `init_continuous_kernel`, then write
+// `trader_token_totals` directly. That bypasses the buy/sell handlers (which
+// gate on STATE_ACTIVE) — exactly what we want for an isolated resolve unit
+// test: the trader fixture is fully under the test's control, no instruction
+// roundtrip in scope.
+
+fn init_continuous_kernel(m: &mut Market, num_bins: u16, kernel_width: u16) {
+    m.initialize(
+        2,
+        MARKET_TYPE_CONTINUOUS,
+        Pubkey::default(),
+        Pubkey::default(),
+        Pubkey::default(),
+        Pubkey::default(),
+        TEST_DEADLINE,
+        TEST_CREATED_AT,
+        num_bins,
+        TEST_LIQUIDITY,
+        0,
+        1_000_000_000,
+        kernel_width,
+        255,
+        254,
+    )
+    .unwrap();
+}
+
+/// Map a target bin to the midpoint value the on-chain `value_to_bin`
+/// will round back to that bin, then call `resolve()`.
+fn resolve_at_bin(m: &mut Market, bin: u16) {
+    let n = m.num_outcomes as i64;
+    let span = m.range_max - m.range_min;
+    let bin_w = span / n;
+    let val = m.range_min + (bin as i64) * bin_w + bin_w / 2;
+    m.transition_to_pending().unwrap();
+    m.resolve(0, val, TEST_DEADLINE + 100).unwrap();
+}
+
+/// Concentrated trader fixture centred on the winning bin — chosen so the
+/// kernel sweep test produces a strictly-decreasing scaling factor across
+/// widths 1..=6 (raw claims grow as the kernel grabs more weight from the
+/// shoulders). Returns the seven-bin trader_token_totals slice.
+fn concentrated_fixture_at_8(num_bins: u16) -> Vec<u64> {
+    let mut tt = vec![0u64; num_bins as usize];
+    tt[5] = 800;
+    tt[6] = 1_000;
+    tt[7] = 1_200;
+    tt[8] = 1_500;
+    tt[9] = 1_200;
+    tt[10] = 1_000;
+    tt[11] = 800;
+    tt
+}
+
+/// P5-1 test 1: `resolve()` on a continuous market with `kernel_width = 0`
+/// must take the WTA branch — `scaling_factor` stays 0, `reserves[win]`
+/// equals `total_minted - trader_token_totals[win]`. This is the contract
+/// that lets legacy/migrated accounts (whose `kernel_width` deserializes
+/// from zero padding) resolve identically to pre-refactor behavior.
+#[test]
+fn test_resolve_continuous_zero_width_takes_wta_branch() {
+    let mut m = blank_market();
+    init_continuous_kernel(&mut m, 16, 0);
+    m.total_minted = 10_000;
+    m.trader_token_totals = vec![0u64; 16];
+    m.trader_token_totals[8] = 3_000;
+
+    resolve_at_bin(&mut m, 8);
+
+    assert_eq!(m.scaling_factor, 0, "WTA branch must leave scaling_factor untouched");
+    assert_eq!(m.reserves[8] as u128, 10_000 - 3_000);
+}
+
+/// P5-1 test 2: width sweep `{1..=6}` against the same trader fixture,
+/// winner pinned at `num_bins / 2 = 8` so the kernel is never truncated.
+/// Asserts the three properties the spec requires per width:
+///   (a) `scaling_factor` is non-increasing as w grows (concentrated
+///       fixture makes it strictly-decreasing here)
+///   (b) aggregate payout matches `compute_kernel_payout(tt, win, w, sf)`
+///       — same arithmetic the engine uses, so a mismatch would mean
+///       `resolve()` and the claim path computed different scaling factors
+///   (c) exact solvency: `aggregate_payout + reserves[win] == total_minted`
+#[test]
+fn test_resolve_continuous_kernel_width_sweep_centered_winner() {
+    let num_bins = 16u16;
+    let win = (num_bins / 2) as usize;
+    let total_minted: u128 = 2_500;
+    let mut last_sf: u64 = u64::MAX;
+
+    for w in 1u16..=6 {
+        let mut m = blank_market();
+        init_continuous_kernel(&mut m, num_bins, w);
+        m.total_minted = total_minted;
+        m.trader_token_totals = concentrated_fixture_at_8(num_bins);
+
+        // Snapshot expected scaling factor BEFORE resolve, so a difference
+        // attributes cleanly to resolve() rather than to the engine itself.
+        let (expected_sf, _) = compute_scaling_factor(
+            &m.trader_token_totals,
+            win,
+            w,
+            total_minted,
+        )
+        .unwrap();
+        let expected_aggregate = compute_kernel_payout(
+            &m.trader_token_totals,
+            win,
+            w,
+            expected_sf,
+        )
+        .unwrap();
+
+        resolve_at_bin(&mut m, win as u16);
+
+        // (b) resolve stored the engine's scaling factor verbatim.
+        assert_eq!(
+            m.scaling_factor, expected_sf,
+            "scaling_factor mismatch at w={w}: resolve={}, engine={expected_sf}",
+            m.scaling_factor,
+        );
+
+        // (a) Non-increasing across the sweep — concentrated fixture means
+        // strictly decreasing, but the spec allows flat (uniform fixtures
+        // would). Strictly-increasing is the only outright failure mode.
+        assert!(
+            m.scaling_factor <= last_sf,
+            "scaling_factor must be non-increasing across widths: w={w} \
+             current={} previous={last_sf}",
+            m.scaling_factor,
+        );
+        last_sf = m.scaling_factor;
+
+        // (c) Exact solvency: aggregate payout + LP residual == total_minted.
+        let residual = m.reserves[win] as u128;
+        assert_eq!(
+            expected_aggregate + residual,
+            total_minted,
+            "solvency violated at w={w}: agg={expected_aggregate} \
+             residual={residual} tm={total_minted}",
+        );
+    }
+
+    // Sanity floor: the concentrated fixture should have actually triggered
+    // scaling (sf < SCALE) for at least the widest kernel, or the test isn't
+    // exercising the dilution path it claims to test.
+    assert!(
+        last_sf < SCALE as u64,
+        "fixture under-concentrated — w=6 sf={last_sf} stayed at SCALE; \
+         pick a smaller total_minted or a tighter fixture",
+    );
+}
+
+/// P5-1 test 3: a kernel-mode market with **no traders** must resolve to
+/// `scaling_factor = SCALE` (no dilution path entered) and
+/// `reserves[win] = total_minted` (LP keeps the whole pool). Matches the
+/// `compute_scaling_factor` zero-claims short-circuit at engine.rs:76.
+#[test]
+fn test_resolve_continuous_kernel_no_traders_lp_keeps_all() {
+    let mut m = blank_market();
+    init_continuous_kernel(&mut m, 16, 3);
+    m.total_minted = 1_000_000;
+    m.trader_token_totals = vec![0u64; 16];
+
+    resolve_at_bin(&mut m, 8);
+
+    assert_eq!(m.scaling_factor, SCALE as u64);
+    assert_eq!(m.reserves[8] as u128, 1_000_000);
+}
+
+/// P5-1 test 4: heavy concentration at the winning bin pushes raw kernel
+/// claims well past `total_minted`, so the scaling cap must engage
+/// (`scaling_factor < SCALE`) and `reserves[win]` must collapse to zero
+/// (or near-zero, modulo per-bin flooring — see the bound below).
+#[test]
+fn test_resolve_continuous_kernel_heavy_concentration_triggers_scaling() {
+    let mut m = blank_market();
+    init_continuous_kernel(&mut m, 16, 4);
+    m.total_minted = 1_000_000;
+    m.trader_token_totals = vec![0u64; 16];
+    m.trader_token_totals[8] = 10_000_000; // 10× the vault
+
+    resolve_at_bin(&mut m, 8);
+
+    // sf = floor(total_minted * SCALE / raw) = floor(1M * SCALE / 10M) = SCALE/10
+    let expected_sf = (SCALE / 10) as u64;
+    assert_eq!(m.scaling_factor, expected_sf);
+
+    // LP residual after dilution is the floor leftover only. With a single
+    // bin contributing (no per-bin floor cascade), the leftover is at most
+    // 1 lamport — comfortably below `num_bins = 16`.
+    let residual = m.reserves[8] as u128;
+    assert!(
+        residual < 16,
+        "residual={residual} too large; scaling-factor cap should have absorbed the surplus"
+    );
+}
+
+/// P5-1 test 5: a binary market always has `kernel_width = 0` (init
+/// enforces it). Verify the kernel-aware refactor of `resolve()` left the
+/// binary path untouched: `scaling_factor` stays 0 (the WTA branch never
+/// even calls into the kernel engine), and `reserves[win]` is the WTA
+/// residual (`total_minted - trader_token_totals[win]`).
+#[test]
+fn test_resolve_binary_kernel_refactor_does_not_disturb_wta_path() {
+    let mut m = blank_market();
+    init_binary(&mut m);
+    m.total_minted = 1_000_000;
+    m.trader_token_totals = vec![0u64; 2];
+    m.trader_token_totals[1] = 250_000;
+
+    m.transition_to_pending().unwrap();
+    m.resolve(1, 0, TEST_DEADLINE + 100).unwrap();
+
+    assert_eq!(m.scaling_factor, 0, "binary resolve must never touch scaling_factor");
+    assert_eq!(m.reserves[1] as u128, 1_000_000 - 250_000);
+    assert_eq!(m.kernel_width, 0, "binary init must force kernel_width to 0");
+}
+
+/// P5-1 test 6a: winner at bin 0 — kernel only extends rightward (no
+/// underflow possible because `kernel_weight` is keyed off `i.abs_diff(win)`
+/// and `i` is unsigned). Verify exact solvency with truncated support.
+#[test]
+fn test_resolve_continuous_kernel_left_boundary_winner() {
+    let num_bins = 16u16;
+    let w = 3u16;
+    let win = 0usize;
+
+    let mut m = blank_market();
+    init_continuous_kernel(&mut m, num_bins, w);
+    m.total_minted = 5_000;
+    m.trader_token_totals = vec![0u64; num_bins as usize];
+    m.trader_token_totals[0] = 1_000; // weight 1.0
+    m.trader_token_totals[1] = 800;   // weight 3/4
+    m.trader_token_totals[2] = 600;   // weight 2/4
+    m.trader_token_totals[3] = 400;   // weight 1/4 — tail
+    m.trader_token_totals[5] = 9_999; // outside support — must NOT contribute
+
+    let (expected_sf, _) = compute_scaling_factor(
+        &m.trader_token_totals,
+        win,
+        w,
+        m.total_minted,
+    )
+    .unwrap();
+    let expected_aggregate = compute_kernel_payout(
+        &m.trader_token_totals,
+        win,
+        w,
+        expected_sf,
+    )
+    .unwrap();
+
+    resolve_at_bin(&mut m, win as u16);
+
+    assert_eq!(m.scaling_factor, expected_sf);
+    assert_eq!(
+        expected_aggregate + m.reserves[win] as u128,
+        m.total_minted,
+        "left-boundary solvency must be exact",
+    );
+}
+
+/// P5-1 test 6b: winner at the last bin (`num_bins - 1`) — kernel only
+/// extends leftward. Symmetric to 6a; verifies the right-boundary
+/// truncation also keeps solvency exact.
+#[test]
+fn test_resolve_continuous_kernel_right_boundary_winner() {
+    let num_bins = 16u16;
+    let w = 3u16;
+    let win = (num_bins - 1) as usize; // 15
+
+    let mut m = blank_market();
+    init_continuous_kernel(&mut m, num_bins, w);
+    m.total_minted = 5_000;
+    m.trader_token_totals = vec![0u64; num_bins as usize];
+    m.trader_token_totals[15] = 1_000; // weight 1.0
+    m.trader_token_totals[14] = 800;   // weight 3/4
+    m.trader_token_totals[13] = 600;   // weight 2/4
+    m.trader_token_totals[12] = 400;   // weight 1/4 — tail
+    m.trader_token_totals[10] = 9_999; // outside support — must NOT contribute
+
+    let (expected_sf, _) = compute_scaling_factor(
+        &m.trader_token_totals,
+        win,
+        w,
+        m.total_minted,
+    )
+    .unwrap();
+    let expected_aggregate = compute_kernel_payout(
+        &m.trader_token_totals,
+        win,
+        w,
+        expected_sf,
+    )
+    .unwrap();
+
+    resolve_at_bin(&mut m, win as u16);
+
+    assert_eq!(m.scaling_factor, expected_sf);
+    assert_eq!(
+        expected_aggregate + m.reserves[win] as u128,
+        m.total_minted,
+        "right-boundary solvency must be exact",
+    );
 }
